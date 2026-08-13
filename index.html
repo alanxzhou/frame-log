@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#16140f">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Frame Log">
+<title>Frame Log</title>
+<style>
+  :root {
+    --body: #16140f;          /* unexposed film base */
+    --panel: #1f1c15;
+    --panel-edge: #2c2818;
+    --rebate: #e8930c;        /* rebate edge-marking amber */
+    --rebate-dim: #9c6510;
+    --ivory: #ece5d3;
+    --muted: #8d8472;
+    --danger: #c4452f;
+    --ok: #7fae62;
+    --mono: "Courier New", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    background: var(--body);
+    color: var(--ivory);
+    font-family: var(--sans);
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 14px 14px 40px;
+    font-size: 15px;
+  }
+
+  /* ---- header styled like a rebate edge marking ---- */
+  header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    border-bottom: 2px solid var(--rebate-dim);
+    padding-bottom: 8px; margin-bottom: 14px;
+  }
+  header h1 {
+    font-family: var(--mono);
+    font-size: 17px; letter-spacing: 0.22em;
+    color: var(--rebate); text-transform: uppercase; font-weight: 700;
+  }
+  header .status {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
+    color: var(--muted); text-transform: uppercase;
+  }
+  header .status.ok { color: var(--ok); }
+
+  /* ---- roll selector ---- */
+  .roll-bar {
+    display: flex; gap: 8px; margin-bottom: 16px; align-items: center;
+  }
+  .roll-bar select {
+    flex: 1; background: var(--panel); color: var(--ivory);
+    border: 1px solid var(--panel-edge); border-radius: 6px;
+    padding: 10px 12px; font-family: var(--mono); font-size: 14px;
+    appearance: none;
+  }
+  .roll-bar button {
+    background: var(--panel); color: var(--rebate);
+    border: 1px solid var(--panel-edge); border-radius: 6px;
+    padding: 10px 14px; font-family: var(--mono); font-size: 14px; cursor: pointer;
+  }
+
+  /* ---- the shutter button: signature element ---- */
+  .shutter-wrap { display: flex; flex-direction: column; align-items: center; margin: 6px 0 10px; }
+  #shutter {
+    width: 148px; height: 148px; border-radius: 50%;
+    border: 3px solid var(--rebate-dim);
+    background: radial-gradient(circle at 38% 32%, #2b2718, #1a170f 70%);
+    color: var(--rebate);
+    font-family: var(--mono); font-size: 15px; letter-spacing: 0.18em;
+    text-transform: uppercase; font-weight: 700; cursor: pointer;
+    box-shadow: 0 6px 0 #0c0b07, inset 0 2px 6px rgba(232,147,12,0.12);
+    transition: transform 0.06s, box-shadow 0.06s;
+    touch-action: manipulation;
+  }
+  #shutter:active { transform: translateY(5px); box-shadow: 0 1px 0 #0c0b07; }
+  #shutter:disabled { color: var(--muted); border-color: var(--panel-edge); }
+  #shutter:focus-visible { outline: 3px solid var(--ivory); outline-offset: 3px; }
+  .fix-readout {
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+    margin-top: 10px; letter-spacing: 0.08em; min-height: 16px; text-align: center;
+  }
+  .fix-readout .good { color: var(--ok); }
+  .fix-readout .bad { color: var(--danger); }
+
+  /* ---- collapsible shot details ---- */
+  details.shot-meta {
+    background: var(--panel); border: 1px solid var(--panel-edge);
+    border-radius: 8px; margin-bottom: 16px;
+  }
+  details.shot-meta summary {
+    padding: 11px 14px; cursor: pointer; font-family: var(--mono);
+    font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--muted); list-style: none;
+  }
+  details.shot-meta summary::before { content: "▸ "; color: var(--rebate); }
+  details[open].shot-meta summary::before { content: "▾ "; }
+  .meta-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 14px 14px;
+  }
+  .meta-grid label {
+    display: flex; flex-direction: column; gap: 4px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .meta-grid input, .meta-grid textarea {
+    background: var(--body); border: 1px solid var(--panel-edge);
+    border-radius: 5px; color: var(--ivory); padding: 9px 10px;
+    font-size: 15px; font-family: var(--sans); width: 100%;
+  }
+  .meta-grid .full { grid-column: 1 / -1; }
+  .meta-grid input:focus, .meta-grid textarea:focus { outline: 2px solid var(--rebate-dim); }
+
+  /* ---- log entries styled as a film strip ---- */
+  .strip-label {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--rebate-dim);
+    margin: 4px 0 8px; display: flex; justify-content: space-between;
+  }
+  #entries { list-style: none; }
+  #entries li {
+    border-left: 3px solid var(--rebate-dim);
+    background: var(--panel);
+    margin-bottom: 8px; padding: 10px 12px; border-radius: 0 7px 7px 0;
+    position: relative;
+  }
+  #entries li .frame-no {
+    font-family: var(--mono); color: var(--rebate); font-weight: 700;
+    font-size: 14px; letter-spacing: 0.1em;
+  }
+  #entries li .when, #entries li .coords {
+    font-family: var(--mono); font-size: 12px; color: var(--ivory);
+    display: block; margin-top: 3px;
+  }
+  #entries li .coords { color: var(--muted); }
+  #entries li .note { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  #entries li button.del {
+    position: absolute; top: 8px; right: 8px;
+    background: none; border: none; color: var(--muted);
+    font-size: 16px; cursor: pointer; padding: 4px 8px;
+  }
+  #entries li button.del:hover { color: var(--danger); }
+  .empty {
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+    text-align: center; padding: 24px 10px; letter-spacing: 0.08em;
+  }
+
+  /* ---- export bar ---- */
+  .export-bar { display: flex; gap: 8px; margin-top: 18px; }
+  .export-bar button {
+    flex: 1; padding: 12px; border-radius: 7px; cursor: pointer;
+    font-family: var(--mono); font-size: 13px; letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: var(--panel); color: var(--rebate);
+    border: 1px solid var(--rebate-dim);
+  }
+  .export-bar button:active { background: var(--panel-edge); }
+
+  @media (prefers-reduced-motion: reduce) {
+    #shutter { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Frame · Log</h1>
+  <span class="status" id="gpsStatus">GPS idle</span>
+</header>
+
+<div class="roll-bar">
+  <select id="rollSelect" aria-label="Current roll"></select>
+  <button id="newRoll" title="Start a new roll">+ Roll</button>
+</div>
+
+<div class="shutter-wrap">
+  <button id="shutter">Log<br>Frame</button>
+  <div class="fix-readout" id="fixReadout">press to capture time + position</div>
+</div>
+
+<details class="shot-meta">
+  <summary>Shot details (optional, applied to next log)</summary>
+  <div class="meta-grid">
+    <label>Lens <input id="mLens" placeholder="50mm f/1.8"></label>
+    <label>Aperture <input id="mAperture" placeholder="f/8" inputmode="decimal"></label>
+    <label>Shutter <input id="mShutter" placeholder="1/250"></label>
+    <label>Frame # <input id="mFrame" placeholder="auto" inputmode="numeric"></label>
+    <label class="full">Notes <textarea id="mNotes" rows="2" placeholder="backlit, metered for shadows…"></textarea></label>
+  </div>
+</details>
+
+<div class="strip-label">
+  <span id="rollTitle">—</span>
+  <span id="frameCount">0 frames</span>
+</div>
+<ul id="entries"></ul>
+<div class="empty" id="emptyMsg">— no frames logged on this roll —</div>
+
+<div class="export-bar">
+  <button id="exportGpx">Export GPX</button>
+  <button id="exportCsv">Export CSV</button>
+</div>
+
+<script>
+"use strict";
+
+/* ---------- storage ---------- */
+const KEY = "frameLogV1";
+let state = loadState();
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* corrupted -> start fresh */ }
+  const id = newId();
+  return { currentRoll: id, rolls: { [id]: { name: "Roll 1", entries: [] } } };
+}
+function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
+function newId() { return "r" + Date.now().toString(36); }
+function roll() { return state.rolls[state.currentRoll]; }
+
+/* ---------- elements ---------- */
+const $ = (id) => document.getElementById(id);
+const shutter = $("shutter"), fixReadout = $("fixReadout"), gpsStatus = $("gpsStatus");
+
+/* ---------- roll management ---------- */
+function renderRolls() {
+  const sel = $("rollSelect");
+  sel.innerHTML = "";
+  for (const [id, r] of Object.entries(state.rolls)) {
+    const opt = document.createElement("option");
+    opt.value = id;
+    opt.textContent = r.name + " (" + r.entries.length + ")";
+    if (id === state.currentRoll) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+$("rollSelect").addEventListener("change", (e) => {
+  state.currentRoll = e.target.value; save(); renderEntries();
+});
+$("newRoll").addEventListener("click", () => {
+  const name = prompt("Roll name (e.g. 2026-06 Portra 400 #3):",
+                      "Roll " + (Object.keys(state.rolls).length + 1));
+  if (!name) return;
+  const id = newId();
+  state.rolls[id] = { name, entries: [] };
+  state.currentRoll = id;
+  save(); renderRolls(); renderEntries();
+});
+
+/* ---------- the core: log a frame ---------- */
+shutter.addEventListener("click", () => {
+  const pressedAt = new Date(); // capture the moment of the press, not the fix
+  shutter.disabled = true;
+  gpsStatus.textContent = "GPS acquiring…";
+  gpsStatus.classList.remove("ok");
+  fixReadout.textContent = "acquiring fix…";
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      addEntry(pressedAt, pos.coords);
+      gpsStatus.textContent = "GPS fixed";
+      gpsStatus.classList.add("ok");
+      const acc = Math.round(pos.coords.accuracy);
+      fixReadout.innerHTML =
+        'logged · accuracy <span class="' + (acc <= 15 ? "good" : "bad") + '">±' + acc + " m</span>";
+      shutter.disabled = false;
+    },
+    (err) => {
+      // Still record the timestamp so the frame isn't lost.
+      addEntry(pressedAt, null);
+      gpsStatus.textContent = "GPS failed";
+      fixReadout.innerHTML = '<span class="bad">no fix (' + err.message +
+        ") — time logged, coords blank</span>";
+      shutter.disabled = false;
+    },
+    { enableHighAccuracy: true, timeout: 30000, maximumAge: 5000 }
+  );
+});
+
+function addEntry(when, coords) {
+  const r = roll();
+  const manualFrame = $("mFrame").value.trim();
+  const entry = {
+    frame: manualFrame ? parseInt(manualFrame, 10) : r.entries.length + 1,
+    iso: when.toISOString(),
+    local: when.toLocaleString(),
+    lat: coords ? coords.latitude : null,
+    lon: coords ? coords.longitude : null,
+    acc: coords ? Math.round(coords.accuracy) : null,
+    alt: coords && coords.altitude != null ? Math.round(coords.altitude) : null,
+    lens: $("mLens").value.trim(),
+    aperture: $("mAperture").value.trim(),
+    shutterSpeed: $("mShutter").value.trim(),
+    notes: $("mNotes").value.trim()
+  };
+  r.entries.push(entry);
+  $("mFrame").value = ""; $("mNotes").value = ""; // sticky: lens/aperture/shutter persist
+  save(); renderRolls(); renderEntries();
+}
+
+/* ---------- render entries ---------- */
+function renderEntries() {
+  const r = roll();
+  $("rollTitle").textContent = r.name;
+  $("frameCount").textContent = r.entries.length + " frame" + (r.entries.length === 1 ? "" : "s");
+  const ul = $("entries");
+  ul.innerHTML = "";
+  $("emptyMsg").style.display = r.entries.length ? "none" : "block";
+  [...r.entries].reverse().forEach((en, revIdx) => {
+    const idx = r.entries.length - 1 - revIdx;
+    const li = document.createElement("li");
+    const gear = [en.lens, en.aperture, en.shutterSpeed].filter(Boolean).join(" · ");
+    li.innerHTML =
+      '<span class="frame-no">▸ ' + en.frame + (en.frame < 10 ? " " : "") + 'A</span>' +
+      '<span class="when">' + en.local + "</span>" +
+      '<span class="coords">' +
+        (en.lat != null
+          ? en.lat.toFixed(6) + ", " + en.lon.toFixed(6) + " · ±" + en.acc + "m"
+          : "no coordinates") + "</span>" +
+      (gear ? '<div class="note">' + escapeHtml(gear) + "</div>" : "") +
+      (en.notes ? '<div class="note">' + escapeHtml(en.notes) + "</div>" : "") +
+      '<button class="del" aria-label="Delete frame">✕</button>';
+    li.querySelector(".del").addEventListener("click", () => {
+      if (confirm("Delete frame " + en.frame + "?")) {
+        r.entries.splice(idx, 1); save(); renderRolls(); renderEntries();
+      }
+    });
+    ul.appendChild(li);
+  });
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* ---------- exports ---------- */
+function download(filename, mime, text) {
+  const blob = new Blob([text], { type: mime });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function slug(s) { return s.replace(/[^a-z0-9]+/gi, "_").toLowerCase(); }
+
+$("exportGpx").addEventListener("click", () => {
+  const r = roll();
+  const wpts = r.entries.filter((e) => e.lat != null).map((e) => {
+    const name = "Frame " + e.frame;
+    const desc = [e.lens, e.aperture, e.shutterSpeed, e.notes].filter(Boolean).join(" | ");
+    return '  <wpt lat="' + e.lat + '" lon="' + e.lon + '">\n' +
+           "    <time>" + e.iso + "</time>\n" +
+           (e.alt != null ? "    <ele>" + e.alt + "</ele>\n" : "") +
+           "    <name>" + escapeHtml(name) + "</name>\n" +
+           (desc ? "    <desc>" + escapeHtml(desc) + "</desc>\n" : "") +
+           "  </wpt>";
+  }).join("\n");
+  const gpx = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<gpx version="1.1" creator="FrameLog" xmlns="http://www.topografix.com/GPX/1/1">\n' +
+    "  <metadata><name>" + escapeHtml(r.name) + "</name></metadata>\n" +
+    wpts + "\n</gpx>\n";
+  download(slug(r.name) + ".gpx", "application/gpx+xml", gpx);
+});
+
+$("exportCsv").addEventListener("click", () => {
+  const r = roll();
+  const head = "frame,iso_datetime,latitude,longitude,accuracy_m,altitude_m,lens,aperture,shutter,notes";
+  const q = (v) => v == null || v === "" ? "" : '"' + String(v).replace(/"/g, '""') + '"';
+  const rows = r.entries.map((e) =>
+    [e.frame, e.iso, e.lat, e.lon, e.acc, e.alt,
+     q(e.lens), q(e.aperture), q(e.shutterSpeed), q(e.notes)].join(","));
+  download(slug(r.name) + ".csv", "text/csv", [head, ...rows].join("\n"));
+});
+
+/* ---------- init ---------- */
+renderRolls();
+renderEntries();
+
+/* ---------- PWA: register service worker for offline use ---------- */
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch((e) =>
+    console.warn("Service worker registration failed:", e));
+}
+</script>
+</body>
+</html>
