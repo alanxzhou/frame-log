@@ -58,15 +58,16 @@
     display: flex; gap: 8px; margin-bottom: 16px; align-items: center;
   }
   .roll-bar select {
-    flex: 1; background: var(--panel); color: var(--ivory);
+    flex: 1; min-width: 0; background: var(--panel); color: var(--ivory);
     border: 1px solid var(--panel-edge); border-radius: 6px;
     padding: 10px 12px; font-family: var(--mono); font-size: 14px;
-    appearance: none;
+    appearance: none; text-overflow: ellipsis;
   }
   .roll-bar button {
+    flex: 0 0 auto; white-space: nowrap;
     background: var(--panel); color: var(--rebate);
     border: 1px solid var(--panel-edge); border-radius: 6px;
-    padding: 10px 14px; font-family: var(--mono); font-size: 14px; cursor: pointer;
+    padding: 10px 12px; font-family: var(--mono); font-size: 13px; cursor: pointer;
   }
 
   /* ---- the shutter button: signature element ---- */
@@ -179,6 +180,7 @@
 
 <div class="roll-bar">
   <select id="rollSelect" aria-label="Current roll"></select>
+  <button id="renameRoll" title="Rename current roll" aria-label="Rename current roll">Rename</button>
   <button id="newRoll" title="Start a new roll">+ Roll</button>
 </div>
 
@@ -247,6 +249,15 @@ function renderRolls() {
 }
 $("rollSelect").addEventListener("change", (e) => {
   state.currentRoll = e.target.value; save(); renderEntries();
+});
+$("renameRoll").addEventListener("click", () => {
+  const r = roll();
+  const name = prompt("Rename roll:", r.name);
+  if (name === null) return;          // cancelled
+  const trimmed = name.trim();
+  if (!trimmed) return;               // refuse blank names
+  r.name = trimmed;
+  save(); renderRolls(); renderEntries();
 });
 $("newRoll").addEventListener("click", () => {
   const name = prompt("Roll name (e.g. 2026-06 Portra 400 #3):",
@@ -322,7 +333,7 @@ function renderEntries() {
     const li = document.createElement("li");
     const gear = [en.lens, en.aperture, en.shutterSpeed].filter(Boolean).join(" · ");
     li.innerHTML =
-      '<span class="frame-no">▸ ' + en.frame + (en.frame < 10 ? " " : "") + 'A</span>' +
+      '<span class="frame-no">' + en.frame + (en.frame < 10 ? " " : "") + 'A</span>' +
       '<span class="when">' + en.local + "</span>" +
       '<span class="coords">' +
         (en.lat != null

@@ -1,6 +1,6 @@
 // Frame Log service worker — cache-first, fully offline after first visit.
 // Bump CACHE_VERSION whenever you change any file, so installed phones pick it up.
-const CACHE_VERSION = "framelog-v1";
+const CACHE_VERSION = "framelog-v2";
 const ASSETS = [
   ".",
   "index.html",
