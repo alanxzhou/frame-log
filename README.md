@@ -53,23 +53,37 @@ Edit the files, push to GitHub, and **bump `CACHE_VERSION` in `sw.js`**
 launch with connectivity (sometimes the launch after that — service worker
 updates activate once the old version is fully closed).
 
-## Field notes
+## Using it
 
-- The timestamp recorded is the moment you press the button, not the moment
-  the GPS fix arrives — so a slow fix doesn't skew your times.
-- If GPS fails (deep canyon, building), the frame is still saved with the
-  time and blank coordinates.
-- Lens/aperture/shutter fields are sticky between frames; frame # and notes
-  clear each log. Frame # auto-increments if left blank.
-- Export GPX (for geotagging tools that align tracks/waypoints to photos)
-  or CSV (everything, including gear fields) when you finish a roll.
+- **Rolls.** Switch rolls from the dropdown, start a new one with **+ Roll**,
+  or rename the current one with **Rename**.
+- **Logging a frame.** Tap the shutter button. It captures the time
+  immediately and the GPS fix as soon as it arrives — the timestamp is the
+  moment you pressed, not the moment the fix landed, so a slow fix doesn't
+  skew your times. If GPS fails (deep canyon, building), the frame is still
+  saved with the time and blank coordinates.
+- **Shot details** (lens/aperture/shutter/frame #/notes) are optional and
+  apply to the next frame you log. Lens/aperture/shutter are sticky across
+  frames; frame # and notes clear after each log. Frame # auto-increments
+  if left blank.
+- **Editing a frame.** Tap the pencil icon on any logged entry to fix a typo,
+  correct the time, or fill in/clear coordinates by hand (e.g. if the GPS
+  fix was bad or missing). Tap the ✕ to delete it.
+- **Exporting.** Export GPX (for geotagging tools that align tracks/
+  waypoints to photos), CSV (everything, including gear fields), or both
+  at once as a ZIP.
 - **Export when you finish each roll.** iOS can evict web-app storage after
   long periods of disuse; treating export-per-roll as part of the workflow
   makes that a non-issue.
 
-## Tip: sync your camera's clock
+## Data & privacy
 
-Whatever time source you match against later, take one frame of your phone's
-clock screen at the start of each roll. When the scans come back you'll know
-the exact offset between frame order and log order — useful when you forget
-to log a frame or log one twice.
+Everything you log is stored in the phone browser's `localStorage` for this
+app's URL — nothing is sent anywhere, and nothing you log is ever in this
+repo. That also means it lives in exactly one place: the specific browser
+(or installed home-screen icon) you logged it in. It isn't synced across
+devices or browsers, so treat export as your backup, not just a convenience.
+
+Updating the app (editing these files, pushing to GitHub) only changes the
+code GitHub Pages serves — it never touches your stored rolls. Your data and
+the app's code are two independent systems that happen to share a screen.
