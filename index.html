@@ -142,18 +142,46 @@
     font-family: var(--mono); font-size: 12px; color: var(--ivory);
     display: block; margin-top: 3px;
   }
+  #entries li { padding-right: 58px; }
   #entries li .coords { color: var(--muted); }
   #entries li .note { font-size: 13px; color: var(--muted); margin-top: 4px; }
-  #entries li button.del {
-    position: absolute; top: 8px; right: 8px;
-    background: none; border: none; color: var(--muted);
-    font-size: 16px; cursor: pointer; padding: 4px 8px;
+  #entries li .actions {
+    position: absolute; top: 6px; right: 6px; display: flex;
   }
+  #entries li button.edit, #entries li button.del {
+    background: none; border: none; color: var(--muted);
+    font-size: 15px; cursor: pointer; padding: 4px 7px;
+  }
+  #entries li button.edit:hover { color: var(--rebate); }
   #entries li button.del:hover { color: var(--danger); }
   .empty {
     font-family: var(--mono); font-size: 12px; color: var(--muted);
     text-align: center; padding: 24px 10px; letter-spacing: 0.08em;
   }
+
+  /* ---- inline frame edit form ---- */
+  .entry-edit {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  }
+  .entry-edit label {
+    display: flex; flex-direction: column; gap: 4px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .entry-edit input, .entry-edit textarea {
+    background: var(--body); border: 1px solid var(--panel-edge);
+    border-radius: 5px; color: var(--ivory); padding: 9px 10px;
+    font-size: 15px; font-family: var(--sans); width: 100%;
+  }
+  .entry-edit .full { grid-column: 1 / -1; }
+  .entry-edit input:focus, .entry-edit textarea:focus { outline: 2px solid var(--rebate-dim); }
+  .edit-actions { display: flex; gap: 8px; margin-top: 2px; }
+  .edit-actions button {
+    flex: 1; padding: 10px; border-radius: 6px; cursor: pointer;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .edit-actions .save { background: var(--rebate-dim); color: var(--body); border: none; font-weight: 700; }
+  .edit-actions .cancel { background: none; color: var(--muted); border: 1px solid var(--panel-edge); }
 
   /* ---- export bar ---- */
   .export-bar { display: flex; gap: 8px; margin-top: 18px; }
@@ -208,8 +236,9 @@
 <div class="empty" id="emptyMsg">— no frames logged on this roll —</div>
 
 <div class="export-bar">
-  <button id="exportGpx">Export GPX</button>
-  <button id="exportCsv">Export CSV</button>
+  <button id="exportZip">Export ZIP</button>
+  <button id="exportGpx">GPX</button>
+  <button id="exportCsv">CSV</button>
 </div>
 
 <script>
@@ -231,6 +260,8 @@ function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
 function newId() { return "r" + Date.now().toString(36); }
 function roll() { return state.rolls[state.currentRoll]; }
 
+let editingIndex = null; // index (within the current roll) of the entry being edited, or null
+
 /* ---------- elements ---------- */
 const $ = (id) => document.getElementById(id);
 const shutter = $("shutter"), fixReadout = $("fixReadout"), gpsStatus = $("gpsStatus");
@@ -248,7 +279,7 @@ function renderRolls() {
   }
 }
 $("rollSelect").addEventListener("change", (e) => {
-  state.currentRoll = e.target.value; save(); renderEntries();
+  state.currentRoll = e.target.value; editingIndex = null; save(); renderEntries();
 });
 $("renameRoll").addEventListener("click", () => {
   const r = roll();
@@ -266,6 +297,7 @@ $("newRoll").addEventListener("click", () => {
   const id = newId();
   state.rolls[id] = { name, entries: [] };
   state.currentRoll = id;
+  editingIndex = null;
   save(); renderRolls(); renderEntries();
 });
 
@@ -331,22 +363,34 @@ function renderEntries() {
   [...r.entries].reverse().forEach((en, revIdx) => {
     const idx = r.entries.length - 1 - revIdx;
     const li = document.createElement("li");
-    const gear = [en.lens, en.aperture, en.shutterSpeed].filter(Boolean).join(" · ");
-    li.innerHTML =
-      '<span class="frame-no">' + en.frame + (en.frame < 10 ? " " : "") + 'A</span>' +
-      '<span class="when">' + en.local + "</span>" +
-      '<span class="coords">' +
-        (en.lat != null
-          ? en.lat.toFixed(6) + ", " + en.lon.toFixed(6) + " · ±" + en.acc + "m"
-          : "no coordinates") + "</span>" +
-      (gear ? '<div class="note">' + escapeHtml(gear) + "</div>" : "") +
-      (en.notes ? '<div class="note">' + escapeHtml(en.notes) + "</div>" : "") +
-      '<button class="del" aria-label="Delete frame">✕</button>';
-    li.querySelector(".del").addEventListener("click", () => {
-      if (confirm("Delete frame " + en.frame + "?")) {
-        r.entries.splice(idx, 1); save(); renderRolls(); renderEntries();
-      }
-    });
+    if (idx === editingIndex) {
+      li.classList.add("editing");
+      li.innerHTML = editFormHtml(en);
+      wireEditForm(li, r, idx);
+    } else {
+      const gear = [en.lens, en.aperture, en.shutterSpeed].filter(Boolean).join(" · ");
+      li.innerHTML =
+        '<span class="frame-no">' + en.frame + (en.frame < 10 ? " " : "") + 'A</span>' +
+        '<span class="when">' + en.local + "</span>" +
+        '<span class="coords">' +
+          (en.lat != null
+            ? en.lat.toFixed(6) + ", " + en.lon.toFixed(6) + " · ±" + en.acc + "m"
+            : "no coordinates") + "</span>" +
+        (gear ? '<div class="note">' + escapeHtml(gear) + "</div>" : "") +
+        (en.notes ? '<div class="note">' + escapeHtml(en.notes) + "</div>" : "") +
+        '<div class="actions">' +
+          '<button class="edit" aria-label="Edit frame">✎</button>' +
+          '<button class="del" aria-label="Delete frame">✕</button>' +
+        "</div>";
+      li.querySelector(".edit").addEventListener("click", () => {
+        editingIndex = idx; renderEntries();
+      });
+      li.querySelector(".del").addEventListener("click", () => {
+        if (confirm("Delete frame " + en.frame + "?")) {
+          r.entries.splice(idx, 1); editingIndex = null; save(); renderRolls(); renderEntries();
+        }
+      });
+    }
     ul.appendChild(li);
   });
 }
@@ -356,19 +400,87 @@ function escapeHtml(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+/* ---------- inline frame editing ---------- */
+function toLocalInputValue(iso) {
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
+    "T" + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+}
+
+function editFormHtml(en) {
+  return (
+    '<div class="entry-edit">' +
+      '<label>Frame # <input type="number" class="eFrame" value="' + en.frame + '"></label>' +
+      '<label>Time <input type="datetime-local" step="1" class="eTime" value="' + toLocalInputValue(en.iso) + '"></label>' +
+      '<label>Latitude <input type="number" step="any" class="eLat" value="' + (en.lat != null ? en.lat : "") + '" placeholder="blank = none"></label>' +
+      '<label>Longitude <input type="number" step="any" class="eLon" value="' + (en.lon != null ? en.lon : "") + '" placeholder="blank = none"></label>' +
+      '<label>Lens <input class="eLens" value="' + escapeHtml(en.lens) + '"></label>' +
+      '<label>Aperture <input class="eAperture" value="' + escapeHtml(en.aperture) + '"></label>' +
+      '<label>Shutter <input class="eShutter" value="' + escapeHtml(en.shutterSpeed) + '"></label>' +
+      '<label class="full">Notes <textarea class="eNotes" rows="2">' + escapeHtml(en.notes) + "</textarea></label>" +
+      '<div class="full edit-actions">' +
+        '<button class="save">Save</button>' +
+        '<button class="cancel">Cancel</button>' +
+      "</div>" +
+    "</div>"
+  );
+}
+
+function wireEditForm(li, r, idx) {
+  li.querySelector(".cancel").addEventListener("click", () => {
+    editingIndex = null; renderEntries();
+  });
+  li.querySelector(".save").addEventListener("click", () => {
+    const en = r.entries[idx];
+    const frameVal = parseInt(li.querySelector(".eFrame").value, 10);
+    const timeVal = li.querySelector(".eTime").value;
+    const latRaw = li.querySelector(".eLat").value.trim();
+    const lonRaw = li.querySelector(".eLon").value.trim();
+    const lat = latRaw === "" ? null : parseFloat(latRaw);
+    const lon = lonRaw === "" ? null : parseFloat(lonRaw);
+
+    if (!Number.isFinite(frameVal)) { alert("Frame # must be a number."); return; }
+    if (!timeVal) { alert("Time is required."); return; }
+    if ((lat === null) !== (lon === null)) {
+      alert("Enter both latitude and longitude, or leave both blank."); return;
+    }
+    if (lat !== null && (!Number.isFinite(lat) || !Number.isFinite(lon))) {
+      alert("Latitude/longitude must be numbers."); return;
+    }
+    const d = new Date(timeVal);
+    if (isNaN(d.getTime())) { alert("Invalid time."); return; }
+
+    en.frame = frameVal;
+    en.iso = d.toISOString();
+    en.local = d.toLocaleString();
+    en.lat = lat;
+    en.lon = lon;
+    if (lat === null) { en.acc = null; en.alt = null; } // manual clear: old fix no longer applies
+    en.lens = li.querySelector(".eLens").value.trim();
+    en.aperture = li.querySelector(".eAperture").value.trim();
+    en.shutterSpeed = li.querySelector(".eShutter").value.trim();
+    en.notes = li.querySelector(".eNotes").value.trim();
+
+    editingIndex = null;
+    save(); renderRolls(); renderEntries();
+  });
+}
+
 /* ---------- exports ---------- */
-function download(filename, mime, text) {
-  const blob = new Blob([text], { type: mime });
+function downloadBlob(filename, blob) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
 }
+function download(filename, mime, text) {
+  downloadBlob(filename, new Blob([text], { type: mime }));
+}
 function slug(s) { return s.replace(/[^a-z0-9]+/gi, "_").toLowerCase(); }
 
-$("exportGpx").addEventListener("click", () => {
-  const r = roll();
+function buildGpx(r) {
   const wpts = r.entries.filter((e) => e.lat != null).map((e) => {
     const name = "Frame " + e.frame;
     const desc = [e.lens, e.aperture, e.shutterSpeed, e.notes].filter(Boolean).join(" | ");
@@ -379,22 +491,127 @@ $("exportGpx").addEventListener("click", () => {
            (desc ? "    <desc>" + escapeHtml(desc) + "</desc>\n" : "") +
            "  </wpt>";
   }).join("\n");
-  const gpx = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+  return '<?xml version="1.0" encoding="UTF-8"?>\n' +
     '<gpx version="1.1" creator="FrameLog" xmlns="http://www.topografix.com/GPX/1/1">\n' +
     "  <metadata><name>" + escapeHtml(r.name) + "</name></metadata>\n" +
     wpts + "\n</gpx>\n";
-  download(slug(r.name) + ".gpx", "application/gpx+xml", gpx);
-});
+}
 
-$("exportCsv").addEventListener("click", () => {
-  const r = roll();
+function buildCsv(r) {
   const head = "frame,iso_datetime,latitude,longitude,accuracy_m,altitude_m,lens,aperture,shutter,notes";
   const q = (v) => v == null || v === "" ? "" : '"' + String(v).replace(/"/g, '""') + '"';
   const rows = r.entries.map((e) =>
     [e.frame, e.iso, e.lat, e.lon, e.acc, e.alt,
      q(e.lens), q(e.aperture), q(e.shutterSpeed), q(e.notes)].join(","));
-  download(slug(r.name) + ".csv", "text/csv", [head, ...rows].join("\n"));
+  return [head, ...rows].join("\n");
+}
+
+$("exportGpx").addEventListener("click", () => {
+  const r = roll();
+  download(slug(r.name) + ".gpx", "application/gpx+xml", buildGpx(r));
 });
+
+$("exportCsv").addEventListener("click", () => {
+  const r = roll();
+  download(slug(r.name) + ".csv", "text/csv", buildCsv(r));
+});
+
+$("exportZip").addEventListener("click", () => {
+  const r = roll();
+  const base = slug(r.name);
+  const zip = makeZip([
+    { name: base + ".gpx", data: buildGpx(r) },
+    { name: base + ".csv", data: buildCsv(r) }
+  ]);
+  downloadBlob(base + ".zip", zip);
+});
+
+/* ---------- minimal ZIP writer (store method, no compression, no deps) ---------- */
+function crc32(bytes) {
+  let c, crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) {
+    c = (crc ^ bytes[i]) & 0xFF;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    crc = (crc >>> 8) ^ c;
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function dosDateTime(d) {
+  const time = ((d.getHours() & 0x1F) << 11) | ((d.getMinutes() & 0x3F) << 5) | ((d.getSeconds() >> 1) & 0x1F);
+  const date = (((d.getFullYear() - 1980) & 0x7F) << 9) | (((d.getMonth() + 1) & 0xF) << 5) | (d.getDate() & 0x1F);
+  return { time, date };
+}
+
+function makeZip(files) {
+  const encoder = new TextEncoder();
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  const { time, date } = dosDateTime(new Date());
+
+  for (const f of files) {
+    const nameBytes = encoder.encode(f.name);
+    const dataBytes = encoder.encode(f.data);
+    const crc = crc32(dataBytes);
+    const size = dataBytes.length;
+
+    const local = new Uint8Array(30 + nameBytes.length);
+    const lv = new DataView(local.buffer);
+    lv.setUint32(0, 0x04034b50, true);
+    lv.setUint16(4, 20, true);
+    lv.setUint16(6, 0, true);
+    lv.setUint16(8, 0, true);
+    lv.setUint16(10, time, true);
+    lv.setUint16(12, date, true);
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, size, true);
+    lv.setUint32(22, size, true);
+    lv.setUint16(26, nameBytes.length, true);
+    lv.setUint16(28, 0, true);
+    local.set(nameBytes, 30);
+    parts.push(local, dataBytes);
+
+    const cd = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(cd.buffer);
+    cv.setUint32(0, 0x02014b50, true);
+    cv.setUint16(4, 20, true);
+    cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0, true);
+    cv.setUint16(10, 0, true);
+    cv.setUint16(12, time, true);
+    cv.setUint16(14, date, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, size, true);
+    cv.setUint32(24, size, true);
+    cv.setUint16(28, nameBytes.length, true);
+    cv.setUint16(30, 0, true);
+    cv.setUint16(32, 0, true);
+    cv.setUint16(34, 0, true);
+    cv.setUint16(36, 0, true);
+    cv.setUint32(38, 0, true);
+    cv.setUint32(42, offset, true);
+    cd.set(nameBytes, 46);
+    central.push(cd);
+
+    offset += local.length + dataBytes.length;
+  }
+
+  const centralSize = central.reduce((s, c) => s + c.length, 0);
+  const centralOffset = offset;
+  const end = new Uint8Array(22);
+  const ev = new DataView(end.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(4, 0, true);
+  ev.setUint16(6, 0, true);
+  ev.setUint16(8, files.length, true);
+  ev.setUint16(10, files.length, true);
+  ev.setUint32(12, centralSize, true);
+  ev.setUint32(16, centralOffset, true);
+  ev.setUint16(20, 0, true);
+
+  return new Blob([...parts, ...central, end], { type: "application/zip" });
+}
 
 /* ---------- init ---------- */
 renderRolls();
