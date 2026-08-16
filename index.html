@@ -331,11 +331,18 @@ shutter.addEventListener("click", () => {
   );
 });
 
+function nextFrameDefault(r) {
+  // Increment from the last logged frame's actual number, not the entry
+  // count, so a manually-set frame number (e.g. starting a roll at 6)
+  // carries forward correctly.
+  return r.entries.length ? r.entries[r.entries.length - 1].frame + 1 : 1;
+}
+
 function addEntry(when, coords) {
   const r = roll();
   const manualFrame = $("mFrame").value.trim();
   const entry = {
-    frame: manualFrame ? parseInt(manualFrame, 10) : r.entries.length + 1,
+    frame: manualFrame ? parseInt(manualFrame, 10) : nextFrameDefault(r),
     iso: when.toISOString(),
     local: when.toLocaleString(),
     lat: coords ? coords.latitude : null,
@@ -357,6 +364,7 @@ function renderEntries() {
   const r = roll();
   $("rollTitle").textContent = r.name;
   $("frameCount").textContent = r.entries.length + " frame" + (r.entries.length === 1 ? "" : "s");
+  $("mFrame").placeholder = "auto (" + nextFrameDefault(r) + ")";
   const ul = $("entries");
   ul.innerHTML = "";
   $("emptyMsg").style.display = r.entries.length ? "none" : "block";
