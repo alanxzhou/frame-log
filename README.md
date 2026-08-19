@@ -10,32 +10,6 @@ no accounts, all data stays on your phone in localStorage until you export it.
 - `sw.js` — service worker; caches the app so it works fully offline
 - `icon-192.png`, `icon-512.png` — home screen icons
 
-## Deploy to GitHub Pages (free, ~5 minutes)
-
-PWAs require HTTPS (geolocation and service workers won't run otherwise),
-which GitHub Pages provides automatically.
-
-1. Create a new repository on github.com, e.g. `frame-log`. Public is fine —
-   the app contains no data of yours; your log entries only ever live on
-   your phone.
-2. Upload these five files to the repo root. Easiest way without git:
-   on the repo page, **Add file → Upload files**, drag all five in, commit.
-   Or with git:
-
-   ```
-   git init
-   git add .
-   git commit -m "Frame Log PWA"
-   git branch -M main
-   git remote add origin https://github.com/YOURNAME/frame-log.git
-   git push -u origin main
-   ```
-
-3. In the repo: **Settings → Pages → Source: Deploy from a branch**,
-   pick `main` and `/ (root)`, save.
-4. After a minute or two your app is live at
-   `https://YOURNAME.github.io/frame-log/`
-
 ## Install on your phone
 
 **iPhone:** open the URL in Safari → Share button → **Add to Home Screen**.
