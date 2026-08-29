@@ -221,7 +221,7 @@
   <summary>Shot details (optional, applied to next log)</summary>
   <div class="meta-grid">
     <label>Lens <input id="mLens" placeholder="50mm f/1.8"></label>
-    <label>Aperture <input id="mAperture" placeholder="f/8" inputmode="decimal"></label>
+    <label>Aperture f/<input id="mAperture" type="number" step="any" min="0" placeholder="8" inputmode="decimal"></label>
     <label>Shutter <input id="mShutter" placeholder="1/250"></label>
     <label>Frame # <input id="mFrame" placeholder="auto" inputmode="numeric"></label>
     <label class="full">Notes <textarea id="mNotes" rows="2" placeholder="backlit, metered for shadows…"></textarea></label>
@@ -338,6 +338,15 @@ function nextFrameDefault(r) {
   return r.entries.length ? r.entries[r.entries.length - 1].frame + 1 : 1;
 }
 
+function formatAperture(raw) {
+  const trimmed = String(raw).trim();
+  return trimmed ? "f/" + trimmed : "";
+}
+function apertureNumber(aperture) {
+  const m = /^f\/(.+)$/.exec(aperture || "");
+  return m ? m[1] : "";
+}
+
 function addEntry(when, coords) {
   const r = roll();
   const manualFrame = $("mFrame").value.trim();
@@ -350,7 +359,7 @@ function addEntry(when, coords) {
     acc: coords ? Math.round(coords.accuracy) : null,
     alt: coords && coords.altitude != null ? Math.round(coords.altitude) : null,
     lens: $("mLens").value.trim(),
-    aperture: $("mAperture").value.trim(),
+    aperture: formatAperture($("mAperture").value),
     shutterSpeed: $("mShutter").value.trim(),
     notes: $("mNotes").value.trim()
   };
@@ -424,7 +433,7 @@ function editFormHtml(en) {
       '<label>Latitude <input type="number" step="any" class="eLat" value="' + (en.lat != null ? en.lat : "") + '" placeholder="blank = none"></label>' +
       '<label>Longitude <input type="number" step="any" class="eLon" value="' + (en.lon != null ? en.lon : "") + '" placeholder="blank = none"></label>' +
       '<label>Lens <input class="eLens" value="' + escapeHtml(en.lens) + '"></label>' +
-      '<label>Aperture <input class="eAperture" value="' + escapeHtml(en.aperture) + '"></label>' +
+      '<label>Aperture f/<input type="number" step="any" min="0" class="eAperture" value="' + escapeHtml(apertureNumber(en.aperture)) + '"></label>' +
       '<label>Shutter <input class="eShutter" value="' + escapeHtml(en.shutterSpeed) + '"></label>' +
       '<label class="full">Notes <textarea class="eNotes" rows="2">' + escapeHtml(en.notes) + "</textarea></label>" +
       '<div class="full edit-actions">' +
@@ -466,7 +475,7 @@ function wireEditForm(li, r, idx) {
     en.lon = lon;
     if (lat === null) { en.acc = null; en.alt = null; } // manual clear: old fix no longer applies
     en.lens = li.querySelector(".eLens").value.trim();
-    en.aperture = li.querySelector(".eAperture").value.trim();
+    en.aperture = formatAperture(li.querySelector(".eAperture").value);
     en.shutterSpeed = li.querySelector(".eShutter").value.trim();
     en.notes = li.querySelector(".eNotes").value.trim();
 
