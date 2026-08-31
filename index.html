@@ -387,7 +387,7 @@ function renderEntries() {
     } else {
       const gear = [en.lens, en.aperture, en.shutterSpeed].filter(Boolean).join(" · ");
       li.innerHTML =
-        '<span class="frame-no">' + en.frame + (en.frame < 10 ? " " : "") + 'A</span>' +
+        '<span class="frame-no">' + en.frame + '</span>' +
         '<span class="when">' + en.local + "</span>" +
         '<span class="coords">' +
           (en.lat != null
