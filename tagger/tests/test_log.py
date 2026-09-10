@@ -8,11 +8,11 @@ from framelog_tagger.log import LogFormatError, parse_aperture, parse_shutter, r
 
 EXPORT = {
     "app": "framelog",
-    "schema": 1,
+    "schema": 2,
     "exported": "2026-09-01T02:00:00.000Z",
     "roll": "2026-08 Portra 400 #3",
     "entries": [
-        {"frame": 2, "iso": "2026-08-30T14:07:40.000Z", "local": "8/30/2026, 10:07:40 AM",
+        {"frame": 2, "iso": "2026-08-30T14:07:40.000Z", "local": "8/30/2026, 10:07:40 AM", "tz": "America/New_York",
          "lat": 40.742501, "lon": -73.9881, "acc": 15, "alt": None,
          "lens": "50mm f/1.4", "aperture": "f/5.6", "shutterSpeed": "1/125", "notes": ""},
         {"frame": 1, "iso": "2026-08-30T14:05:12.000Z", "local": "8/30/2026, 10:05:12 AM",
@@ -44,6 +44,7 @@ def test_read_log_sorts_and_parses(tmp_path: Path):
     assert e.f_number == 2.8 and e.exposure_time == "1/250"
     assert e.notes == 'Flatiron, "harsh" light'
     assert roll.entries[1].alt is None
+    assert roll.entries[1].tz == "America/New_York" and roll.entries[0].tz == ""  # schema 1 entries lack tz
     assert not roll.entries[2].has_gps and roll.entries[2].exposure_time == "1/60"
 
 
@@ -57,9 +58,13 @@ def test_rejects_non_framelog_json(tmp_path: Path):
         read_log(_write(tmp_path, {"entries": []}))
 
 
+def test_accepts_schema_1(tmp_path: Path):
+    assert len(read_log(_write(tmp_path, {**EXPORT, "schema": 1})).entries) == 3
+
+
 def test_rejects_unknown_schema(tmp_path: Path):
-    with pytest.raises(LogFormatError, match="schema 2"):
-        read_log(_write(tmp_path, {**EXPORT, "schema": 2}))
+    with pytest.raises(LogFormatError, match="schema 3"):
+        read_log(_write(tmp_path, {**EXPORT, "schema": 3}))
 
 
 def test_rejects_invalid_json_and_bad_entries(tmp_path: Path):

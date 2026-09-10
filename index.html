@@ -331,6 +331,10 @@ shutter.addEventListener("click", () => {
   );
 });
 
+function deviceZone() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) { return ""; }
+}
+
 function nextFrameDefault(r) {
   // Increment from the last logged frame's actual number, not the entry
   // count, so a manually-set frame number (e.g. starting a roll at 6)
@@ -354,6 +358,7 @@ function addEntry(when, coords) {
     frame: manualFrame ? parseInt(manualFrame, 10) : nextFrameDefault(r),
     iso: when.toISOString(),
     local: when.toLocaleString(),
+    tz: deviceZone(), // IANA zone the phone was in; lets the tagger write correct local times on travel rolls
     lat: coords ? coords.latitude : null,
     lon: coords ? coords.longitude : null,
     acc: coords ? Math.round(coords.accuracy) : null,
@@ -519,7 +524,7 @@ function buildJson(r) {
   // exactly as stored, so a field added here shows up there untouched.
   return JSON.stringify({
     app: "framelog",
-    schema: 1,
+    schema: 2, // 2: entries may carry tz (IANA zone at log time)
     exported: new Date().toISOString(),
     roll: r.name,
     entries: r.entries

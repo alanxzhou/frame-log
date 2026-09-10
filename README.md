@@ -36,8 +36,9 @@ updates activate once the old version is fully closed).
 - **Logging a frame.** Tap the shutter button. It captures the time
   immediately and the GPS fix as soon as it arrives — the timestamp is the
   moment you pressed, not the moment the fix landed, so a slow fix doesn't
-  skew your times. If GPS fails (deep canyon, building), the frame is still
-  saved with the time and blank coordinates.
+  skew your times. The phone's current time zone is saved with the frame, so
+  travel rolls tag correctly later. If GPS fails (deep canyon, building), the
+  frame is still saved with the time and blank coordinates.
 - **Shot details** (lens/aperture/shutter/frame #/notes) are optional and
   apply to the next frame you log. Lens/aperture/shutter are sticky across
   frames; frame # and notes clear after each log. Frame # auto-increments
@@ -54,16 +55,18 @@ updates activate once the old version is fully closed).
 
 ## After the scans come back
 
-Export the roll's JSON from the phone, then on your computer run the tagger
-against the folder of JPEGs from the lab:
+Export the roll's JSON from the phone, then on your computer run the tagger:
 
 ```
-framelog-tagger ~/scans/roll-12 ~/Downloads/roll_12.json --tz America/New_York
+framelog-tagger
 ```
 
-It pairs scans with logged frames in a browser UI (drag to fix mismatches,
-one-click shift for a forgotten frame) and writes time, GPS, lens, aperture,
-shutter and notes into tagged copies. Details and install steps in
+It opens a browser page where you pick the folder of JPEGs from the lab and
+the roll's export, pairs scans with logged frames (drag to fix mismatches,
+one-click shift for a forgotten frame), and writes time, GPS, lens, aperture,
+shutter and notes into tagged copies. Each frame is written in the time zone
+the phone was in when you pressed the button, so a roll that starts in Tokyo
+and ends in Boston comes out right. Details and install steps in
 [tagger/README.md](tagger/README.md).
 
 ## Data & privacy

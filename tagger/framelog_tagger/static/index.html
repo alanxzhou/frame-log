@@ -45,6 +45,27 @@
   .stats b { color: var(--ivory); font-weight: 600; }
   .stats .warn { color: var(--rebate); }
 
+  /* ---- setup screen ---- */
+  #setup { flex: 1; overflow: auto; padding: 28px 16px; }
+  #setup form { max-width: 640px; margin: 0 auto; background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 8px; padding: 22px 24px; }
+  #setup h2 { font-family: var(--mono); font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--rebate); margin: 18px 0 10px; }
+  #setup h2:first-child { margin-top: 0; }
+  .field { display: grid; grid-template-columns: 120px 1fr auto; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .field label { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .field input[type=text], .field input[type=number] {
+    font: inherit; font-family: var(--mono); font-size: 13px; background: var(--body); color: var(--ivory);
+    border: 1px solid var(--panel-edge); border-radius: 4px; padding: 7px 9px; width: 100%;
+  }
+  .field input:focus { outline: none; border-color: var(--rebate-dim); }
+  .field .hint { grid-column: 2 / 4; font-size: 11px; color: var(--muted); margin-top: -4px; }
+  .field.check { grid-template-columns: 120px 1fr; }
+  .field.check label.inline { color: var(--ivory); font-family: var(--sans); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+  .actions { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+  #setupError { color: var(--danger); font-family: var(--mono); font-size: 12px; }
+  #exifWarn { font-family: var(--mono); font-size: 12px; color: var(--rebate); margin-bottom: 14px; }
+
+  /* ---- strip ---- */
   #strip {
     flex: 1; overflow-x: auto; overflow-y: hidden; padding: 18px 16px; display: flex; gap: 10px; align-items: stretch;
     background:
@@ -78,9 +99,11 @@
   .link.paired .dot { background: var(--ok); }
   .link.half .dot { background: var(--danger); }
 
-  .entry { padding: 8px 10px; height: 118px; display: flex; flex-direction: column; gap: 3px; }
+  .entry { padding: 8px 10px; height: 126px; display: flex; flex-direction: column; gap: 3px; }
   .entry .frame { font-family: var(--mono); font-size: 18px; color: var(--rebate); font-weight: 700; line-height: 1; }
   .entry .time { font-family: var(--mono); font-size: 11px; color: var(--ivory); }
+  .entry .zone { font-family: var(--mono); font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .entry .zone.fallback { color: var(--rebate); }
   .entry .gear { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .entry .notes { font-size: 11px; color: var(--muted); font-style: italic; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .entry .gps { position: absolute; top: 8px; right: 8px; font-family: var(--mono); font-size: 10px; padding: 1px 5px; border-radius: 3px; }
@@ -108,23 +131,73 @@
   #preview h3 span { cursor: pointer; color: var(--muted); }
   #preview pre { white-space: pre-wrap; word-break: break-all; color: var(--ivory); }
   .help { color: var(--muted); font-size: 12px; padding: 6px 16px; border-top: 1px solid var(--panel-edge); font-family: var(--mono); }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <header>
   <h1>Frame Log · tagger</h1>
-  <span class="roll" id="roll">—</span>
+  <span class="roll" id="roll"></span>
   <span class="meta" id="meta"></span>
   <span class="spacer"></span>
   <span class="stats" id="stats"></span>
-  <button id="autoPair" title="Reset to positional pairing: 1st scan ↔ 1st frame, and so on">Auto-pair</button>
-  <button id="reverse" title="Reverse the scan order (roll scanned tail-first)">Reverse scans</button>
-  <button id="write" class="primary" title="Write metadata into every paired scan">Write</button>
+  <button id="changeRoll" hidden title="Back to the setup screen">Change roll</button>
+  <button id="autoPair" hidden title="Reset to positional pairing: 1st scan ↔ 1st frame, and so on">Auto-pair</button>
+  <button id="reverse" hidden title="Reverse the scan order (roll scanned tail-first)">Reverse scans</button>
+  <button id="write" class="primary" hidden title="Write metadata into every paired scan">Write</button>
 </header>
 
-<div id="strip"></div>
+<div id="setup" hidden>
+  <form id="setupForm" autocomplete="off">
+    <div id="exifWarn" hidden>exiftool not found: you can pair frames, but Write is disabled. Install it (brew install exiftool / exiftool.org) and restart.</div>
+    <h2>Roll</h2>
+    <div class="field">
+      <label for="fScans">scans folder</label>
+      <input type="text" id="fScans" placeholder="folder of JPEGs from the lab" required>
+      <button type="button" data-pick="folder" data-for="fScans">Browse…</button>
+    </div>
+    <div class="field">
+      <label for="fLog">log export</label>
+      <input type="text" id="fLog" placeholder="the roll's .json from the phone" required>
+      <button type="button" data-pick="file" data-for="fLog">Browse…</button>
+    </div>
+    <div class="field">
+      <label for="fOut">write to</label>
+      <input type="text" id="fOut" placeholder="(scans folder)/tagged">
+      <button type="button" data-pick="folder" data-for="fOut">Browse…</button>
+      <div class="hint">Tagged copies go here. The originals are never modified unless you tick in place.</div>
+    </div>
+    <div class="field check">
+      <label></label>
+      <label class="inline"><input type="checkbox" id="fInPlace"> write into the original scans instead (in place)</label>
+    </div>
 
-<div class="help">
+    <h2>Camera &amp; film <span style="color:var(--muted);font-weight:normal;letter-spacing:0;text-transform:none">(optional, applied to every frame)</span></h2>
+    <div class="row2">
+      <div class="field"><label for="fMake">make</label><input type="text" id="fMake" placeholder="Nikon"><span></span></div>
+      <div class="field"><label for="fCamera">camera</label><input type="text" id="fCamera" placeholder="FM2"><span></span></div>
+      <div class="field"><label for="fFilm">film</label><input type="text" id="fFilm" placeholder="Portra 400"><span></span></div>
+      <div class="field"><label for="fIso">ISO</label><input type="number" id="fIso" placeholder="400" min="1" step="1"><span></span></div>
+    </div>
+
+    <h2>Time zone</h2>
+    <div class="field">
+      <label for="fTz">fallback zone</label>
+      <input type="text" id="fTz" placeholder="America/New_York">
+      <span></span>
+      <div class="hint">Frames logged with a recent app version carry the phone's zone at the moment of the shot and ignore this. Older frames use this zone.</div>
+    </div>
+
+    <div class="actions">
+      <button type="submit" class="primary" id="loadBtn">Load roll</button>
+      <span id="setupError"></span>
+    </div>
+  </form>
+</div>
+
+<div id="strip" hidden></div>
+
+<div class="help" id="help" hidden>
   drag a card onto another card to swap · ◀ ▶ shift this card and everything after it · click a frame # to preview the tags · scroll wheel pans
 </div>
 
@@ -138,7 +211,68 @@ const $ = (id) => document.getElementById(id);
 let S = null;          // session from /api/session
 let cols = [];         // [{scan: name|null, entry: id|null}]
 let results = {};      // scan name -> {ok, error}
-let timeFmt = null;
+
+/* ---------- setup screen ---------- */
+const FORM = { scans_dir: "fScans", log_path: "fLog", out_dir: "fOut", make: "fMake", camera: "fCamera", film: "fFilm", iso: "fIso", tz: "fTz" };
+
+function showSetup() {
+  const r = S.remembered || {};
+  for (const [key, id] of Object.entries(FORM)) $(id).value = r[key] ?? "";
+  $("fInPlace").checked = !!r.in_place;
+  if (!$("fTz").value) $("fTz").value = S.default_tz || "";
+  $("exifWarn").hidden = !!S.exiftool;
+  $("setupError").textContent = "";
+  $("setup").hidden = false;
+  $("strip").hidden = true; $("help").hidden = true;
+  for (const id of ["changeRoll", "autoPair", "reverse", "write"]) $(id).hidden = true;
+  $("roll").textContent = ""; $("meta").textContent = ""; $("stats").textContent = "";
+  $("preview").style.display = "none";
+}
+function showStrip() {
+  $("setup").hidden = true;
+  $("strip").hidden = false; $("help").hidden = false;
+  for (const id of ["changeRoll", "autoPair", "reverse", "write"]) $(id).hidden = false;
+  $("roll").textContent = S.roll;
+  $("meta").textContent = S.scans.length + " scans · " + S.entries.length + " frames" + (S.exiftool ? "" : " · exiftool missing");
+  results = {};
+  if (!restore()) autoPair(); else render();
+}
+
+async function pickInto(kind, inputId) {
+  const initial = $(inputId).value || $("fScans").value || "";
+  const btns = document.querySelectorAll("[data-pick]");
+  btns.forEach((b) => { b.disabled = true; });
+  try {
+    const r = await fetch("/api/pick", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, title: kind === "folder" ? "Choose folder" : "Choose the roll's JSON export", initial }) });
+    const j = await r.json();
+    if (j.error) { toast(j.error + " — you can type the path instead", true); return; }
+    if (j.path) $(inputId).value = j.path;
+  } finally {
+    btns.forEach((b) => { b.disabled = false; });
+  }
+}
+
+async function loadRoll(ev) {
+  ev.preventDefault();
+  const body = {
+    scans_dir: $("fScans").value.trim(), log_path: $("fLog").value.trim(), out_dir: $("fOut").value.trim(),
+    in_place: $("fInPlace").checked, tz: $("fTz").value.trim(),
+    make: $("fMake").value.trim(), camera: $("fCamera").value.trim(), film: $("fFilm").value.trim(),
+    iso: $("fIso").value ? parseInt($("fIso").value, 10) : null,
+  };
+  $("loadBtn").disabled = true; $("setupError").textContent = "";
+  try {
+    const r = await fetch("/api/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!r.ok) { $("setupError").textContent = j.detail || r.statusText; return; }
+    S = j; showStrip();
+  } catch (e) {
+    $("setupError").textContent = e.message;
+  } finally {
+    $("loadBtn").disabled = false;
+  }
+}
 
 /* ---------- pairing model ---------- */
 function normalize() {
@@ -185,7 +319,7 @@ function pairs() {
 }
 
 /* ---------- persistence (survive an accidental reload) ---------- */
-function storeKey() { return "framelog-tagger:" + S.scans_dir + "|" + S.roll; }
+function storeKey() { return "framelog-tagger:" + S.scans_dir + "|" + S.log_path; }
 function persist() { try { localStorage.setItem(storeKey(), JSON.stringify(cols)); } catch (e) {} }
 function restore() {
   try {
@@ -204,14 +338,6 @@ function restore() {
 }
 
 /* ---------- rendering ---------- */
-function fmtTime(iso) {
-  const d = new Date(iso);
-  if (!timeFmt) {
-    try { timeFmt = new Intl.DateTimeFormat(undefined, { timeZone: S.tz, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }); }
-    catch (e) { timeFmt = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }); }
-  }
-  return timeFmt.format(d);
-}
 function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -228,33 +354,30 @@ function shiftBar(row, i) {
   bar.append(left, right);
   return bar;
 }
+let dragging = "";
 function dragify(cell, row, i) {
-  cell.dataset.row = row; cell.dataset.i = i;
   if (cols[i][row] != null) {
     cell.draggable = true;
     cell.addEventListener("dragstart", (ev) => {
-      ev.dataTransfer.setData("text/plain", row + ":" + i);
+      dragging = row + ":" + i;
+      ev.dataTransfer.setData("text/plain", dragging);
       ev.dataTransfer.effectAllowed = "move";
       cell.classList.add("drag");
     });
-    cell.addEventListener("dragend", () => cell.classList.remove("drag"));
+    cell.addEventListener("dragend", () => { cell.classList.remove("drag"); dragging = ""; });
   }
   cell.addEventListener("dragover", (ev) => {
-    const src = (ev.dataTransfer.getData("text/plain") || dragging || "").split(":");
-    if (src[0] !== row) return;
+    if (dragging.split(":")[0] !== row) return;
     ev.preventDefault(); cell.classList.add("over");
   });
   cell.addEventListener("dragleave", () => cell.classList.remove("over"));
   cell.addEventListener("drop", (ev) => {
     ev.preventDefault(); cell.classList.remove("over");
-    const [srow, si] = ev.dataTransfer.getData("text/plain").split(":");
+    const [srow, si] = (ev.dataTransfer.getData("text/plain") || dragging).split(":");
     if (srow !== row) return;
     swap(row, parseInt(si, 10), i);
   });
 }
-let dragging = "";
-document.addEventListener("dragstart", (ev) => { dragging = ev.dataTransfer.getData("text/plain"); });
-document.addEventListener("dragend", () => { dragging = ""; });
 
 function render() {
   const strip = $("strip");
@@ -296,7 +419,10 @@ function render() {
       const e = entryById[c.entry];
       const fr = el("div", "frame", "#" + e.frame); fr.title = "preview ExifTool tags"; fr.style.cursor = "pointer";
       fr.onclick = () => showPreview(e);
-      ec.append(fr, el("div", "time", fmtTime(e.iso)));
+      const zone = el("div", "zone" + (e.zone_source === "fallback" ? " fallback" : ""), e.zone + " (" + e.offset + ")");
+      zone.title = e.zone_source === "phone" ? "zone recorded by the phone when this frame was logged"
+                                             : "no zone recorded for this frame; using the fallback zone";
+      ec.append(fr, el("div", "time", e.local), zone);
       const gear = [e.lens, e.aperture, e.shutter].filter(Boolean).join(" · ");
       if (gear) ec.append(el("div", "gear", gear));
       if (e.notes) ec.append(el("div", "notes", e.notes));
@@ -318,10 +444,12 @@ function renderStats() {
   const p = pairs().length;
   const scansUn = cols.filter((c) => c.scan != null && c.entry == null).length;
   const entriesUn = cols.filter((c) => c.entry != null && c.scan == null).length;
+  const fallback = S.entries.filter((e) => e.zone_source === "fallback").length;
   $("stats").innerHTML =
     "<b>" + p + "</b> paired" +
     (scansUn ? ' · <span class="warn">' + scansUn + " scan" + (scansUn > 1 ? "s" : "") + " without log</span>" : "") +
-    (entriesUn ? ' · <span class="warn">' + entriesUn + " log entr" + (entriesUn > 1 ? "ies" : "y") + " without scan</span>" : "");
+    (entriesUn ? ' · <span class="warn">' + entriesUn + " log entr" + (entriesUn > 1 ? "ies" : "y") + " without scan</span>" : "") +
+    (fallback ? ' · <span class="warn" title="these frames were logged before the phone recorded its zone">' + fallback + " frame" + (fallback > 1 ? "s" : "") + " on fallback zone " + S.tz + "</span>" : "");
   $("write").disabled = !S.exiftool || p === 0;
   $("write").title = S.exiftool ? "Write metadata into " + p + " paired scan(s)" : "exiftool not found; restart with --exiftool <path>";
 }
@@ -368,17 +496,18 @@ async function write() {
 /* ---------- boot ---------- */
 async function boot() {
   S = await (await fetch("/api/session")).json();
-  $("roll").textContent = S.roll;
-  $("meta").textContent = S.scans.length + " scans · " + S.entries.length + " frames · tz " + S.tz + (S.exiftool ? "" : " · exiftool missing");
-  if (!restore()) autoPair(); else render();
+  document.querySelectorAll("[data-pick]").forEach((b) => { b.onclick = () => pickInto(b.dataset.pick, b.dataset.for); });
+  $("setupForm").addEventListener("submit", loadRoll);
+  $("changeRoll").onclick = async () => { S = await (await fetch("/api/unload", { method: "POST" })).json(); showSetup(); };
   $("autoPair").onclick = () => { if (confirm("Reset all pairing to positional order?")) autoPair(); };
   $("reverse").onclick = reverseScans;
   $("write").onclick = write;
   $("strip").addEventListener("wheel", (ev) => {
     if (Math.abs(ev.deltaY) > Math.abs(ev.deltaX)) { ev.preventDefault(); $("strip").scrollLeft += ev.deltaY; }
   }, { passive: false });
+  if (S.loaded) showStrip(); else showSetup();
 }
-boot().catch((e) => toast("failed to load session: " + e.message, true));
+boot().catch((e) => toast("failed to load: " + e.message, true));
 </script>
 </body>
 </html>

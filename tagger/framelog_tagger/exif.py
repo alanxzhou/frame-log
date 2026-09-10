@@ -9,7 +9,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .log import LogEntry
 
@@ -45,7 +45,7 @@ def exiftool_version(exe: str) -> str:
 @dataclass
 class TagContext:
     """Roll-level values that apply to every frame."""
-    tz: ZoneInfo
+    tz: ZoneInfo                # fallback zone for entries that don't carry their own
     roll: str = ""
     camera: str = ""            # -> Model
     make: str = ""              # -> Make
@@ -62,9 +62,24 @@ def _fmt_offset(dt) -> str:
     return f"{sign}{total // 3600:02d}:{(total % 3600) // 60:02d}"
 
 
+def resolve_zone(entry: LogEntry, ctx: TagContext) -> tuple[ZoneInfo, str]:
+    """The zone to write this frame in, and where it came from: 'phone' or 'fallback'.
+
+    Entries logged with schema 2+ carry the phone's zone at the moment of the
+    shot, which is what makes a roll that crosses time zones come out right.
+    """
+    if entry.tz:
+        try:
+            return ZoneInfo(entry.tz), "phone"
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+    return ctx.tz, "fallback"
+
+
 def build_args(entry: LogEntry, ctx: TagContext) -> list[str]:
     """ExifTool tag assignments for one frame. No file paths, no -o/-overwrite."""
-    local = entry.utc.astimezone(ctx.tz)
+    zone, _ = resolve_zone(entry, ctx)
+    local = entry.utc.astimezone(zone)
     stamp = local.strftime("%Y:%m:%d %H:%M:%S")
     offset = _fmt_offset(local)
     args = [

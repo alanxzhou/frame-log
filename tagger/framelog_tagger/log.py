@@ -8,11 +8,12 @@ buildJson in ../index.html):
       "schema": 1,
       "exported": "<ISO-8601 UTC>",
       "roll": "<roll name>",
-      "entries": [ { frame, iso, local, lat, lon, acc, alt,
+      "entries": [ { frame, iso, local, tz, lat, lon, acc, alt,
                      lens, aperture, shutterSpeed, notes }, ... ]
     }
 
-Entries are the app's stored objects verbatim: `iso` is UTC, lat/lon/acc/alt
+Entries are the app's stored objects verbatim: `iso` is UTC, `tz` (schema 2+)
+is the IANA zone the phone was in when the frame was logged, lat/lon/acc/alt
 are numbers or null, aperture is "f/2.8", shutterSpeed is free text like
 "1/250" or "2s". Unknown keys are ignored so the phone side can grow.
 """
@@ -26,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-SUPPORTED_SCHEMAS = {1}
+SUPPORTED_SCHEMAS = {1, 2}  # 2 adds an optional per-entry "tz" (IANA zone at log time)
 
 
 class LogFormatError(ValueError):
@@ -37,6 +38,7 @@ class LogFormatError(ValueError):
 class LogEntry:
     frame: int
     iso: str
+    tz: str = ""  # IANA zone at log time, "" if the export predates schema 2
     lat: Optional[float] = None
     lon: Optional[float] = None
     acc: Optional[float] = None
@@ -128,6 +130,7 @@ def entry_from_dict(d: dict, where: str = "") -> LogEntry:
     return LogEntry(
         frame=frame,
         iso=iso,
+        tz=_str(d.get("tz")),
         lat=_float(d.get("lat")),
         lon=_float(d.get("lon")),
         acc=_float(d.get("acc")),
