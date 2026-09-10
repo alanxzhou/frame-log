@@ -1,7 +1,7 @@
 # Frame Log tagger
 
 Desktop companion to the Frame Log phone app. Point it at a folder of lab
-scans and the roll's CSV export, pair scans with logged frames in a browser
+scans and the roll's JSON export, pair scans with logged frames in a browser
 UI, then write the time, GPS, lens, aperture, shutter and notes into the
 JPEGs as EXIF/XMP.
 
@@ -27,7 +27,7 @@ uv sync --extra dev                       # or: pip install -e ".[dev]"
 ## Use
 
 ```
-framelog-tagger <scans-folder> <roll.csv> [--tz America/New_York] [options]
+framelog-tagger <scans-folder> <roll.json> [--tz America/New_York] [options]
 ```
 
 That opens `http://127.0.0.1:8765/`. Scans and log entries start paired
@@ -55,7 +55,7 @@ Metadata → Read Metadata from File afterwards.
 | `--tz ZONE` | IANA zone the roll was shot in. Log timestamps are UTC; EXIF wants local time. Defaults to this machine's zone. |
 | `--out DIR` | where tagged copies go (default `<scans>/tagged`) |
 | `--in-place` | write into the original files instead |
-| `--roll NAME` | roll name recorded in UserComment (default: CSV filename) |
+| `--roll NAME` | roll name recorded in UserComment (default: the name stored in the export) |
 | `--camera`, `--make` | EXIF Model / Make |
 | `--iso N` | film speed → EXIF ISO |
 | `--film "Portra 400"` | film stock, recorded in UserComment |
@@ -84,7 +84,7 @@ tagger/
   pyproject.toml
   framelog_tagger/
     cli.py        argument parsing, startup, opens the browser
-    log.py        CSV → LogEntry (the contract with ../index.html's buildCsv)
+    log.py        JSON export → Roll/LogEntry (the contract with ../index.html's buildJson)
     scans.py      JPEG listing (natural sort), thumbnails, "already tagged" check
     exif.py       LogEntry → ExifTool arguments; write_tags()
     server.py     FastAPI: /api/session, /api/thumb/{name}, /api/preview/{id}, /api/write

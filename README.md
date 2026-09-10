@@ -45,20 +45,20 @@ updates activate once the old version is fully closed).
 - **Editing a frame.** Tap the pencil icon on any logged entry to fix a typo,
   correct the time, or fill in/clear coordinates by hand (e.g. if the GPS
   fix was bad or missing). Tap the ✕ to delete it.
-- **Exporting.** Export GPX (for geotagging tools that align tracks/
-  waypoints to photos), CSV (everything, including gear fields), or both
-  at once as a ZIP.
+- **Exporting.** Export JSON (everything, including gear fields; this is
+  what the tagger reads), GPX (for third-party geotagging tools that align
+  waypoints to photos), or both at once as a ZIP.
 - **Export when you finish each roll.** iOS can evict web-app storage after
   long periods of disuse; treating export-per-roll as part of the workflow
   makes that a non-issue.
 
 ## After the scans come back
 
-Export the roll's CSV from the phone, then on your computer run the tagger
+Export the roll's JSON from the phone, then on your computer run the tagger
 against the folder of JPEGs from the lab:
 
 ```
-framelog-tagger ~/scans/roll-12 ~/Downloads/roll_12.csv --tz America/New_York
+framelog-tagger ~/scans/roll-12 ~/Downloads/roll_12.json --tz America/New_York
 ```
 
 It pairs scans with logged frames in a browser UI (drag to fix mismatches,

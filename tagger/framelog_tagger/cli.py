@@ -1,4 +1,4 @@
-"""framelog-tagger: pair a Frame Log CSV with lab scans and write the metadata."""
+"""framelog-tagger: pair a Frame Log JSON export with lab scans and write the metadata."""
 
 from __future__ import annotations
 
@@ -30,10 +30,10 @@ def _local_tz_name() -> str:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="framelog-tagger",
-        description="Pair Frame Log CSV entries with lab scans in a browser UI, then write EXIF/XMP.",
+        description="Pair Frame Log entries with lab scans in a browser UI, then write EXIF/XMP.",
     )
     p.add_argument("scans", type=Path, help="folder of JPEG scans from the lab")
-    p.add_argument("log", type=Path, help="Frame Log CSV export for that roll")
+    p.add_argument("log", type=Path, help="Frame Log JSON export for that roll")
     p.add_argument("--out", type=Path, default=None,
                    help="write tagged copies here (default: <scans>/tagged); originals untouched")
     p.add_argument("--in-place", action="store_true",
@@ -41,7 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tz", default="",
                    help="IANA zone the roll was shot in, e.g. America/New_York "
                         "(default: this machine's zone). Log timestamps are UTC.")
-    p.add_argument("--roll", default="", help="roll name (default: CSV filename)")
+    p.add_argument("--roll", default="", help="roll name (default: the name stored in the export)")
     p.add_argument("--camera", default="", help="camera body -> EXIF Model")
     p.add_argument("--make", default="", help="camera maker -> EXIF Make")
     p.add_argument("--film", default="", help="film stock, recorded in UserComment")
@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: scans folder not found: {args.scans}", file=sys.stderr)
         return 2
     if not args.log.is_file():
-        print(f"error: log CSV not found: {args.log}", file=sys.stderr)
+        print(f"error: log file not found: {args.log}", file=sys.stderr)
         return 2
 
     tz_name = args.tz or _local_tz_name()
@@ -79,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
         tz, tz_name = ZoneInfo("UTC"), "UTC"
 
     try:
-        entries = read_log(args.log)
+        log = read_log(args.log)
     except LogFormatError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
@@ -100,13 +100,13 @@ def main(argv: list[str] | None = None) -> int:
               "  or pass --exiftool <path>", file=sys.stderr)
 
     out_dir = args.scans if args.in_place else (args.out or args.scans / "tagged")
-    ctx = TagContext(tz=tz, roll=args.roll or args.log.stem, camera=args.camera, make=args.make,
+    ctx = TagContext(tz=tz, roll=args.roll or log.name, camera=args.camera, make=args.make,
                      film=args.film, iso=args.iso, extra_args=list(args.tag))
     session = Session(scans_dir=args.scans, out_dir=out_dir, in_place=args.in_place,
-                      scans=scans, entries=entries, ctx=ctx, tz_name=tz_name, exiftool=exe)
+                      scans=scans, entries=log.entries, ctx=ctx, tz_name=tz_name, exiftool=exe)
 
     print(f"{len(scans)} scans in {args.scans}")
-    print(f"{len(entries)} logged frames in {args.log.name}  (tz {tz_name})")
+    print(f"{len(log.entries)} logged frames in {args.log.name}, roll {ctx.roll!r}  (tz {tz_name})")
     print(f"output: {'in place' if args.in_place else out_dir}")
 
     import uvicorn

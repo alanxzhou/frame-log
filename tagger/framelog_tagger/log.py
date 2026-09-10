@@ -1,24 +1,32 @@
-"""Read a Frame Log CSV export into LogEntry records.
+"""Read a Frame Log JSON export into a Roll of LogEntry records.
 
-The CSV is produced by the phone app's "CSV" / "Export ZIP" buttons and has
-these columns (see buildCsv in ../index.html):
+The file is produced by the phone app's "JSON" / "Export ZIP" buttons (see
+buildJson in ../index.html):
 
-    frame,iso_datetime,latitude,longitude,accuracy_m,altitude_m,lens,aperture,shutter,notes
+    {
+      "app": "framelog",
+      "schema": 1,
+      "exported": "<ISO-8601 UTC>",
+      "roll": "<roll name>",
+      "entries": [ { frame, iso, local, lat, lon, acc, alt,
+                     lens, aperture, shutterSpeed, notes }, ... ]
+    }
 
-Timestamps are UTC ISO-8601 (Date.toISOString()). Aperture is stored as
-"f/2.8"; shutter is free text like "1/250" or "2s".
+Entries are the app's stored objects verbatim: `iso` is UTC, lat/lon/acc/alt
+are numbers or null, aperture is "f/2.8", shutterSpeed is free text like
+"1/250" or "2s". Unknown keys are ignored so the phone side can grow.
 """
 
 from __future__ import annotations
 
-import csv
+import json
 import re
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
-REQUIRED_COLUMNS = ("frame", "iso_datetime")
+SUPPORTED_SCHEMAS = {1}
 
 
 class LogFormatError(ValueError):
@@ -64,14 +72,24 @@ class LogEntry:
         return d
 
 
-def _float(v: str) -> Optional[float]:
-    v = (v or "").strip()
-    if v == "":
+@dataclass
+class Roll:
+    name: str
+    entries: list[LogEntry] = field(default_factory=list)
+    exported: str = ""
+
+
+def _float(v: Any) -> Optional[float]:
+    if v is None or v == "":
         return None
     try:
         return float(v)
-    except ValueError:
+    except (TypeError, ValueError):
         return None
+
+
+def _str(v: Any) -> str:
+    return "" if v is None else str(v).strip()
 
 
 def parse_aperture(raw: str) -> Optional[float]:
@@ -90,52 +108,56 @@ def parse_shutter(raw: str) -> Optional[str]:
     s = (raw or "").strip().lower().replace(" ", "")
     s = re.sub(r'(s|sec|")$', "", s)
     if re.fullmatch(r"\d+/\d+", s):
-        num, den = s.split("/")
-        if int(den) == 0:
-            return None
-        return s
+        _, den = s.split("/")
+        return None if int(den) == 0 else s
     if re.fullmatch(r"\d+(\.\d+)?", s):
         return s
     return None
 
 
-def read_log(path: Path | str) -> list[LogEntry]:
-    """Parse the CSV, returning entries sorted by frame number (stable)."""
+def entry_from_dict(d: dict, where: str = "") -> LogEntry:
+    try:
+        frame = int(d["frame"])
+    except (KeyError, TypeError, ValueError):
+        raise LogFormatError(f"{where}: bad or missing frame number {d.get('frame')!r}")
+    iso = _str(d.get("iso"))
+    try:
+        datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except ValueError:
+        raise LogFormatError(f"{where}: bad or missing timestamp {iso!r}")
+    return LogEntry(
+        frame=frame,
+        iso=iso,
+        lat=_float(d.get("lat")),
+        lon=_float(d.get("lon")),
+        acc=_float(d.get("acc")),
+        alt=_float(d.get("alt")),
+        lens=_str(d.get("lens")),
+        aperture=_str(d.get("aperture")),
+        shutter=_str(d.get("shutterSpeed", d.get("shutter"))),
+        notes=_str(d.get("notes")),
+    )
+
+
+def read_log(path: Path | str) -> Roll:
+    """Parse a Frame Log JSON export. Entries come back sorted by frame (stable)."""
     path = Path(path)
-    with path.open(newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        cols = [c.strip() for c in (reader.fieldnames or [])]
-        missing = [c for c in REQUIRED_COLUMNS if c not in cols]
-        if missing:
-            raise LogFormatError(
-                f"{path.name}: missing column(s) {', '.join(missing)}; "
-                f"is this a Frame Log CSV export? Found: {', '.join(cols) or '(none)'}"
-            )
-        entries: list[LogEntry] = []
-        for lineno, row in enumerate(reader, start=2):
-            row = {(k or "").strip(): (v or "") for k, v in row.items()}
-            if not any(row.values()):
-                continue
-            try:
-                frame = int(float(row["frame"]))
-            except ValueError:
-                raise LogFormatError(f"{path.name} line {lineno}: bad frame number {row['frame']!r}")
-            iso = row["iso_datetime"].strip()
-            try:
-                datetime.fromisoformat(iso.replace("Z", "+00:00"))
-            except ValueError:
-                raise LogFormatError(f"{path.name} line {lineno}: bad timestamp {iso!r}")
-            entries.append(LogEntry(
-                frame=frame,
-                iso=iso,
-                lat=_float(row.get("latitude", "")),
-                lon=_float(row.get("longitude", "")),
-                acc=_float(row.get("accuracy_m", "")),
-                alt=_float(row.get("altitude_m", "")),
-                lens=row.get("lens", "").strip(),
-                aperture=row.get("aperture", "").strip(),
-                shutter=row.get("shutter", "").strip(),
-                notes=row.get("notes", "").strip(),
-            ))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as e:
+        raise LogFormatError(f"{path.name}: not valid JSON ({e.msg} at line {e.lineno})")
+    if not isinstance(data, dict) or data.get("app") != "framelog":
+        raise LogFormatError(f"{path.name}: not a Frame Log export (missing \"app\": \"framelog\")")
+    schema = data.get("schema")
+    if schema not in SUPPORTED_SCHEMAS:
+        raise LogFormatError(
+            f"{path.name}: schema {schema!r} not supported by this tagger "
+            f"(supports {sorted(SUPPORTED_SCHEMAS)}); update one side or the other")
+    raw_entries = data.get("entries")
+    if not isinstance(raw_entries, list):
+        raise LogFormatError(f"{path.name}: \"entries\" must be a list")
+    entries = [entry_from_dict(e, f"{path.name} entry {i}") for i, e in enumerate(raw_entries)
+               if isinstance(e, dict)]
     entries.sort(key=lambda e: e.frame)
-    return entries
+    return Roll(name=_str(data.get("roll")) or path.stem, entries=entries,
+                exported=_str(data.get("exported")))
