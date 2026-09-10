@@ -9,6 +9,8 @@ no accounts, all data stays on your phone in localStorage until you export it.
 - `manifest.json` — makes it installable to the home screen
 - `sw.js` — service worker; caches the app so it works fully offline
 - `icon-192.png`, `icon-512.png` — home screen icons
+- `tagger/` — desktop companion that writes a roll's log into the lab scans'
+  EXIF/XMP; see [tagger/README.md](tagger/README.md). Not part of the PWA.
 
 ## Install on your phone
 
@@ -49,6 +51,20 @@ updates activate once the old version is fully closed).
 - **Export when you finish each roll.** iOS can evict web-app storage after
   long periods of disuse; treating export-per-roll as part of the workflow
   makes that a non-issue.
+
+## After the scans come back
+
+Export the roll's CSV from the phone, then on your computer run the tagger
+against the folder of JPEGs from the lab:
+
+```
+framelog-tagger ~/scans/roll-12 ~/Downloads/roll_12.csv --tz America/New_York
+```
+
+It pairs scans with logged frames in a browser UI (drag to fix mismatches,
+one-click shift for a forgotten frame) and writes time, GPS, lens, aperture,
+shutter and notes into tagged copies. Details and install steps in
+[tagger/README.md](tagger/README.md).
 
 ## Data & privacy
 
