@@ -42,10 +42,14 @@ updates activate once the old version is fully closed).
 - **Shot details** (lens/aperture/shutter/frame #/notes) are optional and
   apply to the next frame you log. Lens/aperture/shutter are sticky across
   frames; frame # and notes clear after each log. Frame # auto-increments
-  if left blank.
+  from the highest frame number on the roll if left blank.
 - **Editing a frame.** Tap the pencil icon on any logged entry to fix a typo,
   correct the time, or fill in/clear coordinates by hand (e.g. if the GPS
   fix was bad or missing). Tap the ✕ to delete it.
+- **Reordering frames.** Drag an entry by the ≡ handle on its left to move
+  it, e.g. to slot a forgotten frame 5 in between 4 and 6 after logging it
+  with a manual frame #. Only the order changes; frame numbers stay as you
+  entered them. The handle hides while a frame is open for editing.
 - **Exporting.** Export JSON (everything, including gear fields; this is
   what the tagger reads), GPX (for third-party geotagging tools that align
   waypoints to photos), or both at once as a ZIP.

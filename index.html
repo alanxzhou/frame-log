@@ -154,6 +154,21 @@
   }
   #entries li button.edit:hover { color: var(--rebate); }
   #entries li button.del:hover { color: var(--danger); }
+  /* ---- drag-to-reorder handle ---- */
+  #entries li { padding-left: 36px; }
+  #entries li.editing { padding-left: 12px; }
+  #entries li button.grip {
+    position: absolute; top: 0; bottom: 0; left: 0; width: 34px;
+    background: none; border: none; color: var(--muted);
+    font-size: 18px; cursor: grab;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+  #entries li button.grip:disabled { visibility: hidden; }
+  #entries li.dragging {
+    z-index: 2; background: var(--panel-edge); cursor: grabbing;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  }
   .empty {
     font-family: var(--mono); font-size: 12px; color: var(--muted);
     text-align: center; padding: 24px 10px; letter-spacing: 0.08em;
@@ -336,10 +351,10 @@ function deviceZone() {
 }
 
 function nextFrameDefault(r) {
-  // Increment from the last logged frame's actual number, not the entry
-  // count, so a manually-set frame number (e.g. starting a roll at 6)
-  // carries forward correctly.
-  return r.entries.length ? r.entries[r.entries.length - 1].frame + 1 : 1;
+  // Increment from the highest frame number logged, not the entry count or
+  // the last entry, so a manually-set start (e.g. a roll beginning at 6)
+  // carries forward and a backfilled frame doesn't pull the default back.
+  return r.entries.length ? Math.max(...r.entries.map((e) => e.frame)) + 1 : 1;
 }
 
 function formatAperture(raw) {
@@ -385,6 +400,7 @@ function renderEntries() {
   [...r.entries].reverse().forEach((en, revIdx) => {
     const idx = r.entries.length - 1 - revIdx;
     const li = document.createElement("li");
+    li.dataset.idx = idx;
     if (idx === editingIndex) {
       li.classList.add("editing");
       li.innerHTML = editFormHtml(en);
@@ -392,6 +408,7 @@ function renderEntries() {
     } else {
       const gear = [en.lens, en.aperture, en.shutterSpeed].filter(Boolean).join(" · ");
       li.innerHTML =
+        '<button class="grip" aria-label="Drag to reorder">≡</button>' +
         '<span class="frame-no">' + en.frame + '</span>' +
         '<span class="when">' + en.local + "</span>" +
         '<span class="coords">' +
@@ -404,6 +421,10 @@ function renderEntries() {
           '<button class="edit" aria-label="Edit frame">✎</button>' +
           '<button class="del" aria-label="Delete frame">✕</button>' +
         "</div>";
+      const grip = li.querySelector(".grip");
+      // Hidden while a frame is open for editing: a re-render would drop its unsaved changes.
+      grip.disabled = editingIndex !== null || r.entries.length < 2;
+      wireDrag(grip, li, r);
       li.querySelector(".edit").addEventListener("click", () => {
         editingIndex = idx; renderEntries();
       });
@@ -414,6 +435,63 @@ function renderEntries() {
       });
     }
     ul.appendChild(li);
+  });
+}
+
+/* ---------- drag to reorder ---------- */
+// Hand-rolled on pointer events: HTML5 drag-and-drop is unreliable on touch
+// (iOS Safari especially). Only the order changes; frame numbers stay as entered.
+const EDGE_SCROLL = 60; // px from the viewport edge where a drag auto-scrolls the page
+
+function midY(el) {
+  const b = el.getBoundingClientRect();
+  return b.top + b.height / 2;
+}
+
+function wireDrag(grip, li, r) {
+  grip.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    const ul = li.parentNode;
+    const grabOffset = e.clientY - li.getBoundingClientRect().top;
+    let pointerY = e.clientY;
+    let rafId = 0;
+    li.classList.add("dragging");
+
+    function place() {
+      // Move the neighbours across the dragged item rather than the item
+      // itself (detaching it would drop the pointer capture), then pin it
+      // under the finger.
+      let prev, next;
+      while ((prev = li.previousElementSibling) && pointerY < midY(prev)) ul.insertBefore(prev, li.nextSibling);
+      while ((next = li.nextElementSibling) && pointerY > midY(next)) ul.insertBefore(next, li);
+      li.style.transform = "";
+      const natural = li.getBoundingClientRect().top;
+      li.style.transform = "translateY(" + (pointerY - grabOffset - natural) + "px)";
+    }
+    function autoScroll() {
+      const dy = pointerY < EDGE_SCROLL ? -8 : pointerY > innerHeight - EDGE_SCROLL ? 8 : 0;
+      if (dy) { window.scrollBy(0, dy); place(); }
+      rafId = requestAnimationFrame(autoScroll);
+    }
+    function onMove(ev) { pointerY = ev.clientY; place(); }
+    function finish(ev) {
+      cancelAnimationFrame(rafId);
+      grip.removeEventListener("pointermove", onMove);
+      grip.removeEventListener("pointerup", finish);
+      grip.removeEventListener("pointercancel", finish);
+      if (ev.type === "pointerup") {
+        // The list is drawn newest-first; entries are stored oldest-first.
+        const order = [...ul.children].reverse().map((el) => r.entries[el.dataset.idx]);
+        if (order.some((en, i) => en !== r.entries[i])) { r.entries = order; save(); }
+      }
+      renderEntries(); // pointercancel lands here too and snaps back to the saved order
+    }
+    grip.addEventListener("pointermove", onMove);
+    grip.addEventListener("pointerup", finish);
+    grip.addEventListener("pointercancel", finish);
+    rafId = requestAnimationFrame(autoScroll);
   });
 }
 
