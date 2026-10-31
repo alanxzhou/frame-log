@@ -297,6 +297,13 @@
   #kwLib .actions { margin-top: 14px; }
   #kwLib .actions .spacer { flex: 1; }
 
+  /* zoom: double-click a scan; a click anywhere closes it */
+  #zoom { margin: auto; max-width: none; max-height: none; width: 100vw; height: 100vh; padding: 0; border: 0; background: transparent; cursor: zoom-out; }
+  #zoom[open] { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+  #zoom::backdrop { background: rgba(0,0,0,.82); backdrop-filter: blur(4px); }
+  #zoom img { width: 90vw; height: calc(90vh - 30px); object-fit: contain; }   /* fills even while the thumbnail stands in */
+  #zoom .name { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
   #toast {
     position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--panel); color: var(--text);
     padding: 10px 16px 10px 30px; border-radius: 12px; font-size: 12.5px; max-width: 80vw; display: none; z-index: 10;
@@ -416,7 +423,7 @@
 </div>
 
 <div class="help" id="help" hidden>
-  click a scan and type to keyword it · drag a card onto another card to swap · <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6 9.2 1.6v8.8z"/></svg> <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M9.8 6 2.8 1.6v8.8z"/></svg> shift this card and everything after it · double-click a log card to edit it · copy a card, then paste it into an empty slot · click a frame # to preview the tags · scroll wheel pans
+  click a scan and type to keyword it · double-click a scan to zoom in · drag a card onto another card to swap · <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6 9.2 1.6v8.8z"/></svg> <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M9.8 6 2.8 1.6v8.8z"/></svg> shift this card and everything after it · double-click a log card to edit it · copy a card, then paste it into an empty slot · click a frame # to preview the tags · scroll wheel pans
 </div>
 
 <dialog id="editor">
@@ -459,6 +466,8 @@
   <div class="hint" id="kwLibPath"></div>
   <div class="actions"><span class="spacer"></span><button type="button" class="primary" id="kwLibClose">Done</button></div>
 </dialog>
+
+<dialog id="zoom"><img alt=""><div class="name"></div></dialog>
 
 <div id="toast"></div>
 <div id="preview"><h3><span id="previewTitle"></span><span id="previewClose">✕</span></h3><pre id="previewBody"></pre></div>
@@ -798,6 +807,7 @@ function render() {
       sc.append(img, el("div", "name", s.name), kws);
       sc.dataset.scan = s.name;
       sc.addEventListener("click", (ev) => clickScan(s.name, ev));
+      sc.addEventListener("dblclick", () => openZoom(s.name));
       if (s.tagged) sc.append(el("span", "pill warn badge", "tagged"));
       const r = results[s.name];
       if (r) { const b = el("span", "pill result " + (r.ok ? "ok" : "err"), r.ok ? "written" : r.error); b.title = r.error || r.path || ""; sc.append(b); }
@@ -1309,6 +1319,20 @@ function initKeywords() {
   $("kwLibFilter").addEventListener("input", renderLib);
   $("kwLibClose").onclick = () => $("kwLib").close();
 }
+
+/* ---------- zoom ---------- */
+function openZoom(name) {
+  const d = $("zoom"), img = d.querySelector("img");
+  // the thumbnail is already loaded: show it stretched until the large one arrives
+  const big = "/api/view/" + encodeURIComponent(name);
+  img.src = "/api/thumb/" + encodeURIComponent(name); img.alt = name;
+  const pre = new Image();
+  pre.onload = () => { if (img.alt === name) img.src = big; };
+  pre.src = big;
+  d.querySelector(".name").textContent = name;
+  d.showModal();
+}
+$("zoom").addEventListener("click", () => $("zoom").close());
 
 /* ---------- preview + toast ---------- */
 async function showPreview(e) {

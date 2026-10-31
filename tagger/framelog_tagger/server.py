@@ -54,6 +54,7 @@ class Session:
     added: dict[int, str] = field(default_factory=dict)            # cards made here -> "new" | "copy of #N"
     next_id: int = 0
     thumbs: ThumbnailCache = field(default_factory=ThumbnailCache)
+    views: ThumbnailCache = field(default_factory=lambda: ThumbnailCache(2400))   # the zoomed-in view
 
     def __post_init__(self):
         self.next_id = max(self.entries, default=-1) + 1
@@ -332,18 +333,25 @@ def create_app(state: AppState) -> FastAPI:
         state.session = None
         return session_payload(state)
 
-    @app.get("/api/thumb/{name}")
-    def thumb(name: str):
+    def scaled(name: str, cache: ThumbnailCache) -> Response:
         s = need_session()
         scan = s.scan_by_name(name)
         if scan is None:
             raise HTTPException(404, "no such scan")
         try:
-            data = s.thumbs.get(scan.path)
+            data = cache.get(scan.path)
         except Exception as e:  # noqa: BLE001
             raise HTTPException(500, f"thumbnail failed: {e}")
         return Response(data, media_type="image/jpeg",
                         headers={"Cache-Control": "private, max-age=3600"})
+
+    @app.get("/api/thumb/{name}")
+    def thumb(name: str):
+        return scaled(name, need_session().thumbs)
+
+    @app.get("/api/view/{name}")
+    def view(name: str):
+        return scaled(name, need_session().views)
 
     def scan_args(s: Session, scan: Optional[ScanInfo], entry: Optional[LogEntry], kws: list[str]) -> list[str]:
         # A scan that has keywords and is given none (and no roll ones) gets them cleared, as you'd expect.
