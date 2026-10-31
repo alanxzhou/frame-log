@@ -37,7 +37,7 @@ class LogFormatError(ValueError):
 @dataclass
 class LogEntry:
     frame: int
-    iso: str
+    iso: str      # UTC; "" only on a card made in the tagger without a time
     tz: str = ""  # IANA zone at log time, "" if the export predates schema 2
     lat: Optional[float] = None
     lon: Optional[float] = None
@@ -49,7 +49,9 @@ class LogEntry:
     notes: str = ""
 
     @property
-    def utc(self) -> datetime:
+    def utc(self) -> Optional[datetime]:
+        if not self.iso:
+            return None
         d = datetime.fromisoformat(self.iso.replace("Z", "+00:00"))
         if d.tzinfo is None:
             d = d.replace(tzinfo=timezone.utc)

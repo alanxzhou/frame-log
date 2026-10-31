@@ -23,6 +23,7 @@
     --ok: #52c272;
     --warn: #f0873a;
     --danger: #e5584a;
+    --new: #5aa9e6;
     --led-off: #45423d;
     --img: #121110;
     --key: inset 0 1px 0 rgba(255,255,255,.08), 0 1px 2px rgba(0,0,0,.55), 0 0 0 1px rgba(0,0,0,.25);
@@ -133,7 +134,7 @@
   .link.paired .dot { background: var(--ok); box-shadow: 0 0 10px var(--ok), 0 0 2px var(--ok), inset 0 -1px 1px rgba(0,0,0,.25); }
   .link.half .dot { background: var(--warn); box-shadow: 0 0 10px var(--warn), 0 0 2px var(--warn), inset 0 -1px 1px rgba(0,0,0,.25); }
 
-  .entry { padding: 12px 13px; height: 136px; display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
+  .entry { padding: 12px 13px 8px; height: 162px; display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
   .entry .frame { font-size: 26px; font-weight: 700; letter-spacing: -.02em; line-height: 1; margin-bottom: 4px; font-variant-numeric: tabular-nums; cursor: pointer; align-self: flex-start; }
   .entry .frame span { color: var(--muted); font-weight: 500; }
   .entry .frame:hover span { color: var(--text); }
@@ -146,7 +147,76 @@
   .entry .zone.fallback .v { color: var(--warn); }
   .entry .notes .v { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 11.5px; }
   .entry .gps { top: 10px; right: 10px; background: var(--bg); padding-left: 16px; }
-  .entry.empty { align-items: center; justify-content: center; color: var(--muted); font-size: 11.5px; }
+  .entry.empty { align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 11.5px; }
+  .entry.empty .make { display: flex; gap: 6px; }
+  .entry.empty .make button { font-size: 11px; padding: 4px 11px; }
+  .entry .time .v.none { color: var(--muted); }
+
+  /* card footer: where the card came from, then edit / copy keys */
+  .entry .foot { margin-top: auto; display: flex; align-items: center; gap: 4px; padding-top: 4px; }
+  .state { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .state::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--led-off); box-shadow: inset 0 1px 1px rgba(0,0,0,.4); }
+  .state.edited { color: var(--warn); }
+  .state.edited::before { background: var(--warn); box-shadow: 0 0 5px var(--warn); }
+  .state.added { color: var(--new); }
+  .state.added::before { background: var(--new); box-shadow: 0 0 5px var(--new); }
+  .state span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .entry.edited { box-shadow: var(--card-shadow), inset 0 0 0 1px rgba(240,135,58,.35); }
+  .entry.added { box-shadow: var(--card-shadow), inset 0 0 0 1px rgba(90,169,230,.35); }
+  .icon { width: 22px; height: 22px; padding: 0; border-radius: 50%; display: grid; place-items: center; color: var(--muted); flex: none; }
+  .icon:hover:not(:disabled) { color: var(--text); }
+  .icon svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; display: block; }
+  .icon.on { color: var(--on-accent); background: var(--accent); }
+
+  /* card editor */
+  #editor { margin: auto; width: min(520px, calc(100vw - 32px)); background: var(--panel); color: var(--text); border: 0; border-radius: 18px; padding: 20px 22px; box-shadow: 0 0 0 1px var(--line), 0 20px 50px rgba(0,0,0,.6); }
+  #editor::backdrop { background: rgba(0,0,0,.55); }
+  #editor h2 { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; display: flex; gap: 10px; align-items: center; }
+  #editor .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  #editor .wide { grid-column: 1 / -1; }
+  #editor label { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--muted); }
+  #editor input, #editor textarea {
+    font: inherit; font-family: var(--mono); font-size: 12px; background: var(--input); color: var(--text);
+    border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; width: 100%; box-shadow: inset 0 1px 3px rgba(0,0,0,.35);
+  }
+  #editor textarea { font-family: var(--sans); font-size: 12.5px; resize: vertical; min-height: 54px; }
+  #editor input:focus, #editor textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  #editor .was { font-family: var(--mono); font-size: 10.5px; color: var(--warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #editor label.changed > span:first-child { color: var(--warn); }
+  #editor .actions { margin-top: 18px; }
+  #editor .actions .spacer { flex: 1; }
+  #editor button.danger { color: var(--danger); }
+  #editError { color: var(--danger); font-size: 12px; margin-top: 12px; }
+
+  /* date/time picker: the browser's own can't be styled, so this one is drawn here */
+  #editor { overflow: visible; }
+  .dt { position: relative; }
+  .dt > input { padding-right: 40px; }
+  .dt > .icon { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); width: 26px; height: 26px; }
+  .dt > .icon svg { width: 12px; height: 12px; }
+  #cal {
+    position: absolute; top: calc(100% + 8px); left: 0; z-index: 5; width: 284px; padding: 12px 12px 10px;
+    background: var(--raised); color: var(--text); border-radius: 16px;
+    box-shadow: 0 0 0 1px var(--line), inset 0 1px 0 rgba(255,255,255,.05), 0 16px 36px rgba(0,0,0,.6);
+  }
+  .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .cal-head .icon { background: var(--card); }
+  .cal-title { font-size: 13px; font-weight: 600; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; justify-items: center; }
+  .cal-grid .dow { font-size: 8.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 4px 0 6px; }
+  .cal-grid button {
+    width: 32px; height: 32px; padding: 0; border-radius: 50%; background: transparent; box-shadow: none;
+    font-family: var(--mono); font-size: 11.5px; font-weight: 500; color: var(--text); font-variant-numeric: tabular-nums;
+  }
+  .cal-grid button:hover { background: var(--card); filter: none; }
+  .cal-grid button.out { color: var(--muted); opacity: .45; }
+  .cal-grid button.today { box-shadow: inset 0 0 0 1px var(--muted); }
+  .cal-grid button.sel { background: var(--accent); color: var(--on-accent); box-shadow: var(--key); }
+  .cal-time { display: flex; align-items: center; gap: 4px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+  #editor .cal-time input { width: 40px; padding: 6px 0; text-align: center; background: var(--card); }
+  .cal-time .sep { font-family: var(--mono); color: var(--muted); }
+  .cal-time .spacer { flex: 1; }
+  .cal-time button { font-size: 11.5px; padding: 5px 12px; }
 
   /* shift keys: 26px circles with 12px triangles */
   .shift { display: flex; justify-content: space-between; }
@@ -255,8 +325,41 @@
 <div id="strip" hidden></div>
 
 <div class="help" id="help" hidden>
-  drag a card onto another card to swap · <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6 9.2 1.6v8.8z"/></svg> <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M9.8 6 2.8 1.6v8.8z"/></svg> shift this card and everything after it · click a frame # to preview the tags · scroll wheel pans
+  drag a card onto another card to swap · <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6 9.2 1.6v8.8z"/></svg> <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M9.8 6 2.8 1.6v8.8z"/></svg> shift this card and everything after it · double-click a log card to edit it · copy a card, then paste it into an empty slot · click a frame # to preview the tags · scroll wheel pans
 </div>
+
+<dialog id="editor">
+  <form id="editForm" method="dialog" autocomplete="off">
+    <h2><span id="editTitle"></span><span class="state" id="editState"></span></h2>
+    <div class="grid">
+      <label><span>frame #</span><input type="number" name="frame" min="0" step="1" required></label>
+      <label><span>zone</span><input type="text" name="tz"></label>
+      <label class="wide"><span>time (local, in that zone)</span>
+        <div class="dt">
+          <input type="text" name="local" placeholder="YYYY-MM-DD HH:MM:SS" spellcheck="false">
+          <button type="button" class="icon" id="calBtn" title="pick a date and time" aria-label="pick a date and time"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="2.4" width="9" height="8.1" rx="1.6"/><path d="M1.5 5.2h9M4 1.2v2.2M8 1.2v2.2"/></svg></button>
+          <div id="cal" hidden></div>
+        </div>
+      </label>
+      <label><span>latitude</span><input type="number" name="lat" step="any" min="-90" max="90"></label>
+      <label><span>longitude</span><input type="number" name="lon" step="any" min="-180" max="180"></label>
+      <label><span>altitude (m)</span><input type="number" name="alt" step="any"></label>
+      <label><span>accuracy (± m)</span><input type="number" name="acc" step="any" min="0"></label>
+      <label class="wide"><span>lens</span><input type="text" name="lens"></label>
+      <label><span>aperture</span><input type="text" name="aperture" placeholder="f/2.8"></label>
+      <label><span>shutter</span><input type="text" name="shutter" placeholder="1/250"></label>
+      <label class="wide"><span>notes</span><textarea name="notes" rows="2"></textarea></label>
+    </div>
+    <div id="editError"></div>
+    <div class="actions">
+      <button type="button" id="editDelete" class="danger" title="Remove this card (only cards made here)">Delete card</button>
+      <button type="button" id="editRevert" title="Put back the values from the log export">Revert to original</button>
+      <span class="spacer"></span>
+      <button type="button" id="editCancel">Cancel</button>
+      <button type="submit" class="primary" id="editSave">Save</button>
+    </div>
+  </form>
+</dialog>
 
 <div id="toast"></div>
 <div id="preview"><h3><span id="previewTitle"></span><span id="previewClose">✕</span></h3><pre id="previewBody"></pre></div>
@@ -268,6 +371,14 @@ const $ = (id) => document.getElementById(id);
 let S = null;          // session from /api/session
 let cols = [];         // [{scan: name|null, entry: id|null}]
 let results = {};      // scan name -> {ok, error}
+let clip = null;       // id of the copied card, pasted into an empty slot as a new card
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.detail ? (typeof j.detail === "string" ? j.detail : j.detail.map((d) => d.msg).join("; ")) : r.statusText);
+  return j;
+}
 
 /* ---------- setup screen ---------- */
 const REMEMBERED = { scans_dir: "fScans", log_path: "fLog", out_dir: "fOut", tz: "fTz" };
@@ -289,10 +400,8 @@ function showStrip() {
   $("setup").hidden = true;
   $("strip").hidden = false; $("help").hidden = false;
   for (const id of ["changeRoll", "autoPair", "reverse", "write"]) $(id).hidden = false;
-  $("autoPair").hidden = noLog();
   $("roll").textContent = S.roll;
-  $("meta").textContent = S.scans.length + " scans · " + (noLog() ? "no log" : S.entries.length + " frames") + (S.exiftool ? "" : " · exiftool missing");
-  results = {};
+  results = {}; clip = null;
   if (!restore()) autoPair(); else render();
 }
 
@@ -460,6 +569,31 @@ function el(tag, cls, text) {
 // Drawn rather than typed so the triangle's size doesn't depend on the font; nudged toward the point to sit optically centred.
 const TRI_L = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6 9.2 1.6v8.8z"/></svg>';
 const TRI_R = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M9.8 6 2.8 1.6v8.8z"/></svg>';
+const PENCIL = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M8.3 1.7l2 2L4.2 9.8 1.6 10.4l.6-2.6z"/></svg>';
+const COPY = '<svg viewBox="0 0 12 12" aria-hidden="true"><rect x="4.2" y="4.2" width="6.3" height="6.3" rx="1.2"/><path d="M7.8 2.4v-.2c0-.5-.4-.9-.9-.9H2.3c-.5 0-.9.4-.9.9v4.6c0 .5.4.9.9.9h.3"/></svg>';
+function iconButton(svg, label, onclick) {
+  const b = el("button", "icon"); b.innerHTML = svg; b.title = label; b.setAttribute("aria-label", label);
+  b.onclick = (ev) => { ev.stopPropagation(); onclick(); };
+  return b;
+}
+const STATE_TITLE = {
+  original: "as read from the log export",
+  edited: "changed here (the export file itself is untouched)",
+  added: "made here, not in the log export",
+};
+function stateChip(e) {
+  const st = el("span", "state " + e.status);
+  st.append(el("span", null, e.status === "added" ? e.added : e.status));
+  st.title = STATE_TITLE[e.status];
+  return st;
+}
+function cardFoot(e) {
+  const foot = el("div", "foot");
+  const copy = iconButton(COPY, clip === e.id ? "copied; paste it into an empty slot" : "copy this card", () => copyCard(e));
+  if (clip === e.id) copy.classList.add("on");
+  foot.append(stateChip(e), iconButton(PENCIL, "edit this card", () => openEditor(e.id)), copy);
+  return foot;
+}
 function labelled(cls, key, text) {   // a labelled line on a log card
   const r = el("div", cls); r.dataset.k = key;
   r.append(el("span", "v", text));
@@ -506,6 +640,9 @@ function render() {
   strip.innerHTML = "";
   const scanByName = Object.fromEntries(S.scans.map((s) => [s.name, s]));
   const entryById = Object.fromEntries(S.entries.map((e) => [e.id, e]));
+  if (clip != null && !(clip in entryById)) clip = null;
+  $("autoPair").hidden = !S.entries.length;
+  $("meta").textContent = S.scans.length + " scans · " + (noLog() && !S.entries.length ? "no log" : S.entries.length + " frames") + (S.exiftool ? "" : " · exiftool missing");
 
   cols.forEach((c, i) => {
     const col = el("div", "col");
@@ -526,11 +663,10 @@ function render() {
     }
     dragify(sc, "scan", i);
     col.append(shiftBar("scan", i), sc);
-    if (noLog()) { strip.append(col); return; }
 
-    // connector
-    const both = c.scan != null && c.entry != null;
-    const one = (c.scan != null) !== (c.entry != null);
+    // connector: without a log, a scan on its own still gets the roll-wide tags
+    const both = c.scan != null && (c.entry != null || noLog());
+    const one = !both && (c.scan != null || c.entry != null);
     const link = el("div", "link" + (both ? " paired" : one ? " half" : ""));
     link.append(el("div", "dot"));
     col.append(link);
@@ -539,20 +675,35 @@ function render() {
     const ec = el("div", "cell entry" + (c.entry == null ? " empty" : ""));
     if (c.entry != null) {
       const e = entryById[c.entry];
+      ec.classList.add(e.status);
       const fr = el("div", "frame"); fr.append(el("span", null, "#"), String(e.frame)); fr.title = "preview ExifTool tags";
       fr.onclick = () => showPreview(e);
-      const zone = labelled("zone" + (e.zone_source === "fallback" ? " fallback" : ""), "zone", e.zone + " (" + e.offset + ")");
-      zone.title = e.zone_source === "phone" ? "zone recorded by the phone when this frame was logged"
-                                             : "no zone recorded for this frame; using the fallback zone";
-      ec.append(fr, labelled("time", "time", e.local), zone);
+      const time = labelled("time", "time", e.local || "none");
+      if (!e.local) { time.firstChild.classList.add("none"); time.title = "no time: date tags are left alone"; }
+      ec.append(fr, time);
+      if (e.local) {
+        const zone = labelled("zone" + (e.zone_source === "fallback" ? " fallback" : ""), "zone", e.zone + " (" + e.offset + ")");
+        zone.title = e.zone_source === "phone" ? "zone recorded with this frame"
+                                               : "no zone recorded for this frame; using the fallback zone";
+        ec.append(zone);
+      }
       const gear = [e.lens, e.aperture, e.shutter].filter(Boolean).join(" · ");
       if (gear) ec.append(labelled("gear", "lens", gear));
       if (e.notes) ec.append(labelled("notes", "note", e.notes));
       const gps = el("span", "pill gps " + (e.lat != null ? "yes" : "warn"), e.lat != null ? "GPS" : "no GPS");
       if (e.lat != null) gps.title = e.lat.toFixed(5) + ", " + e.lon.toFixed(5) + (e.acc != null ? " ±" + e.acc + " m" : "");
-      ec.append(gps);
+      ec.append(gps, cardFoot(e));
+      ec.ondblclick = () => openEditor(e.id);
     } else {
-      ec.textContent = "no log entry";
+      ec.append(el("span", null, noLog() ? "roll-wide tags only" : "no log entry"));
+      const make = el("div", "make");
+      const add = el("button", null, "New"); add.title = "make a card for this slot from scratch";
+      add.onclick = () => openEditor(null, i);
+      const paste = el("button", null, "Paste");
+      paste.disabled = clip == null;
+      paste.title = clip == null ? "copy a card first" : "paste a copy of #" + entryById[clip].frame + " here";
+      paste.onclick = () => pasteCard(i);
+      make.append(add, paste); ec.append(make);
     }
     dragify(ec, "entry", i);
     col.append(ec, shiftBar("entry", i));
@@ -566,15 +717,186 @@ function renderStats() {
   const p = pairs().length;
   $("write").disabled = !S.exiftool || p === 0;
   $("write").title = S.exiftool ? "Write metadata into " + p + " scan(s)" : "exiftool not found; restart with --exiftool <path>";
-  if (noLog()) { $("stats").innerHTML = "<b>" + p + "</b> scans · roll-wide tags only"; return; }
-  const scansUn = cols.filter((c) => c.scan != null && c.entry == null).length;
+  const edited = S.entries.filter((e) => e.status === "edited").length;
+  const added = S.entries.filter((e) => e.status === "added").length;
+  const changes = (edited ? " · " + edited + " edited" : "") + (added ? " · " + added + " added" : "");
   const entriesUn = cols.filter((c) => c.entry != null && c.scan == null).length;
-  const fallback = S.entries.filter((e) => e.zone_source === "fallback").length;
+  const unpaired = entriesUn ? ' · <span class="warn">' + entriesUn + " card" + (entriesUn > 1 ? "s" : "") + " without scan</span>" : "";
+  if (noLog()) { $("stats").innerHTML = "<b>" + p + "</b> scans" + (S.entries.length ? "" : " · roll-wide tags only") + changes + unpaired; return; }
+  const scansUn = cols.filter((c) => c.scan != null && c.entry == null).length;
+  const fallback = S.entries.filter((e) => e.local && e.zone_source === "fallback").length;
   $("stats").innerHTML =
-    "<b>" + p + "</b> paired" +
+    "<b>" + p + "</b> paired" + changes +
     (scansUn ? ' · <span class="warn">' + scansUn + " scan" + (scansUn > 1 ? "s" : "") + " without log</span>" : "") +
     (entriesUn ? ' · <span class="warn">' + entriesUn + " log entr" + (entriesUn > 1 ? "ies" : "y") + " without scan</span>" : "") +
     (fallback ? ' · <span class="warn" title="these frames were logged before the phone recorded its zone">' + fallback + " frame" + (fallback > 1 ? "s" : "") + " on fallback zone " + S.tz + "</span>" : "");
+}
+
+/* ---------- cards: edit, copy/paste, new ---------- */
+// editor input name -> card field (the time is edited as local wall-clock in the card's zone)
+const EDIT_FIELDS = { frame: "frame", tz: "tz", local: "local_iso", lat: "lat", lon: "lon", alt: "alt", acc: "acc",
+                      lens: "lens", aperture: "aperture", shutter: "shutter", notes: "notes" };
+let editing = null;    // {id: card id, or null for a new card; col: slot a new card goes into}
+
+function newCardDefaults(col) {
+  // Carry the gear (and zone and time, as a starting point) over from the card before this slot, like the phone does.
+  const byId = Object.fromEntries(S.entries.map((e) => [e.id, e]));
+  let prev = null;
+  for (let k = col - 1; k >= 0 && !prev; k--) if (cols[k].entry != null) prev = byId[cols[k].entry];
+  return { status: "added", added: "new", frame: prev ? prev.frame + 1 : col + 1, tz: prev ? prev.tz : "",
+           local_iso: prev ? prev.local_iso : "", lat: null, lon: null, alt: null, acc: null,
+           lens: prev ? prev.lens : "", aperture: prev ? prev.aperture : "", shutter: prev ? prev.shutter : "", notes: "" };
+}
+function openEditor(id, col) {
+  const e = id != null ? S.entries.find((x) => x.id === id) : newCardDefaults(col);
+  editing = { id, col };
+  const f = $("editForm").elements;
+  const shown = (key, v) => (key === "local_iso" && v ? v.replace("T", " ") : v);   // the time field reads "YYYY-MM-DD HH:MM:SS"
+  closeCal();
+  for (const [name, key] of Object.entries(EDIT_FIELDS)) {
+    const input = f[name], label = input.closest("label");
+    input.value = shown(key, e[key]) ?? "";
+    label.classList.remove("changed");
+    label.querySelector(".was")?.remove();
+    if (e.orig && (e.orig[key] ?? "") !== (e[key] ?? "")) {
+      label.classList.add("changed");
+      const was = el("span", "was", "was: " + (e.orig[key] === "" || e.orig[key] == null ? "(blank)" : shown(key, e.orig[key])));
+      was.title = was.textContent;
+      label.append(was);
+    }
+  }
+  f.tz.placeholder = S.tz + " (fallback)";
+  $("editTitle").textContent = id == null ? "new card" : "frame #" + e.frame;
+  $("editState").replaceWith(Object.assign(stateChip(e), { id: "editState" }));
+  $("editRevert").hidden = e.status !== "edited";
+  $("editDelete").hidden = e.status !== "added" || id == null;
+  $("editSave").textContent = id == null ? "Add card" : "Save";
+  $("editError").textContent = "";
+  $("editor").showModal();
+  f.frame.focus();
+}
+function cardsChanged(j) {
+  S = j;
+  $("preview").style.display = "none";   // it may show a card's old values
+  normalize(); render();
+}
+async function saveCard(ev) {
+  ev.preventDefault();
+  const f = $("editForm").elements;
+  const num = (v) => (v.trim() === "" ? null : Number(v));
+  const fields = {
+    frame: parseInt(f.frame.value, 10), local: f.local.value.trim().replace(" ", "T"), tz: f.tz.value.trim(),
+    lat: num(f.lat.value), lon: num(f.lon.value), alt: num(f.alt.value), acc: num(f.acc.value),
+    lens: f.lens.value, aperture: f.aperture.value, shutter: f.shutter.value, notes: f.notes.value,
+  };
+  const { id, col } = editing;
+  $("editSave").disabled = true;
+  try {
+    const j = id == null ? await api("POST", "/api/entries", { fields }) : await api("PUT", "/api/entries/" + id, fields);
+    if (id == null) cols[col].entry = j.created;
+    $("editor").close(); cardsChanged(j);
+  } catch (e) {
+    $("editError").textContent = e.message;
+  } finally {
+    $("editSave").disabled = false;
+  }
+}
+async function editAction(method, suffix, question) {
+  if (question && !confirm(question)) return;
+  const { id } = editing;
+  try {
+    const j = await api(method, "/api/entries/" + id + suffix);
+    if (method === "DELETE") cols.forEach((c) => { if (c.entry === id) c.entry = null; });
+    $("editor").close(); cardsChanged(j);
+  } catch (e) {
+    $("editError").textContent = e.message;
+  }
+}
+/* date/time picker for the editor's time field, which stays typeable */
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const CHEV_L = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M7.4 2.4 3.8 6l3.6 3.6"/></svg>';
+const CHEV_R = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4.6 2.4 8.2 6 4.6 9.6"/></svg>';
+const pad2 = (n) => String(n).padStart(2, "0");
+let cal = null;        // {y, m: month shown; sel: {y, m, d, hh, mm, ss}} while the picker is open
+
+function parseLocal(s) {
+  const m = s.trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/);
+  if (!m) return null;
+  return { y: +m[1], m: +m[2] - 1, d: +m[3], hh: +(m[4] || 0), mm: +(m[5] || 0), ss: +(m[6] || 0) };
+}
+function writeLocal() {
+  const s = cal.sel;
+  $("editForm").elements.local.value = s.y + "-" + pad2(s.m + 1) + "-" + pad2(s.d) + " " + pad2(s.hh) + ":" + pad2(s.mm) + ":" + pad2(s.ss);
+}
+function openCal() {
+  const now = new Date();
+  const sel = parseLocal($("editForm").elements.local.value) ||
+              { y: now.getFullYear(), m: now.getMonth(), d: now.getDate(), hh: 12, mm: 0, ss: 0 };
+  cal = { y: sel.y, m: sel.m, sel };
+  renderCal(); $("cal").hidden = false;
+}
+function closeCal() { cal = null; $("cal").hidden = true; }
+function renderCal() {
+  const box = $("cal"), { y, m, sel } = cal;
+  const head = el("div", "cal-head");
+  const nav = (svg, label, dm) => iconButton(svg, label, () => {
+    const d = new Date(cal.y, cal.m + dm, 1); cal.y = d.getFullYear(); cal.m = d.getMonth(); renderCal();
+  });
+  head.append(nav(CHEV_L, "previous month", -1), el("span", "cal-title", MONTHS[m] + " " + y), nav(CHEV_R, "next month", +1));
+
+  const grid = el("div", "cal-grid");
+  for (const d of ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]) grid.append(el("span", "dow", d));
+  const first = new Date(y, m, 1), today = new Date();
+  for (let k = 0; k < 42; k++) {   // six weeks, starting on the Sunday on or before the 1st
+    const day = new Date(y, m, 1 - first.getDay() + k);
+    const b = el("button", null, String(day.getDate())); b.type = "button";
+    if (day.getMonth() !== m) b.classList.add("out");
+    if (day.toDateString() === today.toDateString()) b.classList.add("today");
+    if (day.getFullYear() === sel.y && day.getMonth() === sel.m && day.getDate() === sel.d) b.classList.add("sel");
+    b.onclick = (ev) => {
+      ev.preventDefault();
+      Object.assign(sel, { y: day.getFullYear(), m: day.getMonth(), d: day.getDate() });
+      cal.y = sel.y; cal.m = sel.m; writeLocal(); renderCal();
+    };
+    grid.append(b);
+  }
+
+  const time = el("div", "cal-time");
+  const part = (key, max, label) => {
+    const inp = el("input"); inp.type = "text"; inp.inputMode = "numeric"; inp.maxLength = 2; inp.value = pad2(sel[key]);
+    inp.setAttribute("aria-label", label);
+    const set = (v) => { sel[key] = Math.min(max, Math.max(0, v)); writeLocal(); };
+    inp.oninput = () => { const v = parseInt(inp.value, 10); if (!isNaN(v)) set(v); };
+    inp.onblur = () => { inp.value = pad2(sel[key]); };
+    inp.onkeydown = (ev) => {   // arrows step, wrapping around like a clock
+      if (ev.key !== "ArrowUp" && ev.key !== "ArrowDown") return;
+      ev.preventDefault();
+      set((sel[key] + (ev.key === "ArrowUp" ? 1 : -1) + max + 1) % (max + 1)); inp.value = pad2(sel[key]);
+    };
+    inp.onfocus = () => inp.select();
+    return inp;
+  };
+  const done = el("button", "primary", "Done"); done.type = "button"; done.onclick = closeCal;
+  const clear = el("button", null, "Clear"); clear.type = "button"; clear.title = "no time: leave the scan's date tags alone";
+  clear.onclick = () => { $("editForm").elements.local.value = ""; closeCal(); };
+  time.append(part("hh", 23, "hours"), el("span", "sep", ":"), part("mm", 59, "minutes"), el("span", "sep", ":"),
+              part("ss", 59, "seconds"), el("span", "spacer"), clear, done);
+  box.replaceChildren(head, grid, time);
+}
+
+function copyCard(e) {
+  clip = e.id;
+  toast("copied #" + e.frame + ": Paste it into an empty slot (▶ opens one)");
+  render();
+}
+async function pasteCard(col) {
+  try {
+    const j = await api("POST", "/api/entries", { copy_of: clip });
+    cols[col].entry = j.created;
+    cardsChanged(j);
+  } catch (e) {
+    toast("paste failed: " + e.message, true);
+  }
 }
 
 /* ---------- preview + toast ---------- */
@@ -629,7 +951,23 @@ async function boot() {
     $("rReverse").setAttribute("aria-pressed", $("rReverse").getAttribute("aria-pressed") === "true" ? "false" : "true");
     schedulePreview();
   };
-  $("changeRoll").onclick = async () => { S = await (await fetch("/api/unload", { method: "POST" })).json(); showSetup(); };
+  $("changeRoll").onclick = async () => {
+    const touched = S.entries.filter((e) => e.status !== "original").length;
+    if (touched && !confirm(touched + " card(s) edited or added here will be lost. Change roll anyway?")) return;
+    S = await (await fetch("/api/unload", { method: "POST" })).json(); showSetup();
+  };
+  $("editForm").addEventListener("submit", saveCard);
+  $("editCancel").onclick = () => $("editor").close();
+  $("calBtn").onclick = (ev) => { ev.preventDefault(); cal ? closeCal() : openCal(); };
+  $("editForm").elements.local.addEventListener("input", () => {   // typing moves an open picker along
+    const p = cal && parseLocal($("editForm").elements.local.value);
+    if (p) { cal = { y: p.y, m: p.m, sel: p }; renderCal(); }
+  });
+  $("editor").addEventListener("cancel", (ev) => { if (cal) { ev.preventDefault(); closeCal(); } });   // Esc closes the picker first
+  $("editor").addEventListener("mousedown", (ev) => { if (cal && !ev.target.closest(".dt")) closeCal(); });
+  $("cal").addEventListener("click", (ev) => ev.preventDefault());   // it sits inside a <label>: don't bounce focus to the text field
+  $("editRevert").onclick = () => editAction("POST", "/revert");
+  $("editDelete").onclick = () => editAction("DELETE", "", "Delete this card?");
   $("autoPair").onclick = () => { if (confirm("Reset all pairing to positional order?")) autoPair(); };
   $("reverse").onclick = reverseScans;
   $("write").onclick = write;
