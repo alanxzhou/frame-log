@@ -2,7 +2,8 @@
 
 Lifecycle: the app starts with no roll loaded. The UI shows a setup screen
 whose pickers call /api/pick (native dialogs) and whose Load button posts to
-/api/load, which builds a Session. The strip endpoints need a Session and
+/api/load, which builds a Session. The log export is optional: without one the
+strip holds only scans, and Write gives each the roll-wide tags. The strip endpoints need a Session and
 answer 409 until one exists.
 """
 
@@ -31,7 +32,7 @@ STATIC = Path(__file__).parent / "static"
 @dataclass
 class Session:
     scans_dir: Path
-    log_path: Path
+    log_path: Optional[Path]             # None: no export, roll-wide tags only
     out_dir: Path
     in_place: bool
     scans: list[ScanInfo]
@@ -53,8 +54,8 @@ class AppState:
 
 
 class Pair(BaseModel):
-    scan: str    # scan filename
-    entry: int   # index into session.entries
+    scan: str                    # scan filename
+    entry: Optional[int] = None  # index into session.entries; None writes roll-wide tags only
 
 
 class WriteRequest(BaseModel):
@@ -69,11 +70,10 @@ class PickRequest(BaseModel):
 
 class LoadRequest(BaseModel):
     scans_dir: str
-    log_path: str
-    out_dir: str = ""    # default <scans_dir>/tagged
-    in_place: bool = False
+    log_path: str = ""   # optional
+    out_dir: str = ""    # default: write into the original scans
     tz: str = ""         # fallback zone; default: the machine's
-    roll: str = ""       # default: name stored in the export
+    roll: str = ""       # default: name stored in the export, else the scans folder's
     camera: str = ""
     make: str = ""
     film: str = ""
@@ -90,10 +90,10 @@ class RenameRequest(BaseModel):
 def build_session(req: LoadRequest, default_tz: str) -> Session:
     """Validate a LoadRequest and turn it into a Session. Raises ValueError with a user-facing message."""
     scans_dir = Path(req.scans_dir).expanduser()
-    log_path = Path(req.log_path).expanduser()
+    log_path = Path(req.log_path).expanduser() if req.log_path.strip() else None
     if not scans_dir.is_dir():
         raise ValueError(f"scans folder not found: {scans_dir}")
-    if not log_path.is_file():
+    if log_path and not log_path.is_file():
         raise ValueError(f"log file not found: {log_path}")
     tz_name = req.tz.strip() or default_tz
     try:
@@ -101,18 +101,18 @@ def build_session(req: LoadRequest, default_tz: str) -> Session:
     except (ZoneInfoNotFoundError, ValueError):
         raise ValueError(f"unknown time zone {tz_name!r}; use an IANA name like America/New_York")
     try:
-        log = read_log(log_path)
+        log = read_log(log_path) if log_path else None
     except LogFormatError as e:
         raise ValueError(str(e))
     scans = list_scans(scans_dir)
     if not scans:
         raise ValueError(f"no JPEGs in {scans_dir}")
-    out_dir = scans_dir if req.in_place else (Path(req.out_dir).expanduser() if req.out_dir.strip()
-                                              else scans_dir / "tagged")
-    ctx = TagContext(tz=tz, roll=req.roll.strip() or log.name, camera=req.camera.strip(),
-                     make=req.make.strip(), film=req.film.strip(), iso=req.iso)
-    return Session(scans_dir=scans_dir, log_path=log_path, out_dir=out_dir, in_place=req.in_place,
-                   scans=scans, entries=log.entries, ctx=ctx, tz_name=tz_name)
+    out_dir = Path(req.out_dir).expanduser() if req.out_dir.strip() else scans_dir
+    in_place = out_dir.resolve() == scans_dir.resolve()
+    ctx = TagContext(tz=tz, roll=req.roll.strip() or (log.name if log else scans_dir.name),
+                     camera=req.camera.strip(), make=req.make.strip(), film=req.film.strip(), iso=req.iso)
+    return Session(scans_dir=scans_dir, log_path=log_path, out_dir=out_dir, in_place=in_place,
+                   scans=scans, entries=log.entries if log else [], ctx=ctx, tz_name=tz_name)
 
 
 def session_payload(state: AppState) -> dict:
@@ -142,7 +142,7 @@ def session_payload(state: AppState) -> dict:
         "roll": s.ctx.roll,
         "tz": s.tz_name,
         "scans_dir": str(s.scans_dir),
-        "log_path": str(s.log_path),
+        "log_path": str(s.log_path) if s.log_path else "",
         "out_dir": str(s.out_dir),
         "in_place": s.in_place,
         "scans": [sc.to_dict() for sc in s.scans],
@@ -176,7 +176,7 @@ def create_app(state: AppState) -> FastAPI:
             state.session = build_session(req, state.default_tz)
         except ValueError as e:
             raise HTTPException(400, str(e))
-        state.remembered = {**req.model_dump(exclude={"roll"}), "iso": req.iso}
+        state.remembered = req.model_dump(include=set(config.FIELDS))
         config.save(state.remembered)
         return session_payload(state)
 
@@ -246,9 +246,9 @@ def create_app(state: AppState) -> FastAPI:
             scan = s.scan_by_name(p.scan)
             if scan is None:
                 raise HTTPException(400, f"unknown scan {p.scan!r}")
-            if not 0 <= p.entry < len(s.entries):
+            if p.entry is not None and not 0 <= p.entry < len(s.entries):
                 raise HTTPException(400, f"unknown entry {p.entry}")
-            jobs.append((scan, p.entry, s.entries[p.entry]))
+            jobs.append((scan, p.entry, None if p.entry is None else s.entries[p.entry]))
 
         def run(job):
             scan, idx, entry = job
