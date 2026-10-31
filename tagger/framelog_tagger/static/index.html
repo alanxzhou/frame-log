@@ -48,6 +48,9 @@
   header h1 span { font-weight: 500; color: var(--muted); }
   header .roll { font-weight: 600; }
   header .meta { color: var(--muted); font-size: 12px; }
+  header .tags { display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; font-size: 12px; cursor: help; }
+  header .tags b { font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: .04em; color: var(--muted); margin-right: 5px; }
+  header .tags .unset { color: var(--muted); opacity: .6; }
   header .spacer { flex: 1; }
   button {
     font: inherit; font-size: 12.5px; font-weight: 600; line-height: 1.3; white-space: nowrap;
@@ -251,6 +254,7 @@
   <h1>Frame Log <span>tagger</span></h1>
   <span class="roll" id="roll"></span>
   <span class="meta" id="meta"></span>
+  <span class="tags" id="tags" hidden title="Written into every scan's metadata on Write. Set them on the setup screen (Change roll)."></span>
   <span class="spacer"></span>
   <span class="stats" id="stats"></span>
   <button id="changeRoll" hidden title="Back to the setup screen">Change roll</button>
@@ -280,7 +284,7 @@
       <div class="hint">Leave empty to write the tags into the original scans. Pick a folder to write tagged copies there instead.</div>
     </div>
 
-    <h2>Camera &amp; film <span style="color:var(--muted);font-weight:normal;letter-spacing:0;text-transform:none">(optional, applied to every frame)</span></h2>
+    <h2>Camera &amp; film <span style="color:var(--muted);font-weight:normal;letter-spacing:0;text-transform:none">(optional, written to every frame's metadata)</span></h2>
     <div class="row2">
       <div class="field"><label for="fMake">make</label><input type="text" id="fMake"><span></span></div>
       <div class="field"><label for="fCamera">camera</label><input type="text" id="fCamera"><span></span></div>
@@ -392,7 +396,7 @@ function showSetup() {
   $("setup").hidden = false;
   $("strip").hidden = true; $("help").hidden = true;
   for (const id of ["changeRoll", "autoPair", "reverse", "write"]) $(id).hidden = true;
-  $("roll").textContent = ""; $("meta").textContent = ""; $("stats").textContent = "";
+  $("roll").textContent = ""; $("meta").textContent = ""; $("stats").textContent = ""; $("tags").hidden = true;
   $("preview").style.display = "none";
   onScansChanged();
 }
@@ -401,8 +405,21 @@ function showStrip() {
   $("strip").hidden = false; $("help").hidden = false;
   for (const id of ["changeRoll", "autoPair", "reverse", "write"]) $(id).hidden = false;
   $("roll").textContent = S.roll;
+  renderTags();
   results = {}; clip = null;
   if (!restore()) autoPair(); else render();
+}
+
+// The roll-wide values Write puts into every scan's metadata.
+function renderTags() {
+  const tags = $("tags");
+  tags.innerHTML = "";
+  for (const [tag, v] of [["Make", S.make], ["Camera", S.camera], ["Film", S.film], ["ISO", S.iso]]) {
+    const item = el("span", v ? null : "unset");
+    item.append(el("b", null, tag), document.createTextNode(v || "not set"));
+    tags.append(item);
+  }
+  tags.hidden = false;
 }
 
 async function pickInto(kind, inputId) {

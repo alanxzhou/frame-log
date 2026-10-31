@@ -82,6 +82,7 @@ def test_load_builds_session_and_resolves_zones(env):
     assert r.status_code == 200, r.text
     j = r.json()
     assert j["loaded"] and j["roll"] == "Test roll" and j["tz"] == "America/New_York"
+    assert (j["make"], j["camera"], j["film"], j["iso"]) == ("", "FM2", "", 400)
     assert [s["name"] for s in j["scans"]] == ["1.jpg", "2.jpg", "10.jpg"]
     assert Path(j["out_dir"]) == env["scans"] and j["in_place"]
     e0, e1 = j["entries"]
