@@ -160,7 +160,8 @@ def create_app(state: AppState) -> FastAPI:
 
     @app.get("/")
     def index():
-        return FileResponse(STATIC / "index.html")
+        # no-cache: revalidate on every load, so a pulled update shows without a hard refresh
+        return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/session")
     def get_session():

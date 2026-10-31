@@ -73,7 +73,8 @@ def test_unloaded_session_and_409s(env):
     assert c.get("/api/thumb/1.jpg").status_code == 409
     assert c.get("/api/preview/0").status_code == 409
     assert c.post("/api/write", json={"pairs": []}).status_code == 409
-    assert c.get("/").status_code == 200
+    page = c.get("/")
+    assert page.status_code == 200 and page.headers["cache-control"] == "no-cache"
 
 
 def test_load_builds_session_and_resolves_zones(env):
