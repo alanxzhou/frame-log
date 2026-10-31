@@ -9,6 +9,11 @@ answer 409 until one exists.
 Cards (log entries) can be edited, copied and made from scratch in the UI. Each
 keeps a stable id; cards read from the export keep their original values so the
 UI can mark them original/edited and revert them. None of this touches the export.
+
+Keywords: each scan's own keywords live in the UI (like the pairing) and come in
+with Write and preview. The roll's (make + camera, film) are added to every scan.
+The library of every keyword used is kept on disk; /api/keywords adds to and
+prunes it.
 """
 
 from __future__ import annotations
@@ -20,13 +25,14 @@ from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from . import config
 from .dialogs import pick as native_pick
 from .exif import ExifToolError, TagContext, build_args, resolve_zone, write_tags
+from .keywords import Library, merge, roll_keywords
 from .log import LogEntry, LogFormatError, read_log
 from .rename import apply_rename, detect_name, plan_rename
 from .scans import ScanInfo, ThumbnailCache, list_scans
@@ -79,11 +85,13 @@ class AppState:
     default_tz: str                      # this machine's zone, offered as the fallback
     session: Optional[Session] = None
     remembered: dict = field(default_factory=dict)
+    library: Library = field(default_factory=Library)
 
 
 class Pair(BaseModel):
     scan: str                    # scan filename
     entry: Optional[int] = None  # index into session.entries; None writes roll-wide tags only
+    keywords: list[str] = []     # this scan's own keywords, on top of the roll's
 
 
 class WriteRequest(BaseModel):
@@ -108,6 +116,11 @@ class CardFields(BaseModel):
 class NewCard(BaseModel):
     copy_of: Optional[int] = None        # paste: duplicate this card's current values
     fields: Optional[CardFields] = None  # from scratch (ignored with copy_of)
+
+
+class KeywordsRequest(BaseModel):
+    add: list[str] = []      # into the library, marked used now
+    remove: list[str] = []   # out of the library (scans keep theirs)
 
 
 class PickRequest(BaseModel):
@@ -158,7 +171,8 @@ def build_session(req: LoadRequest, default_tz: str) -> Session:
     out_dir = Path(req.out_dir).expanduser() if req.out_dir.strip() else scans_dir
     in_place = out_dir.resolve() == scans_dir.resolve()
     ctx = TagContext(tz=tz, roll=req.roll.strip() or (log.name if log else scans_dir.name),
-                     camera=req.camera.strip(), make=req.make.strip(), film=req.film.strip(), iso=req.iso)
+                     camera=req.camera.strip(), make=req.make.strip(), film=req.film.strip(), iso=req.iso,
+                     keywords=roll_keywords(req.make, req.camera, req.film))
     entries = dict(enumerate(log.entries)) if log else {}
     return Session(scans_dir=scans_dir, log_path=log_path, out_dir=out_dir, in_place=in_place,
                    scans=scans, entries=entries, originals=dict(entries), ctx=ctx, tz_name=tz_name)
@@ -212,6 +226,8 @@ def session_payload(state: AppState) -> dict:
         "exiftool": state.exiftool,
         "default_tz": state.default_tz,
         "remembered": state.remembered,
+        "keywords": state.library.to_list(),
+        "keywords_file": str(state.library.path),
     }
     if s is None:
         return base
@@ -227,6 +243,7 @@ def session_payload(state: AppState) -> dict:
         "camera": s.ctx.camera,
         "film": s.ctx.film,
         "iso": s.ctx.iso,
+        "roll_keywords": s.ctx.keywords,
         "tz": s.tz_name,
         "scans_dir": str(s.scans_dir),
         "log_path": str(s.log_path) if s.log_path else "",
@@ -266,7 +283,19 @@ def create_app(state: AppState) -> FastAPI:
             raise HTTPException(400, str(e))
         state.remembered = req.model_dump(include=set(config.FIELDS))
         config.save(state.remembered)
+        # keywords already in the scans (an earlier Write, another app) join the library
+        found = [kw for sc in state.session.scans for kw in sc.keywords]
+        if found:
+            state.library.add(found, touch=False)
+            state.library.save()
         return session_payload(state)
+
+    @app.post("/api/keywords")
+    def keywords(req: KeywordsRequest):
+        state.library.add(req.add)
+        state.library.remove(req.remove)
+        state.library.save()
+        return {"keywords": state.library.to_list()}
 
     def rename_plan(req: RenameRequest):
         try:
@@ -316,11 +345,15 @@ def create_app(state: AppState) -> FastAPI:
         return Response(data, media_type="image/jpeg",
                         headers={"Cache-Control": "private, max-age=3600"})
 
+    def scan_args(s: Session, scan: Optional[ScanInfo], entry: Optional[LogEntry], kws: list[str]) -> list[str]:
+        # A scan that has keywords and is given none (and no roll ones) gets them cleared, as you'd expect.
+        return build_args(entry, s.ctx, kws, clear_keywords=bool(scan and scan.keywords))
+
     @app.get("/api/preview/{entry}")
-    def preview(entry: int):
-        """The ExifTool assignments that Write would apply for one entry."""
+    def preview(entry: int, scan: str = "", kw: list[str] = Query(default=[])):
+        """The ExifTool assignments that Write would apply for one entry, paired with `scan` carrying keywords `kw`."""
         s = need_session()
-        return {"args": build_args(s.entry(entry), s.ctx)}
+        return {"args": scan_args(s, s.scan_by_name(scan), s.entry(entry), kw)}
 
     @app.post("/api/entries")
     def create_entry(req: NewCard):
@@ -378,20 +411,27 @@ def create_app(state: AppState) -> FastAPI:
                 raise HTTPException(400, f"unknown scan {p.scan!r}")
             if p.entry is not None and p.entry not in s.entries:
                 raise HTTPException(400, f"unknown entry {p.entry}")
-            jobs.append((scan, p.entry, None if p.entry is None else s.entries[p.entry]))
+            jobs.append((scan, p.entry, None if p.entry is None else s.entries[p.entry], p.keywords))
 
         def run(job):
-            scan, idx, entry = job
+            scan, idx, entry, kws = job
             dst = scan.path if s.in_place else s.out_dir / scan.name
             try:
-                write_tags(state.exiftool, scan.path, dst, build_args(entry, s.ctx))
+                write_tags(state.exiftool, scan.path, dst, scan_args(s, scan, entry, kws))
                 scan.tagged = True
-                return {"scan": scan.name, "entry": idx, "ok": True, "path": str(dst)}
+                written = merge(s.ctx.keywords, kws)
+                if s.in_place:   # copies start from the original each time, so only then has the file changed
+                    scan.keywords = written
+                return {"scan": scan.name, "entry": idx, "ok": True, "path": str(dst), "keywords": written}
             except (ExifToolError, OSError) as e:
                 return {"scan": scan.name, "entry": idx, "ok": False, "error": str(e)}
 
         with ThreadPoolExecutor(max_workers=4) as pool:
             results = list(pool.map(run, jobs))
-        return {"results": results, "written": sum(r["ok"] for r in results)}
+        for r in results:
+            if r["ok"]:
+                state.library.add(r.pop("keywords"), written=1)
+        state.library.save()
+        return {"results": results, "written": sum(r["ok"] for r in results), "keywords": state.library.to_list()}
 
     return app

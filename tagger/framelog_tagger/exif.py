@@ -8,9 +8,10 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from .keywords import merge
 from .log import LogEntry
 
 
@@ -51,6 +52,7 @@ class TagContext:
     make: str = ""              # -> Make
     film: str = ""              # free text, recorded in UserComment
     iso: Optional[int] = None   # film speed -> ISO
+    keywords: list[str] = field(default_factory=list)    # roll-wide keywords, e.g. ["Nikon FE", "Portra 400"]
     extra_args: list[str] = field(default_factory=list)  # passthrough, e.g. ['-Artist=Alan']
 
 
@@ -76,10 +78,13 @@ def resolve_zone(entry: LogEntry, ctx: TagContext) -> tuple[ZoneInfo, str]:
     return ctx.tz, "fallback"
 
 
-def build_args(entry: Optional[LogEntry], ctx: TagContext) -> list[str]:
+def build_args(entry: Optional[LogEntry], ctx: TagContext, keywords: Sequence[str] = (),
+               clear_keywords: bool = False) -> list[str]:
     """ExifTool tag assignments for one frame. No file paths, no -o/-overwrite.
 
     With no entry (a scan with no log behind it) only the roll-wide tags are written.
+    `keywords` are this scan's own, written after the roll's; together they replace the
+    file's keywords. With none at all the file's are left alone, unless `clear_keywords`.
     """
     args = _frame_args(entry, ctx) if entry else []
 
@@ -97,6 +102,13 @@ def build_args(entry: Optional[LogEntry], ctx: TagContext) -> list[str]:
         comment_bits.append(f"film: {ctx.film}")
     if comment_bits:
         args.append("-UserComment=" + " | ".join(comment_bits))
+
+    kws = merge(ctx.keywords, keywords)
+    if kws:
+        # One assignment per keyword (so commas never split one); together they replace the existing list.
+        args += [f"-XMP-dc:Subject={kw}" for kw in kws]
+    elif clear_keywords:
+        args.append("-XMP-dc:Subject=")
 
     args += ctx.extra_args
     return args

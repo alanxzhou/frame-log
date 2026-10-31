@@ -123,12 +123,16 @@
   .pill.warn::before { background: var(--warn); box-shadow: 0 0 5px var(--warn); }
   .pill.err::before { background: var(--danger); box-shadow: 0 0 5px var(--danger); }
 
-  .scan { height: 190px; display: flex; flex-direction: column; padding: 6px 6px 0; }
+  .scan { height: 206px; display: flex; flex-direction: column; padding: 6px 6px 0; cursor: pointer; }
+  .scan.sel { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .scan.sel .name { color: var(--text); }
   .scan img { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: var(--img); border-radius: 9px; pointer-events: none; }
-  .scan .name { font-family: var(--mono); font-size: 10.5px; padding: 5px 2px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .scan .name { font-family: var(--mono); font-size: 10.5px; padding: 5px 2px 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .scan .kws { font-size: 11px; line-height: 16px; height: 16px; padding: 0 2px 4px; box-sizing: content-box; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .scan .kws:empty::before { content: "no keywords"; color: var(--muted); opacity: .5; }
   .scan .badge, .scan .result { background: rgba(0,0,0,.6); backdrop-filter: blur(6px); }
   .scan .badge { top: 12px; left: 12px; }
-  .scan .result { bottom: 32px; right: 12px; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; }
+  .scan .result { bottom: 48px; right: 12px; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; }
   .scan.empty { padding: 0; align-items: center; justify-content: center; color: var(--muted); font-size: 11.5px; }
 
   .link { height: 22px; display: flex; align-items: center; justify-content: center; position: relative; }
@@ -228,6 +232,71 @@
   .shift button:disabled { opacity: .35; box-shadow: none; cursor: default; }
   .shift svg { width: 12px; height: 12px; fill: currentColor; display: block; }
 
+  /* ---- keywords: a tag box for the selected scans, numbered suggestions, the roll's own ---- */
+  #kwPanel { background: var(--panel); box-shadow: 0 -1px 0 var(--line); padding: 10px 16px 9px; display: flex; flex-direction: column; gap: 8px; }
+  .kw-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .kw-label { flex: none; width: 74px; font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .kw-box {
+    flex: 1; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 5px; position: relative;
+    background: var(--input); border: 1px solid var(--line); border-radius: 12px; padding: 4px 6px; min-height: 34px;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,.35); cursor: text;
+  }
+  .kw-box:focus-within { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .kw-box.off { cursor: default; }
+  .kw-sel { flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--muted); padding: 0 4px; white-space: nowrap; }
+  .kw-box input { flex: 1; min-width: 140px; font: inherit; font-size: 12.5px; background: none; border: 0; outline: 0; color: var(--text); padding: 3px 4px; }
+  .kw-box input::placeholder { color: var(--muted); }
+  .kw {
+    display: inline-flex; align-items: center; gap: 5px; max-width: 260px; font-size: 12px; font-weight: 500; line-height: 1.3;
+    background: var(--raised); color: var(--text); border-radius: 999px; padding: 3px 4px 3px 10px; box-shadow: var(--key); white-space: nowrap;
+  }
+  .kw > span { overflow: hidden; text-overflow: ellipsis; }
+  .kw .n { font-family: var(--mono); font-size: 9.5px; color: var(--muted); }
+  .kw .x { width: 16px; height: 16px; padding: 0; border-radius: 50%; background: transparent; box-shadow: none; color: var(--muted); font-size: 12px; line-height: 1; display: grid; place-items: center; }
+  .kw .x:hover { color: var(--text); background: rgba(255,255,255,.08); filter: none; }
+  .kw.some { background: transparent; box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); cursor: pointer; }
+  .kw.some:hover { color: var(--text); }
+  button.kw { padding: 3px 10px; font-weight: 500; }
+  button.kw .key { font-family: var(--mono); font-size: 9.5px; color: var(--muted); margin-right: 1px; }
+  button.kw.on { background: var(--accent); color: var(--on-accent); }
+  button.kw.on .key { color: var(--on-accent); opacity: .6; }
+  button.kw.some { box-shadow: inset 0 0 0 1px var(--muted); }
+  .kw-sugg { flex: 1; min-width: 0; display: flex; gap: 6px; overflow: hidden; }
+  .kw-sugg .none { font-size: 11.5px; color: var(--muted); }
+  .kw-roll { flex: none; display: flex; align-items: center; gap: 6px; cursor: help; }
+  .kw-roll b { font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .kw.roll { background: transparent; box-shadow: inset 0 0 0 1px var(--line); padding: 3px 10px; }
+  #kwLibBtn { font-size: 11.5px; padding: 5px 12px; }
+  #kwMenu {
+    position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 6; min-width: 260px; max-width: 420px; padding: 5px;
+    background: var(--raised); border-radius: 12px; box-shadow: 0 0 0 1px var(--line), 0 12px 30px rgba(0,0,0,.55);
+  }
+  #kwMenu .item { display: flex; gap: 12px; align-items: baseline; padding: 6px 10px; border-radius: 8px; font-size: 12.5px; cursor: pointer; }
+  #kwMenu .item.hi { background: var(--card); }
+  #kwMenu .item span:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #kwMenu .item mark { background: none; color: var(--text); font-weight: 700; }
+  #kwMenu .item .meta { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  #kwMenu .item.create span:first-child { color: var(--muted); }
+  #kwMenu .item.create b { color: var(--text); font-weight: 600; }
+  #kwMenu .foot { font-size: 10.5px; color: var(--muted); padding: 6px 10px 3px; border-top: 1px solid var(--line); margin-top: 4px; }
+  #kwMenu .foot:first-child { border: 0; margin: 0; }
+
+  #kwLib { margin: auto; width: min(460px, calc(100vw - 32px)); background: var(--panel); color: var(--text); border: 0; border-radius: 18px; padding: 20px 22px; box-shadow: 0 0 0 1px var(--line), 0 20px 50px rgba(0,0,0,.6); }
+  #kwLib::backdrop { background: rgba(0,0,0,.55); }
+  #kwLib h2 { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+  #kwLibFilter { font: inherit; font-size: 12.5px; width: 100%; background: var(--input); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; box-shadow: inset 0 1px 3px rgba(0,0,0,.35); }
+  #kwLibFilter:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  #kwLibList { margin-top: 10px; max-height: 50vh; overflow: auto; }
+  #kwLibList .row { display: flex; align-items: center; gap: 10px; padding: 4px 4px 4px 10px; border-radius: 8px; font-size: 12.5px; }
+  #kwLibList .row:hover { background: var(--card); }
+  #kwLibList .row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #kwLibList .row .name.pick { cursor: pointer; }
+  #kwLibList .row .meta { font-family: var(--mono); font-size: 10px; color: var(--muted); white-space: nowrap; }
+  #kwLibList .empty { font-size: 12px; color: var(--muted); padding: 10px; }
+  #kwLib .hint { font-size: 11px; color: var(--muted); margin-top: 12px; line-height: 1.5; word-break: break-all; }
+  #kwLib .actions { margin-top: 14px; }
+  #kwLib .actions .spacer { flex: 1; }
+
   #toast {
     position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--panel); color: var(--text);
     padding: 10px 16px 10px 30px; border-radius: 12px; font-size: 12.5px; max-width: 80vw; display: none; z-index: 10;
@@ -236,7 +305,7 @@
   #toast::before { content: ""; position: absolute; left: 14px; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 6px var(--ok); }
   #toast.err::before { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
   #preview {
-    position: fixed; right: 16px; bottom: 16px; width: 380px; max-height: 60vh; overflow: auto; background: var(--panel);
+    position: fixed; right: 16px; top: 64px; width: 380px; max-height: 60vh; overflow: auto; background: var(--panel);
     border-radius: 14px; padding: 12px 14px; display: none; z-index: 9;
     box-shadow: 0 0 0 1px var(--line), 0 10px 30px rgba(0,0,0,.5);
   }
@@ -328,8 +397,26 @@
 
 <div id="strip" hidden></div>
 
+<div id="kwPanel" hidden>
+  <div class="kw-row">
+    <span class="kw-label">Keywords</span>
+    <div class="kw-box" id="kwBox">
+      <span class="kw-sel" id="kwSel"></span>
+      <span id="kwChips" style="display:contents"></span>
+      <input type="text" id="kwInput" autocomplete="off" spellcheck="false" aria-label="add keywords to the selected scans">
+      <div id="kwMenu" hidden></div>
+    </div>
+  </div>
+  <div class="kw-row">
+    <span class="kw-label">Suggested</span>
+    <div class="kw-sugg" id="kwSugg"></div>
+    <span class="kw-roll" id="kwRoll" title="Added to every scan on Write, from the camera, make and film on the setup screen (ISO isn't a keyword). Change them with Change roll."></span>
+    <button id="kwLibBtn" title="Every keyword you've used, kept on this computer">Library…</button>
+  </div>
+</div>
+
 <div class="help" id="help" hidden>
-  drag a card onto another card to swap · <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6 9.2 1.6v8.8z"/></svg> <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M9.8 6 2.8 1.6v8.8z"/></svg> shift this card and everything after it · double-click a log card to edit it · copy a card, then paste it into an empty slot · click a frame # to preview the tags · scroll wheel pans
+  click a scan and type to keyword it · drag a card onto another card to swap · <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6 9.2 1.6v8.8z"/></svg> <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M9.8 6 2.8 1.6v8.8z"/></svg> shift this card and everything after it · double-click a log card to edit it · copy a card, then paste it into an empty slot · click a frame # to preview the tags · scroll wheel pans
 </div>
 
 <dialog id="editor">
@@ -365,6 +452,14 @@
   </form>
 </dialog>
 
+<dialog id="kwLib">
+  <h2 id="kwLibTitle">Keyword library</h2>
+  <input type="text" id="kwLibFilter" placeholder="filter" autocomplete="off" spellcheck="false">
+  <div id="kwLibList"></div>
+  <div class="hint" id="kwLibPath"></div>
+  <div class="actions"><span class="spacer"></span><button type="button" class="primary" id="kwLibClose">Done</button></div>
+</dialog>
+
 <div id="toast"></div>
 <div id="preview"><h3><span id="previewTitle"></span><span id="previewClose">✕</span></h3><pre id="previewBody"></pre></div>
 
@@ -376,6 +471,11 @@ let S = null;          // session from /api/session
 let cols = [];         // [{scan: name|null, entry: id|null}]
 let results = {};      // scan name -> {ok, error}
 let clip = null;       // id of the copied card, pasted into an empty slot as a new card
+let kw = {};           // scan name -> its own keywords (the roll's are added to every scan on Write)
+let kwOrder = [];      // keywords used on this roll, in the order first used: suggestions start with these, so 1–9 stay put
+let sel = new Set();   // selected scan names: the keyword box works on these
+let anchor = null, lead = null;   // shift-click / shift-arrow ranges run anchor..lead
+let kwUndo = [];       // snapshots of kw before each change, newest last
 
 async function api(method, url, body) {
   const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -394,7 +494,7 @@ function showSetup() {
   $("exifWarn").hidden = !!S.exiftool;
   $("setupError").textContent = "";
   $("setup").hidden = false;
-  $("strip").hidden = true; $("help").hidden = true;
+  $("strip").hidden = true; $("help").hidden = true; $("kwPanel").hidden = true;
   for (const id of ["changeRoll", "autoPair", "reverse", "write"]) $(id).hidden = true;
   $("roll").textContent = ""; $("meta").textContent = ""; $("stats").textContent = ""; $("tags").hidden = true;
   $("preview").style.display = "none";
@@ -402,11 +502,13 @@ function showSetup() {
 }
 function showStrip() {
   $("setup").hidden = true;
-  $("strip").hidden = false; $("help").hidden = false;
+  $("strip").hidden = false; $("help").hidden = false; $("kwPanel").hidden = false;
   for (const id of ["changeRoll", "autoPair", "reverse", "write"]) $(id).hidden = false;
   $("roll").textContent = S.roll;
   renderTags();
   results = {}; clip = null;
+  sel = new Set(); anchor = lead = null; kwUndo = [];
+  restoreKw();
   if (!restore()) autoPair(); else render();
 }
 
@@ -554,12 +656,33 @@ function swap(row, i, j) {
   normalize(); render();
 }
 function pairs() {
-  return cols.filter((c) => c.scan != null && (c.entry != null || noLog())).map((c) => ({ scan: c.scan, entry: c.entry }));
+  return cols.filter((c) => c.scan != null && (c.entry != null || noLog()))
+             .map((c) => ({ scan: c.scan, entry: c.entry, keywords: kw[c.scan] || [] }));
 }
 
 /* ---------- persistence (survive an accidental reload) ---------- */
 function storeKey() { return "framelog-tagger:" + S.scans_dir + "|" + S.log_path; }
 function persist() { try { localStorage.setItem(storeKey(), JSON.stringify(cols)); } catch (e) {} }
+function persistKw() { try { localStorage.setItem(storeKey() + "#kw", JSON.stringify({ kw, order: kwOrder })); } catch (e) {} }
+function restoreKw() {
+  // Saved keywords for this roll, else the ones already in the files (minus the roll's, which Write adds anyway).
+  const names = new Set(S.scans.map((s) => s.name));
+  kw = {}; kwOrder = [];
+  try {
+    const saved = JSON.parse(localStorage.getItem(storeKey() + "#kw") || "null");
+    if (saved && saved.kw) {
+      for (const [name, list] of Object.entries(saved.kw)) if (names.has(name) && Array.isArray(list)) kw[name] = list;
+      kwOrder = Array.isArray(saved.order) ? saved.order : [];
+      return;
+    }
+  } catch (e) {}
+  const roll = new Set(S.roll_keywords.map(lc));
+  for (const s of S.scans) {
+    const own = s.keywords.filter((k) => !roll.has(lc(k)));
+    if (own.length) kw[s.name] = own;
+    kwOrder = mergeKw(kwOrder, own);
+  }
+}
 function restore() {
   try {
     const raw = localStorage.getItem(storeKey());
@@ -671,7 +794,10 @@ function render() {
       const s = scanByName[c.scan];
       const img = document.createElement("img");
       img.src = "/api/thumb/" + encodeURIComponent(s.name); img.loading = "lazy"; img.alt = s.name;
-      sc.append(img, el("div", "name", s.name));
+      const kws = el("div", "kws");
+      sc.append(img, el("div", "name", s.name), kws);
+      sc.dataset.scan = s.name;
+      sc.addEventListener("click", (ev) => clickScan(s.name, ev));
       if (s.tagged) sc.append(el("span", "pill warn badge", "tagged"));
       const r = results[s.name];
       if (r) { const b = el("span", "pill result " + (r.ok ? "ok" : "err"), r.ok ? "written" : r.error); b.title = r.error || r.path || ""; sc.append(b); }
@@ -729,6 +855,7 @@ function render() {
   strip.scrollLeft = scroll;
   renderStats();
   persist();
+  paintKw();
 }
 function renderStats() {
   const p = pairs().length;
@@ -916,9 +1043,279 @@ async function pasteCard(col) {
   }
 }
 
+/* ---------- keywords ---------- */
+// Lightroom-style: select scans, type into the box (suggestions come from the library), or press 1–9 for a suggestion.
+const lc = (k) => k.toLowerCase();
+const cleanKw = (k) => k.replace(/,/g, " ").split(/\s+/).filter(Boolean).join(" ");
+function mergeKw(...lists) {   // concatenate, dropping case-insensitive repeats; the first spelling wins
+  const out = [], seen = new Set();
+  for (const list of lists) for (const k of list) if (k && !seen.has(lc(k))) { seen.add(lc(k)); out.push(k); }
+  return out;
+}
+function canonKw(k) {          // the spelling already in use, if there is one
+  k = cleanKw(k);
+  return kwOrder.find((x) => lc(x) === lc(k)) || S.keywords.find((x) => lc(x.name) === lc(k))?.name || k;
+}
+function scanOrder() { return cols.filter((c) => c.scan != null).map((c) => c.scan); }
+function selected() { return scanOrder().filter((n) => sel.has(n)); }
+function hasKw(name, k) { return (kw[name] || []).some((x) => lc(x) === lc(k)); }
+function kwCount(k) { return selected().filter((n) => hasKw(n, k)).length; }
+
+// selection
+function clickScan(name, ev) {
+  const order = scanOrder();
+  if (ev.shiftKey && anchor != null && order.includes(anchor)) {
+    const [a, b] = [order.indexOf(anchor), order.indexOf(name)].sort((x, y) => x - y);
+    if (!(ev.metaKey || ev.ctrlKey)) sel = new Set();
+    order.slice(a, b + 1).forEach((n) => sel.add(n));
+    lead = name;
+  } else if (ev.metaKey || ev.ctrlKey) {
+    sel.has(name) ? sel.delete(name) : sel.add(name);
+    anchor = lead = name;
+  } else {
+    sel = new Set([name]); anchor = lead = name;
+  }
+  paintKw();
+}
+function stepSel(dir, extend) {
+  const order = scanOrder();
+  if (!order.length) return;
+  let i = order.indexOf(lead);
+  i = i < 0 ? (dir > 0 ? 0 : order.length - 1) : Math.max(0, Math.min(order.length - 1, i + dir));
+  lead = order[i];
+  if (extend && anchor != null && order.includes(anchor)) {
+    const [a, b] = [order.indexOf(anchor), i].sort((x, y) => x - y);
+    sel = new Set(order.slice(a, b + 1));
+  } else {
+    sel = new Set([lead]); anchor = lead;
+  }
+  paintKw();
+  document.querySelector('.scan[data-scan="' + CSS.escape(lead) + '"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+function selectAll() { const order = scanOrder(); sel = new Set(order); anchor = order[0] ?? null; lead = order[order.length - 1] ?? null; paintKw(); }
+function clearSel() { sel = new Set(); anchor = lead = null; paintKw(); }
+
+// changes to the selected scans' keywords
+function changeKw(fn) {
+  kwUndo.push(JSON.stringify({ kw, order: kwOrder }));
+  if (kwUndo.length > 100) kwUndo.shift();
+  for (const n of selected()) {
+    const next = fn(kw[n] || []);
+    if (next.length) kw[n] = next; else delete kw[n];
+  }
+  persistKw(); paintKw();
+}
+function addKw(list) {
+  list = mergeKw(list.map(canonKw).filter(Boolean));
+  if (!list.length || !sel.size) return;
+  kwOrder = mergeKw(kwOrder, list);
+  changeKw((own) => mergeKw(own, list));
+  api("POST", "/api/keywords", { add: list }).then((j) => { S.keywords = j.keywords; paintKw(); })
+    .catch((e) => toast("couldn't save the keyword library: " + e.message, true));
+}
+function removeKw(k) { changeKw((own) => own.filter((x) => lc(x) !== lc(k))); }
+function toggleKw(k) { kwCount(k) === sel.size ? removeKw(k) : addKw([k]); }
+function undoKw() {
+  if (!kwUndo.length) { toast("nothing to undo"); return; }
+  ({ kw, order: kwOrder } = JSON.parse(kwUndo.pop()));
+  persistKw(); paintKw();
+}
+
+// what to offer: this roll's keywords first (stable), then the library, most recently used first; never the roll-wide ones
+function kwPool() {
+  const roll = new Set(S.roll_keywords.map(lc));
+  return mergeKw(kwOrder, S.keywords.map((x) => x.name)).filter((k) => !roll.has(lc(k)));
+}
+function suggestions() { return kwPool().slice(0, 9); }
+let menu = { items: [], hi: 0 };
+function menuItems(q) {
+  q = cleanKw(q);
+  if (!q) return [];
+  const pre = [], sub = [];
+  for (const k of mergeKw(kwPool(), S.roll_keywords)) {
+    if (kwCount(k) === sel.size) continue;   // already on every selected scan
+    const i = lc(k).indexOf(lc(q));
+    if (i === 0) pre.push(k); else if (i > 0) sub.push(k);
+  }
+  pre.sort((a, b) => (lc(a) === lc(q) ? -1 : lc(b) === lc(q) ? 1 : 0));   // an exact match first
+  const items = [...pre, ...sub].slice(0, 8).map((k) => ({ k }));
+  if (!mergeKw(kwPool(), S.roll_keywords).some((k) => lc(k) === lc(q))) items.push({ k: q, create: true });
+  return items;
+}
+function renderMenu() {
+  const box = $("kwMenu"), q = cleanKw($("kwInput").value);
+  menu.items = menuItems(q);
+  menu.hi = Math.min(menu.hi, Math.max(0, menu.items.length - 1));
+  if (!q || document.activeElement !== $("kwInput")) { box.hidden = true; return; }
+  box.style.left = Math.max(0, Math.min($("kwInput").offsetLeft - 6, $("kwBox").clientWidth - 280)) + "px";   // under the caret, roughly
+  box.replaceChildren();
+  menu.items.forEach((it, i) => {
+    const row = el("div", "item" + (it.create ? " create" : "") + (i === menu.hi ? " hi" : ""));
+    const label = el("span");
+    if (it.create) {
+      label.append("add new keyword ", el("b", null, "“" + it.k + "”"));
+    } else {
+      const at = lc(it.k).indexOf(lc(q));
+      label.append(it.k.slice(0, at), el("mark", null, it.k.slice(at, at + q.length)), it.k.slice(at + q.length));
+    }
+    row.append(label);
+    const lib = S.keywords.find((x) => lc(x.name) === lc(it.k));
+    const here = kwCount(it.k);
+    const meta = here ? "on " + here + "/" + sel.size : lib && lib.count ? lib.count + " scans" : "";
+    if (meta) row.append(el("span", "meta", meta));
+    row.onmousedown = (ev) => { ev.preventDefault(); pickMenu(i); };   // mousedown: before the input blurs
+    row.onmousemove = () => { if (menu.hi !== i) { menu.hi = i; renderMenu(); } };
+    box.append(row);
+  });
+  box.append(el("div", "foot", menu.items.length ? "↵ or Tab picks · a comma adds just what you typed" : "already on every selected scan"));
+  box.hidden = false;
+}
+function pickMenu(i) {
+  const it = menu.items[i];
+  if (!it) return;
+  addKw([it.k]);
+  $("kwInput").value = ""; menu.hi = 0; renderMenu();
+}
+
+function paintKw() {
+  if (!S || !S.loaded) return;
+  // scan cells: selection and their keywords
+  for (const cell of document.querySelectorAll(".scan[data-scan]")) {
+    const n = cell.dataset.scan, own = kw[n] || [];
+    cell.classList.toggle("sel", sel.has(n));
+    const line = cell.querySelector(".kws");
+    line.textContent = own.join(" · ");
+    line.title = own.length ? own.join(", ") + (S.roll_keywords.length ? "\n+ the roll's: " + S.roll_keywords.join(", ") : "") : "";
+  }
+  // the box: keywords on the selection, all-or-some
+  const n = sel.size, input = $("kwInput");
+  $("kwBox").classList.toggle("off", !n);
+  input.disabled = !n;
+  $("kwSel").textContent = n ? n + (n === 1 ? " scan" : " scans") : "";
+  $("kwSel").hidden = !n;
+  const onSel = mergeKw(kwOrder, ...selected().map((x) => kw[x] || []));
+  const chips = [];
+  for (const k of onSel) {
+    const c = kwCount(k);
+    if (!c) continue;
+    const chip = el("span", "kw" + (c < n ? " some" : ""));
+    chip.append(el("span", null, k));
+    if (c < n) {
+      chip.append(el("span", "n", c + "/" + n));
+      chip.title = "on " + c + " of the " + n + " selected scans: click to add it to all";
+      chip.onclick = () => addKw([k]);
+    }
+    const x = el("button", "x", "×"); x.type = "button"; x.title = "remove from the selected scans"; x.setAttribute("aria-label", "remove " + k);
+    x.onclick = (ev) => { ev.stopPropagation(); removeKw(k); input.focus(); };
+    chip.append(x);
+    chips.push(chip);
+  }
+  $("kwChips").replaceChildren(...chips);
+  input.placeholder = !n ? "click a scan to keyword it · shift-click a range · ⌘/Ctrl-A for all"
+                    : (chips.length ? "add another…" : "add keywords, comma-separated…") + "   ← → next scan · ⌘/Ctrl-Z undo";
+  // suggestions, numbered for the 1–9 keys
+  const sugg = suggestions().map((k, i) => {
+    const c = n ? kwCount(k) : 0;
+    const b = el("button", "kw" + (c && c === n ? " on" : c ? " some" : ""));
+    b.type = "button"; b.disabled = !n;
+    b.append(el("span", "key", String(i + 1)), el("span", null, k));
+    b.title = !n ? "select scans first" : c === n ? "on every selected scan: click (or press " + (i + 1) + ") to remove" : "click (or press " + (i + 1) + ") to add to the selected scans";
+    b.onclick = () => toggleKw(k);
+    return b;
+  });
+  $("kwSugg").replaceChildren(...(sugg.length ? sugg : [el("span", "none", "keywords you use show up here")]));
+  // the roll's own, written to every scan
+  const roll = $("kwRoll");
+  roll.replaceChildren(...(S.roll_keywords.length ? [el("b", null, "every scan"), ...S.roll_keywords.map((k) => el("span", "kw roll", k))] : []));
+  if ($("kwLib").open) renderLib();
+  if (!$("kwMenu").hidden) renderMenu();
+}
+
+// library dialog: browse, apply to the selection, prune
+function renderLib() {
+  const q = lc(cleanKw($("kwLibFilter").value));
+  const items = S.keywords.filter((x) => !q || lc(x.name).includes(q));
+  $("kwLibTitle").textContent = "Keyword library · " + S.keywords.length;
+  const rows = items.map((x) => {
+    const row = el("div", "row");
+    const name = el("span", "name" + (sel.size ? " pick" : ""), x.name);
+    if (sel.size) { name.title = "click to add to / remove from the selected scans"; name.onclick = () => toggleKw(x.name); }
+    const here = scanOrder().filter((s) => hasKw(s, x.name)).length;
+    const meta = [here ? "on " + here + " here" : "", x.count ? x.count + " written" : ""].filter(Boolean).join(" · ");
+    const del = iconButton('<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"/></svg>', "remove from the library (scans keep it)", async () => {
+      try { S.keywords = (await api("POST", "/api/keywords", { remove: [x.name] })).keywords; paintKw(); }
+      catch (e) { toast(e.message, true); }
+    });
+    row.append(name, el("span", "meta", meta), del);
+    return row;
+  });
+  $("kwLibList").replaceChildren(...(rows.length ? rows : [el("div", "empty", S.keywords.length ? "no match" : "no keywords yet: add some to a scan")]));
+  $("kwLibPath").textContent = "Kept on this computer in " + S.keywords_file + ". Removing one only stops suggesting it.";
+}
+
+function initKeywords() {
+  const input = $("kwInput");
+  $("kwBox").addEventListener("mousedown", (ev) => { if (ev.target === $("kwBox") && !input.disabled) { ev.preventDefault(); input.focus(); } });
+  input.addEventListener("focus", renderMenu);
+  input.addEventListener("blur", () => { $("kwMenu").hidden = true; });
+  input.addEventListener("input", () => {
+    // a comma commits what's before it as typed: "beach, dog, " adds both
+    const parts = input.value.split(",");
+    if (parts.length > 1) { addKw(parts.slice(0, -1)); input.value = parts[parts.length - 1].trimStart(); }
+    menu.hi = 0; renderMenu();
+  });
+  input.addEventListener("keydown", (ev) => {
+    const open = !$("kwMenu").hidden && menu.items.length;
+    const mod = ev.metaKey || ev.ctrlKey;
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      if (!open) return;
+      ev.preventDefault();
+      menu.hi = (menu.hi + (ev.key === "ArrowDown" ? 1 : -1) + menu.items.length) % menu.items.length; renderMenu();
+    } else if (ev.key === "Enter" || (ev.key === "Tab" && open)) {
+      ev.preventDefault();
+      if (open) pickMenu(menu.hi); else if (cleanKw(input.value)) { addKw([input.value]); input.value = ""; }
+      else if (ev.key === "Enter") input.blur();
+    } else if (ev.key === "Escape") {
+      ev.preventDefault(); ev.stopPropagation();
+      if (input.value) { input.value = ""; renderMenu(); } else input.blur();
+    } else if (!input.value && (ev.key === "ArrowLeft" || ev.key === "ArrowRight") && !mod && !ev.altKey) {
+      ev.preventDefault(); stepSel(ev.key === "ArrowRight" ? 1 : -1, ev.shiftKey);   // keep typing on the next scan
+    } else if (!input.value && ev.key === "Backspace" && sel.size === 1) {
+      const own = kw[selected()[0]] || [];
+      if (own.length) { ev.preventDefault(); removeKw(own[own.length - 1]); }
+    } else if (!input.value && mod && lc(ev.key) === "z") {
+      ev.preventDefault(); undoKw();
+    }
+  });
+  document.addEventListener("keydown", (ev) => {
+    if ($("strip").hidden || document.querySelector("dialog[open]")) return;
+    if (ev.target.closest("input, textarea, select")) return;
+    const mod = ev.metaKey || ev.ctrlKey;
+    if (mod && lc(ev.key) === "a") { ev.preventDefault(); selectAll(); }
+    else if (mod && lc(ev.key) === "z") { ev.preventDefault(); undoKw(); }
+    else if (mod || ev.altKey) return;
+    else if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") { ev.preventDefault(); stepSel(ev.key === "ArrowRight" ? 1 : -1, ev.shiftKey); }
+    else if (ev.key === "Escape") clearSel();
+    else if (ev.key === "Enter" && sel.size && !ev.target.closest("button")) { ev.preventDefault(); input.focus(); }
+    else if (/^[1-9]$/.test(ev.key) && sel.size) { const k = suggestions()[+ev.key - 1]; if (k) toggleKw(k); }
+    else if (ev.key.length === 1 && /\p{L}/u.test(ev.key) && sel.size) {
+      // just start typing: a letter goes into the keyword box (digits are the suggestion keys)
+      ev.preventDefault(); input.focus(); input.value += ev.key; input.dispatchEvent(new Event("input"));
+    }
+  });
+  // a click on the strip's background (not a card or a key) clears the selection
+  $("strip").addEventListener("click", (ev) => { if (!ev.target.closest(".cell, button")) clearSel(); });
+  $("kwLibBtn").onclick = () => { $("kwLibFilter").value = ""; renderLib(); $("kwLib").showModal(); $("kwLibFilter").focus(); };
+  $("kwLibFilter").addEventListener("input", renderLib);
+  $("kwLibClose").onclick = () => $("kwLib").close();
+}
+
 /* ---------- preview + toast ---------- */
 async function showPreview(e) {
-  const r = await fetch("/api/preview/" + e.id);
+  const scan = cols.find((c) => c.entry === e.id)?.scan;
+  const q = new URLSearchParams();
+  if (scan != null) { q.append("scan", scan); for (const k of kw[scan] || []) q.append("kw", k); }
+  const r = await fetch("/api/preview/" + e.id + "?" + q);
   const j = await r.json();
   $("previewTitle").textContent = "frame #" + e.frame + " → exiftool";
   $("previewBody").textContent = j.args.join("\n");
@@ -937,7 +1334,8 @@ async function write() {
   const ps = pairs();
   if (!ps.length) return;
   const dest = S.in_place ? "IN PLACE (the original scan files will be modified)" : S.out_dir;
-  if (!confirm("Write metadata for " + ps.length + " frame(s)?\n\nDestination: " + dest)) return;
+  const rollKw = S.roll_keywords.length ? "\nEvery scan also gets the keywords " + S.roll_keywords.join(", ") + "." : "";
+  if (!confirm("Write metadata for " + ps.length + " frame(s)?\n\nDestination: " + dest + rollKw)) return;
   $("write").disabled = true; $("write").textContent = "Writing…";
   try {
     const r = await fetch("/api/write", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pairs: ps }) });
@@ -945,6 +1343,7 @@ async function write() {
     if (!r.ok) throw new Error(j.detail || r.statusText);
     results = {};
     for (const res of j.results) results[res.scan] = res;
+    S.keywords = j.keywords;
     const failed = j.results.length - j.written;
     toast(j.written + " written" + (failed ? ", " + failed + " failed (see cards)" : "") + " → " + (S.in_place ? "in place" : S.out_dir), failed > 0);
   } catch (e) {
@@ -988,6 +1387,7 @@ async function boot() {
   $("autoPair").onclick = () => { if (confirm("Reset all pairing to positional order?")) autoPair(); };
   $("reverse").onclick = reverseScans;
   $("write").onclick = write;
+  initKeywords();
   $("strip").addEventListener("wheel", (ev) => {
     if (Math.abs(ev.deltaY) > Math.abs(ev.deltaX)) { ev.preventDefault(); $("strip").scrollLeft += ev.deltaY; }
   }, { passive: false });

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import io
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
 
 from PIL import Image, ImageOps
+
+from .keywords import xmp_keywords
 
 JPEG_EXTS = {".jpg", ".jpeg"}
 EXIF_DATETIME_ORIGINAL = 0x9003
@@ -21,9 +23,11 @@ class ScanInfo:
     width: int
     height: int
     tagged: bool  # already has DateTimeOriginal, i.e. probably tagged before
+    keywords: list[str] = field(default_factory=list)  # XMP-dc:Subject already in the file
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "width": self.width, "height": self.height, "tagged": self.tagged}
+        return {"name": self.name, "width": self.width, "height": self.height, "tagged": self.tagged,
+                "keywords": self.keywords}
 
 
 def natural_key(name: str):
@@ -46,10 +50,12 @@ def list_scans(directory: Path | str) -> list[ScanInfo]:
                 w, h = im.size
                 exif = im.getexif()
                 tagged = bool(exif.get_ifd(0x8769).get(EXIF_DATETIME_ORIGINAL))
+                keywords = xmp_keywords(im.info.get("xmp"))
         except Exception:
             w = h = 0
             tagged = False
-        out.append(ScanInfo(name=p.name, path=p, width=w, height=h, tagged=tagged))
+            keywords = []
+        out.append(ScanInfo(name=p.name, path=p, width=w, height=h, tagged=tagged, keywords=keywords))
     return out
 
 
