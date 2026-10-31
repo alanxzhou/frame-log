@@ -136,6 +136,9 @@ def test_thumbnail_and_preview(env):
     r = c.get("/api/view/2.jpg")
     assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
     assert c.get("/api/view/nope.jpg").status_code == 404
+    r = c.get("/api/full/2.jpg")
+    assert r.status_code == 200 and r.content == (env["scans"] / "2.jpg").read_bytes()
+    assert c.get("/api/full/nope.jpg").status_code == 404
     args = c.get("/api/preview/0").json()["args"]
     assert "-DateTimeOriginal=2026:08:30 23:05:12" in args and "-OffsetTimeOriginal=+09:00" in args
     args = c.get("/api/preview/1").json()["args"]

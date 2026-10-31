@@ -353,6 +353,13 @@ def create_app(state: AppState) -> FastAPI:
     def view(name: str):
         return scaled(name, need_session().views)
 
+    @app.get("/api/full/{name}")
+    def full(name: str):   # the scan itself, for the 100% view
+        scan = need_session().scan_by_name(name)
+        if scan is None:
+            raise HTTPException(404, "no such scan")
+        return FileResponse(scan.path, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
+
     def scan_args(s: Session, scan: Optional[ScanInfo], entry: Optional[LogEntry], kws: list[str]) -> list[str]:
         # A scan that has keywords and is given none (and no roll ones) gets them cleared, as you'd expect.
         return build_args(entry, s.ctx, kws, clear_keywords=bool(scan and scan.keywords))
