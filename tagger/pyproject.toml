@@ -11,7 +11,7 @@ dependencies = [
     "tzlocal>=5",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = ["pytest>=8", "httpx>=0.27"]
 
 [project.scripts]
