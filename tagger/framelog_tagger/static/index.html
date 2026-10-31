@@ -297,6 +297,18 @@
   #kwLib .actions { margin-top: 14px; }
   #kwLib .actions .spacer { flex: 1; }
 
+  /* zoom: double-click a scan. Click the picture for 100% and back, drag to pan; a click outside it closes */
+  #zoom { margin: auto; max-width: none; max-height: none; width: 100vw; height: 100vh; padding: 0; border: 0; background: transparent; }
+  #zoom[open] { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+  #zoom::backdrop { background: rgba(0,0,0,.82); backdrop-filter: blur(4px); }
+  #zoom .frame { position: relative; width: 90vw; height: calc(90vh - 30px); overflow: hidden; }
+  #zoom img { position: absolute; max-width: none; cursor: zoom-in; user-select: none; transition: left .18s, top .18s, width .18s, height .18s; }
+  #zoom.fits img { cursor: default; }
+  #zoom.zoomed img { cursor: grab; }
+  #zoom.panning img { cursor: grabbing; }
+  #zoom.still img, #zoom.panning img { transition: none; }
+  #zoom .name { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
   #toast {
     position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--panel); color: var(--text);
     padding: 10px 16px 10px 30px; border-radius: 12px; font-size: 12.5px; max-width: 80vw; display: none; z-index: 10;
@@ -416,7 +428,7 @@
 </div>
 
 <div class="help" id="help" hidden>
-  click a scan and type to keyword it · drag a card onto another card to swap · <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6 9.2 1.6v8.8z"/></svg> <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M9.8 6 2.8 1.6v8.8z"/></svg> shift this card and everything after it · double-click a log card to edit it · copy a card, then paste it into an empty slot · click a frame # to preview the tags · scroll wheel pans
+  click a scan and type to keyword it · double-click a scan to view it large (click the picture for 100%, drag to pan) · drag a card onto another card to swap · <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6 9.2 1.6v8.8z"/></svg> <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M9.8 6 2.8 1.6v8.8z"/></svg> shift this card and everything after it · double-click a log card to edit it · copy a card, then paste it into an empty slot · click a frame # to preview the tags · scroll wheel pans
 </div>
 
 <dialog id="editor">
@@ -459,6 +471,8 @@
   <div class="hint" id="kwLibPath"></div>
   <div class="actions"><span class="spacer"></span><button type="button" class="primary" id="kwLibClose">Done</button></div>
 </dialog>
+
+<dialog id="zoom"><div class="frame"><img alt="" draggable="false"></div><div class="name"></div></dialog>
 
 <div id="toast"></div>
 <div id="preview"><h3><span id="previewTitle"></span><span id="previewClose">✕</span></h3><pre id="previewBody"></pre></div>
@@ -798,6 +812,7 @@ function render() {
       sc.append(img, el("div", "name", s.name), kws);
       sc.dataset.scan = s.name;
       sc.addEventListener("click", (ev) => clickScan(s.name, ev));
+      sc.addEventListener("dblclick", () => openZoom(s.name));
       if (s.tagged) sc.append(el("span", "pill warn badge", "tagged"));
       const r = results[s.name];
       if (r) { const b = el("span", "pill result " + (r.ok ? "ok" : "err"), r.ok ? "written" : r.error); b.title = r.error || r.path || ""; sc.append(b); }
@@ -1310,6 +1325,91 @@ function initKeywords() {
   $("kwLibClose").onclick = () => $("kwLib").close();
 }
 
+/* ---------- zoom ---------- */
+// The panel shows the whole scan. A click on the picture shows it at 100% around that point and
+// a drag pans; another click fits it again. A click outside the picture closes the panel.
+let zm = null;   // { name, w, h: the scan's own pixels once loaded, at100, x, y: picture's place in the frame }
+function openZoom(name) {
+  const d = $("zoom"), img = d.querySelector("img"), q = encodeURIComponent(name);
+  zm = { name, w: 0, h: 0, at100: false, x: 0, y: 0 };
+  // thumbnail first (already loaded), then the large copy, then the scan itself for 100%
+  img.src = "/api/thumb/" + q; img.alt = name;
+  const view = new Image(), full = new Image();
+  view.onload = () => { if (zm?.name === name && !zm.w) img.src = view.src; };
+  full.onload = () => {
+    if (zm?.name !== name) return;
+    zm.w = full.naturalWidth; zm.h = full.naturalHeight; img.src = full.src; layoutZoom();
+  };
+  view.src = "/api/view/" + q; full.src = "/api/full/" + q;
+  d.querySelector(".name").textContent = name;
+  d.classList.add("still");
+  d.showModal();
+  layoutZoom();
+  requestAnimationFrame(() => d.classList.remove("still"));
+}
+function layoutZoom() {
+  const d = $("zoom"), img = d.querySelector("img"), fr = img.parentElement;
+  const W = fr.clientWidth, H = fr.clientHeight;
+  const aw = zm.w || img.naturalWidth, ah = zm.h || img.naturalHeight;   // until the scan loads, only its shape is known
+  if (!aw || !W) return;
+  const fit = Math.min(W / aw, H / ah);
+  const canZoom = zm.w > 0 && fit < 1;
+  if (!canZoom) zm.at100 = false;
+  const k = zm.at100 ? 1 : fit, w = aw * k, h = ah * k;
+  const clamp = (v, size, room) => size <= room ? (room - size) / 2 : Math.min(0, Math.max(room - size, v));
+  zm.x = clamp(zm.x, w, W); zm.y = clamp(zm.y, h, H);
+  Object.assign(img.style, { width: w + "px", height: h + "px", left: zm.x + "px", top: zm.y + "px" });
+  d.classList.toggle("fits", !canZoom);
+  d.classList.toggle("zoomed", zm.at100);
+}
+function zoomAt(cx, cy) {   // cx, cy: the click, in frame coordinates
+  const img = $("zoom").querySelector("img");
+  if (!zm.at100) {
+    // keep the clicked spot under the pointer
+    const fx = (cx - zm.x) / img.offsetWidth, fy = (cy - zm.y) / img.offsetHeight;
+    zm.x = cx - fx * zm.w; zm.y = cy - fy * zm.h;
+  }
+  zm.at100 = !zm.at100;
+  layoutZoom();
+}
+function initZoom() {
+  const d = $("zoom"), img = d.querySelector("img");
+  let dragged = false;
+  img.addEventListener("load", () => { if (d.open) layoutZoom(); });
+  img.addEventListener("pointerdown", (ev) => {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    const start = { x: ev.clientX, y: ev.clientY, zx: zm.x, zy: zm.y };
+    let moved = false;
+    img.setPointerCapture(ev.pointerId);
+    const move = (e) => {
+      if (!moved && Math.hypot(e.clientX - start.x, e.clientY - start.y) < 4) return;
+      moved = true;
+      if (!zm.at100) return;
+      d.classList.add("panning");
+      zm.x = start.zx + e.clientX - start.x; zm.y = start.zy + e.clientY - start.y;
+      layoutZoom();
+    };
+    const up = (e) => {
+      img.removeEventListener("pointermove", move); img.removeEventListener("pointerup", up); img.removeEventListener("pointercancel", up);
+      d.classList.remove("panning");
+      dragged = moved;
+      if (!moved && e.type === "pointerup" && !d.classList.contains("fits")) {
+        const r = img.parentElement.getBoundingClientRect();
+        zoomAt(e.clientX - r.left, e.clientY - r.top);
+      }
+    };
+    img.addEventListener("pointermove", move); img.addEventListener("pointerup", up); img.addEventListener("pointercancel", up);
+  });
+  // a click outside the picture closes; the end of a drag that left the picture doesn't
+  d.addEventListener("pointerdown", () => { dragged = false; });
+  d.addEventListener("click", (ev) => {
+    if (dragged) { dragged = false; return; }
+    if (ev.target !== img) d.close();
+  });
+  addEventListener("resize", () => { if (d.open) layoutZoom(); });
+}
+
 /* ---------- preview + toast ---------- */
 async function showPreview(e) {
   const scan = cols.find((c) => c.entry === e.id)?.scan;
@@ -1388,6 +1488,7 @@ async function boot() {
   $("reverse").onclick = reverseScans;
   $("write").onclick = write;
   initKeywords();
+  initZoom();
   $("strip").addEventListener("wheel", (ev) => {
     if (Math.abs(ev.deltaY) > Math.abs(ev.deltaX)) { ev.preventDefault(); $("strip").scrollLeft += ev.deltaY; }
   }, { passive: false });
