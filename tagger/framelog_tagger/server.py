@@ -223,6 +223,10 @@ def session_payload(state: AppState) -> dict:
     return {
         **base,
         "roll": s.ctx.roll,
+        "make": s.ctx.make,
+        "camera": s.ctx.camera,
+        "film": s.ctx.film,
+        "iso": s.ctx.iso,
         "tz": s.tz_name,
         "scans_dir": str(s.scans_dir),
         "log_path": str(s.log_path) if s.log_path else "",
