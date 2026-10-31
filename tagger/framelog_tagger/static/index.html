@@ -591,7 +591,7 @@ function cardFoot(e) {
   const foot = el("div", "foot");
   const copy = iconButton(COPY, clip === e.id ? "copied; paste it into an empty slot" : "copy this card", () => copyCard(e));
   if (clip === e.id) copy.classList.add("on");
-  foot.append(stateChip(e), iconButton(PENCIL, "edit this card", () => openEditor(e.id)), copy);
+  foot.append(stateChip(e), copy, iconButton(PENCIL, "edit this card", () => openEditor(e.id)));   // edit, the one used most, at the end
   return foot;
 }
 function labelled(cls, key, text) {   // a labelled line on a log card
