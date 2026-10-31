@@ -22,6 +22,7 @@ from . import config
 from .dialogs import pick as native_pick
 from .exif import ExifToolError, TagContext, build_args, resolve_zone, write_tags
 from .log import LogEntry, LogFormatError, read_log
+from .rename import apply_rename, detect_name, plan_rename
 from .scans import ScanInfo, ThumbnailCache, list_scans
 
 STATIC = Path(__file__).parent / "static"
@@ -77,6 +78,13 @@ class LoadRequest(BaseModel):
     make: str = ""
     film: str = ""
     iso: Optional[int] = None
+
+
+class RenameRequest(BaseModel):
+    scans_dir: str
+    name: str = ""
+    reverse: bool = False
+    rename_folder: bool = True
 
 
 def build_session(req: LoadRequest, default_tz: str) -> Session:
@@ -171,6 +179,36 @@ def create_app(state: AppState) -> FastAPI:
         state.remembered = {**req.model_dump(exclude={"roll"}), "iso": req.iso}
         config.save(state.remembered)
         return session_payload(state)
+
+    def rename_plan(req: RenameRequest):
+        try:
+            return plan_rename(req.scans_dir, req.name, req.reverse, req.rename_folder)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    @app.post("/api/rename/preview")
+    def rename_preview(req: RenameRequest):
+        return rename_plan(req).to_dict()
+
+    @app.post("/api/rename/detect")
+    def rename_detect(req: RenameRequest):
+        """The name an already-renamed folder carries, so the UI can offer it for correcting."""
+        return {"name": detect_name(req.scans_dir)}
+
+    @app.post("/api/rename/apply")
+    def rename_apply(req: RenameRequest):
+        """Rename the scans folder and its images. Only from the setup screen: a loaded roll holds their paths."""
+        if state.session is not None:
+            raise HTTPException(409, "unload the roll before renaming its scans")
+        plan = rename_plan(req)
+        try:
+            new_dir = apply_rename(plan)
+        except OSError as e:
+            raise HTTPException(500, f"rename failed partway: {e}")
+        if state.remembered.get("scans_dir") and Path(state.remembered["scans_dir"]).expanduser() == plan.src_dir:
+            state.remembered["scans_dir"] = str(new_dir)
+            config.save(state.remembered)
+        return {**plan.to_dict(), "renamed": len(plan.items)}
 
     @app.post("/api/unload")
     def unload():
