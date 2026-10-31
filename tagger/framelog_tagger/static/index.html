@@ -4,150 +4,181 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Frame Log tagger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@400;500&family=Hanken+Grotesk:wght@400;500;600;700&display=swap">
 <style>
+  /* Instrument / Graphite: warm charcoal panels, raised pill keys, indicator lights for pairing state. */
   :root {
-    --body: #16140f;
-    --panel: #1f1c15;
-    --panel-edge: #2c2818;
-    --rebate: #e8930c;
-    --rebate-dim: #9c6510;
-    --ivory: #ece5d3;
-    --muted: #8d8472;
-    --danger: #c4452f;
-    --ok: #7fae62;
-    --mono: "Courier New", ui-monospace, SFMono-Regular, Menlo, monospace;
-    --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --bg: #1c1b19;
+    --panel: #252421;
+    --raised: #33312d;
+    --card: #282724;
+    --input: #1a1917;
+    --line: #3a3834;
+    --text: #ece8df;
+    --muted: #8f8a80;
+    --accent: #ece8df;
+    --on-accent: #1c1b19;
+    --ok: #52c272;
+    --warn: #f0873a;
+    --danger: #e5584a;
+    --led-off: #45423d;
+    --img: #121110;
+    --key: inset 0 1px 0 rgba(255,255,255,.08), 0 1px 2px rgba(0,0,0,.55), 0 0 0 1px rgba(0,0,0,.25);
+    --card-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 2px 6px rgba(0,0,0,.35);
+    --sans: "Hanken Grotesk", -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: "Azeret Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     --col-w: 176px;
+    color-scheme: dark;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
   body {
-    background: var(--body); color: var(--ivory); font-family: var(--sans); font-size: 14px;
+    background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px;
     display: flex; flex-direction: column; overflow: hidden;
   }
   header {
-    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-    padding: 10px 16px; border-bottom: 1px solid var(--panel-edge); background: var(--panel);
+    display: flex; align-items: center; gap: 12px 18px; flex-wrap: wrap; position: relative; z-index: 1;
+    padding: 10px 16px; background: var(--panel); box-shadow: 0 1px 0 var(--line);
   }
-  header h1 { font-family: var(--mono); font-size: 16px; letter-spacing: .12em; color: var(--rebate); text-transform: uppercase; }
-  header .roll { font-family: var(--mono); color: var(--ivory); }
-  header .meta { color: var(--muted); font-size: 12px; font-family: var(--mono); }
+  header h1 { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; white-space: nowrap; }
+  header h1::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  header h1 span { font-weight: 500; color: var(--muted); }
+  header .roll { font-weight: 600; }
+  header .meta { color: var(--muted); font-size: 12px; }
   header .spacer { flex: 1; }
   button {
-    font: inherit; font-family: var(--mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase;
-    background: var(--panel-edge); color: var(--ivory); border: 1px solid var(--rebate-dim);
-    padding: 6px 12px; border-radius: 4px; cursor: pointer;
+    font: inherit; font-size: 12.5px; font-weight: 600; line-height: 1.3; white-space: nowrap;
+    background: var(--raised); color: var(--text); border: 0; box-shadow: var(--key);
+    padding: 7px 15px; border-radius: 999px; cursor: pointer;
   }
-  button:hover { border-color: var(--rebate); }
+  button:hover:not(:disabled) { filter: brightness(1.12); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   button:disabled { opacity: .4; cursor: not-allowed; }
-  button.primary { background: var(--rebate); color: #16140f; border-color: var(--rebate); font-weight: 700; }
-  .stats { font-family: var(--mono); font-size: 12px; color: var(--muted); }
-  .stats b { color: var(--ivory); font-weight: 600; }
-  .stats .warn { color: var(--rebate); }
+  button.primary { background: var(--accent); color: var(--on-accent); }
+  .stats { font-size: 12px; color: var(--muted); }
+  .stats b { color: var(--text); font-weight: 600; }
+  .stats .warn { color: var(--warn); }
 
   /* ---- setup screen ---- */
   #setup { flex: 1; overflow: auto; padding: 28px 16px; }
-  #setup form { max-width: 640px; margin: 0 auto; background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 8px; padding: 22px 24px; }
-  #setup h2 { font-family: var(--mono); font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--rebate); margin: 18px 0 10px; }
+  #setup form { max-width: 640px; margin: 0 auto; background: var(--panel); border-radius: 18px; padding: 22px 24px; box-shadow: var(--card-shadow); }
+  #setup h2 { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 22px 0 12px; }
   #setup h2:first-child { margin-top: 0; }
   .field { display: grid; grid-template-columns: 120px 1fr auto; gap: 8px; align-items: center; margin-bottom: 10px; }
-  .field label { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .field label { font-size: 12.5px; color: var(--muted); }
   .field input[type=text], .field input[type=number] {
-    font: inherit; font-family: var(--mono); font-size: 13px; background: var(--body); color: var(--ivory);
-    border: 1px solid var(--panel-edge); border-radius: 4px; padding: 7px 9px; width: 100%;
+    font: inherit; font-family: var(--mono); font-size: 12px; background: var(--input); color: var(--text);
+    border: 1px solid var(--line); border-radius: 10px; padding: 8px 11px; width: 100%; box-shadow: inset 0 1px 3px rgba(0,0,0,.35);
   }
-  .field input:focus { outline: none; border-color: var(--rebate-dim); }
-  .field .hint { grid-column: 2 / 4; font-size: 11px; color: var(--muted); margin-top: -4px; }
+  .field input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .field .hint { grid-column: 2 / 4; font-size: 11.5px; color: var(--muted); margin-top: -2px; }
   .field.check { grid-template-columns: 120px 1fr; }
-  .field.check label.inline { color: var(--ivory); font-family: var(--sans); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+  .field.check label.inline { color: var(--text); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+  input[type=checkbox] { accent-color: var(--accent); }
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
   .actions { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
-  #setupError { color: var(--danger); font-family: var(--mono); font-size: 12px; }
-  #exifWarn { font-family: var(--mono); font-size: 12px; color: var(--rebate); margin-bottom: 14px; }
+  #setupError { color: var(--danger); font-size: 12.5px; }
+  #exifWarn { font-size: 12.5px; color: var(--warn); margin-bottom: 14px; }
   #renameForm { margin-top: 18px !important; }
-  #renameForm .intro { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
-  button[aria-pressed="true"] { background: var(--rebate-dim); border-color: var(--rebate); }
-  #renameError { color: var(--danger); font-family: var(--mono); font-size: 12px; }
-  #renamePreview { margin-top: 14px; max-height: 300px; overflow: auto; border: 1px solid var(--panel-edge); border-radius: 4px; }
-  #renamePreview table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
-  #renamePreview th { position: sticky; top: 0; background: var(--panel-edge); color: var(--muted); font-weight: normal; text-align: left; padding: 5px 9px; }
-  #renamePreview td { padding: 3px 9px; border-top: 1px solid var(--panel-edge); white-space: nowrap; }
+  #renameForm .intro { font-size: 12.5px; line-height: 1.5; color: var(--muted); margin-bottom: 12px; }
+  button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+  #renameError { color: var(--danger); font-size: 12.5px; }
+  #renamePreview { margin-top: 14px; max-height: 300px; overflow: auto; background: var(--input); border: 1px solid var(--line); border-radius: 10px; }
+  #renamePreview table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11.5px; }
+  #renamePreview th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-family: var(--sans); font-weight: 600; text-align: left; padding: 6px 10px; }
+  #renamePreview td { padding: 4px 10px; border-top: 1px solid var(--line); white-space: nowrap; }
   #renamePreview td.old { color: var(--muted); }
-  #renamePreview td.arrow { color: var(--rebate-dim); width: 1%; }
-  #renamePreview tr.folder td { color: var(--rebate); }
+  #renamePreview td.arrow { color: var(--muted); width: 1%; }
+  #renamePreview tr.folder td { color: var(--text); font-weight: 500; }
 
   /* ---- strip ---- */
-  #strip {
-    flex: 1; overflow-x: auto; overflow-y: hidden; padding: 18px 16px; display: flex; gap: 10px; align-items: stretch;
-    background:
-      repeating-linear-gradient(90deg, transparent 0 22px, #0e0d09 22px 30px) top / 100% 10px no-repeat,
-      repeating-linear-gradient(90deg, transparent 0 22px, #0e0d09 22px 30px) bottom / 100% 10px no-repeat,
-      var(--body);
-  }
+  #strip { flex: 1; overflow-x: auto; overflow-y: hidden; padding: 18px 16px; display: flex; gap: 14px; align-items: stretch; }
   .col { width: var(--col-w); flex: 0 0 var(--col-w); display: flex; flex-direction: column; gap: 6px; }
-  .col .idx { font-family: var(--mono); font-size: 11px; color: var(--rebate-dim); text-align: center; letter-spacing: .1em; }
+  .col .idx { font-family: var(--mono); font-size: 10.5px; color: var(--muted); text-align: center; letter-spacing: .06em; font-variant-numeric: tabular-nums; }
 
   .cell {
-    background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 6px; position: relative;
-    min-height: 60px; transition: border-color .12s, background .12s;
+    background: var(--card); border-radius: 14px; box-shadow: var(--card-shadow); position: relative;
+    min-height: 60px; transition: box-shadow .12s, background .12s;
   }
-  .cell.empty { border-style: dashed; background: transparent; }
-  .cell.over { border-color: var(--rebate); background: #2a2415; }
+  .cell.empty { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line); }
+  .cell.over { background: var(--raised); box-shadow: inset 0 0 0 2px var(--accent); }
   .cell.drag { opacity: .35; }
   .cell[draggable="true"] { cursor: grab; }
 
-  .scan { height: 190px; display: flex; flex-direction: column; }
-  .scan img { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: #0b0a07; border-radius: 6px 6px 0 0; pointer-events: none; }
-  .scan .name { font-family: var(--mono); font-size: 11px; padding: 4px 6px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .scan .badge { position: absolute; top: 6px; left: 6px; font-family: var(--mono); font-size: 10px; padding: 1px 5px; border-radius: 3px; background: rgba(0,0,0,.6); color: var(--ok); }
-  .scan.empty { align-items: center; justify-content: center; color: var(--muted); font-family: var(--mono); font-size: 11px; }
+  /* status pills: a small indicator light, then the label */
+  .pill {
+    position: absolute; font-size: 10px; font-weight: 600; line-height: 1.5; white-space: nowrap;
+    border-radius: 999px; padding: 1px 8px 1px 17px; color: var(--text);
+  }
+  .pill::before {
+    content: ""; position: absolute; left: 7px; top: 50%; width: 6px; height: 6px; margin-top: -3px;
+    border-radius: 50%; background: var(--ok); box-shadow: 0 0 5px var(--ok);
+  }
+  .pill.warn::before { background: var(--warn); box-shadow: 0 0 5px var(--warn); }
+  .pill.err::before { background: var(--danger); box-shadow: 0 0 5px var(--danger); }
+
+  .scan { height: 190px; display: flex; flex-direction: column; padding: 6px 6px 0; }
+  .scan img { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: var(--img); border-radius: 9px; pointer-events: none; }
+  .scan .name { font-family: var(--mono); font-size: 10.5px; padding: 5px 2px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .scan .badge, .scan .result { background: rgba(0,0,0,.6); backdrop-filter: blur(6px); }
+  .scan .badge { top: 12px; left: 12px; }
+  .scan .result { bottom: 32px; right: 12px; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; }
+  .scan.empty { padding: 0; align-items: center; justify-content: center; color: var(--muted); font-size: 11.5px; }
 
   .link { height: 22px; display: flex; align-items: center; justify-content: center; position: relative; }
-  .link::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: var(--panel-edge); }
-  .link.paired::before { background: var(--ok); }
-  .link.half::before { background: var(--danger); }
-  .link .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--panel-edge); z-index: 1; }
-  .link.paired .dot { background: var(--ok); }
-  .link.half .dot { background: var(--danger); }
+  .link::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; transform: translateX(-50%); background: var(--line); }
+  .link .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--led-off); box-shadow: inset 0 1px 2px rgba(0,0,0,.5); z-index: 1; }
+  .link.paired .dot { background: var(--ok); box-shadow: 0 0 10px var(--ok), 0 0 2px var(--ok), inset 0 -1px 1px rgba(0,0,0,.25); }
+  .link.half .dot { background: var(--warn); box-shadow: 0 0 10px var(--warn), 0 0 2px var(--warn), inset 0 -1px 1px rgba(0,0,0,.25); }
 
-  .entry { padding: 8px 10px; height: 126px; display: flex; flex-direction: column; gap: 3px; }
-  .entry .frame { font-family: var(--mono); font-size: 18px; color: var(--rebate); font-weight: 700; line-height: 1; }
-  .entry .time { font-family: var(--mono); font-size: 11px; color: var(--ivory); }
-  .entry .zone { font-family: var(--mono); font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .entry .zone.fallback { color: var(--rebate); }
-  .entry .gear { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .entry .notes { font-size: 11px; color: var(--muted); font-style: italic; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-  .entry .gps { position: absolute; top: 8px; right: 8px; font-family: var(--mono); font-size: 10px; padding: 1px 5px; border-radius: 3px; }
-  .entry .gps.yes { color: var(--ok); border: 1px solid var(--ok); }
-  .entry .gps.no { color: var(--danger); border: 1px solid var(--danger); }
-  .entry.empty { align-items: center; justify-content: center; color: var(--muted); font-family: var(--mono); font-size: 11px; }
+  .entry { padding: 12px 13px; height: 136px; display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
+  .entry .frame { font-size: 26px; font-weight: 700; letter-spacing: -.02em; line-height: 1; margin-bottom: 4px; font-variant-numeric: tabular-nums; cursor: pointer; align-self: flex-start; }
+  .entry .frame span { color: var(--muted); font-weight: 500; }
+  .entry .frame:hover span { color: var(--text); }
+  /* labelled rows: TIME / ZONE / LENS / NOTE */
+  .entry [data-k] { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: baseline; font-size: 11px; color: var(--muted); }
+  .entry [data-k]::before { content: attr(data-k); font-size: 8.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; opacity: .75; }
+  .entry .v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .entry .time { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .entry .time .v { color: var(--text); }
+  .entry .zone.fallback .v { color: var(--warn); }
+  .entry .notes .v { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 11.5px; }
+  .entry .gps { top: 10px; right: 10px; background: var(--bg); padding-left: 16px; }
+  .entry.empty { align-items: center; justify-content: center; color: var(--muted); font-size: 11.5px; }
 
-  .shift { display: flex; justify-content: space-between; padding: 0 2px; }
-  .shift button { padding: 1px 8px; font-size: 11px; border-color: var(--panel-edge); color: var(--muted); }
-  .shift button:hover { color: var(--ivory); border-color: var(--rebate-dim); }
-
-  .result { position: absolute; bottom: 6px; right: 6px; font-family: var(--mono); font-size: 10px; padding: 1px 5px; border-radius: 3px; background: rgba(0,0,0,.6); }
-  .result.ok { color: var(--ok); } .result.err { color: var(--danger); }
+  /* shift keys: 26px circles with 12px triangles */
+  .shift { display: flex; justify-content: space-between; }
+  .shift button { width: 26px; height: 26px; padding: 0; border-radius: 50%; display: grid; place-items: center; color: var(--muted); }
+  .shift button:hover:not(:disabled) { color: var(--text); }
+  .shift button:disabled { opacity: .35; box-shadow: none; cursor: default; }
+  .shift svg { width: 12px; height: 12px; fill: currentColor; display: block; }
 
   #toast {
-    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--rebate-dim);
-    padding: 10px 16px; border-radius: 6px; font-family: var(--mono); font-size: 12px; max-width: 80vw; display: none; z-index: 10;
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--panel); color: var(--text);
+    padding: 10px 16px 10px 30px; border-radius: 12px; font-size: 12.5px; max-width: 80vw; display: none; z-index: 10;
+    box-shadow: 0 0 0 1px var(--line), 0 10px 30px rgba(0,0,0,.5);
   }
-  #toast.err { border-color: var(--danger); }
+  #toast::before { content: ""; position: absolute; left: 14px; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  #toast.err::before { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
   #preview {
     position: fixed; right: 16px; bottom: 16px; width: 380px; max-height: 60vh; overflow: auto; background: var(--panel);
-    border: 1px solid var(--rebate-dim); border-radius: 6px; padding: 10px 12px; font-family: var(--mono); font-size: 11px; display: none; z-index: 9;
+    border-radius: 14px; padding: 12px 14px; display: none; z-index: 9;
+    box-shadow: 0 0 0 1px var(--line), 0 10px 30px rgba(0,0,0,.5);
   }
-  #preview h3 { color: var(--rebate); font-size: 11px; letter-spacing: .1em; margin-bottom: 6px; display: flex; justify-content: space-between; }
-  #preview h3 span { cursor: pointer; color: var(--muted); }
-  #preview pre { white-space: pre-wrap; word-break: break-all; color: var(--ivory); }
-  .help { color: var(--muted); font-size: 12px; padding: 6px 16px; border-top: 1px solid var(--panel-edge); font-family: var(--mono); }
+  #preview h3 { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 8px; display: flex; justify-content: space-between; }
+  #preview h3 span:last-child { cursor: pointer; }
+  #preview h3 span:last-child:hover { color: var(--text); }
+  #preview pre { font-family: var(--mono); font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; color: var(--text); }
+  .help { color: var(--muted); font-size: 12px; padding: 9px 16px; background: var(--panel); box-shadow: 0 -1px 0 var(--line); }
+  .help svg { width: 9px; height: 9px; fill: currentColor; vertical-align: -1px; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Frame Log · tagger</h1>
+  <h1>Frame Log <span>tagger</span></h1>
   <span class="roll" id="roll"></span>
   <span class="meta" id="meta"></span>
   <span class="spacer"></span>
@@ -224,7 +255,7 @@
 <div id="strip" hidden></div>
 
 <div class="help" id="help" hidden>
-  drag a card onto another card to swap · ◀ ▶ shift this card and everything after it · click a frame # to preview the tags · scroll wheel pans
+  drag a card onto another card to swap · <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6 9.2 1.6v8.8z"/></svg> <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M9.8 6 2.8 1.6v8.8z"/></svg> shift this card and everything after it · click a frame # to preview the tags · scroll wheel pans
 </div>
 
 <div id="toast"></div>
@@ -426,10 +457,18 @@ function el(tag, cls, text) {
   if (text != null) e.textContent = text;
   return e;
 }
+// Drawn rather than typed so the triangle's size doesn't depend on the font; nudged toward the point to sit optically centred.
+const TRI_L = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6 9.2 1.6v8.8z"/></svg>';
+const TRI_R = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M9.8 6 2.8 1.6v8.8z"/></svg>';
+function labelled(cls, key, text) {   // a labelled line on a log card
+  const r = el("div", cls); r.dataset.k = key;
+  r.append(el("span", "v", text));
+  return r;
+}
 function shiftBar(row, i) {
   const bar = el("div", "shift");
-  const left = el("button", null, "◀"); left.title = "shift left (closes the gap before this card)";
-  const right = el("button", null, "▶"); right.title = "shift this and everything after it right";
+  const left = el("button"); left.innerHTML = TRI_L; left.title = "shift left (closes the gap before this card)"; left.setAttribute("aria-label", "shift left");
+  const right = el("button"); right.innerHTML = TRI_R; right.title = "shift this and everything after it right"; right.setAttribute("aria-label", "shift right");
   left.disabled = i === 0 || cols[i - 1][row] != null;
   left.onclick = () => shift(row, i, -1);
   right.onclick = () => shift(row, i, +1);
@@ -479,9 +518,9 @@ function render() {
       const img = document.createElement("img");
       img.src = "/api/thumb/" + encodeURIComponent(s.name); img.loading = "lazy"; img.alt = s.name;
       sc.append(img, el("div", "name", s.name));
-      if (s.tagged) sc.append(el("span", "badge", "tagged"));
+      if (s.tagged) sc.append(el("span", "pill warn badge", "tagged"));
       const r = results[s.name];
-      if (r) { const b = el("span", "result " + (r.ok ? "ok" : "err"), r.ok ? "✓ written" : "✕ " + r.error); b.title = r.error || r.path || ""; sc.append(b); }
+      if (r) { const b = el("span", "pill result " + (r.ok ? "ok" : "err"), r.ok ? "written" : r.error); b.title = r.error || r.path || ""; sc.append(b); }
     } else {
       sc.textContent = "no scan";
     }
@@ -500,16 +539,16 @@ function render() {
     const ec = el("div", "cell entry" + (c.entry == null ? " empty" : ""));
     if (c.entry != null) {
       const e = entryById[c.entry];
-      const fr = el("div", "frame", "#" + e.frame); fr.title = "preview ExifTool tags"; fr.style.cursor = "pointer";
+      const fr = el("div", "frame"); fr.append(el("span", null, "#"), String(e.frame)); fr.title = "preview ExifTool tags";
       fr.onclick = () => showPreview(e);
-      const zone = el("div", "zone" + (e.zone_source === "fallback" ? " fallback" : ""), e.zone + " (" + e.offset + ")");
+      const zone = labelled("zone" + (e.zone_source === "fallback" ? " fallback" : ""), "zone", e.zone + " (" + e.offset + ")");
       zone.title = e.zone_source === "phone" ? "zone recorded by the phone when this frame was logged"
                                              : "no zone recorded for this frame; using the fallback zone";
-      ec.append(fr, el("div", "time", e.local), zone);
+      ec.append(fr, labelled("time", "time", e.local), zone);
       const gear = [e.lens, e.aperture, e.shutter].filter(Boolean).join(" · ");
-      if (gear) ec.append(el("div", "gear", gear));
-      if (e.notes) ec.append(el("div", "notes", e.notes));
-      const gps = el("span", "gps " + (e.lat != null ? "yes" : "no"), e.lat != null ? "GPS" : "no GPS");
+      if (gear) ec.append(labelled("gear", "lens", gear));
+      if (e.notes) ec.append(labelled("notes", "note", e.notes));
+      const gps = el("span", "pill gps " + (e.lat != null ? "yes" : "warn"), e.lat != null ? "GPS" : "no GPS");
       if (e.lat != null) gps.title = e.lat.toFixed(5) + ", " + e.lon.toFixed(5) + (e.acc != null ? " ±" + e.acc + " m" : "");
       ec.append(gps);
     } else {
