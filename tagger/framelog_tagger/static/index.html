@@ -169,26 +169,22 @@
     </div>
     <div class="field">
       <label for="fLog">log export</label>
-      <input type="text" id="fLog" placeholder="the roll's .json from the phone" required>
+      <input type="text" id="fLog" placeholder="optional: the roll's .json from the phone">
       <button type="button" data-pick="file" data-for="fLog">Browse…</button>
     </div>
     <div class="field">
       <label for="fOut">write to</label>
-      <input type="text" id="fOut" placeholder="(scans folder)/tagged">
+      <input type="text" id="fOut" placeholder="(the original scans, in place)">
       <button type="button" data-pick="folder" data-for="fOut">Browse…</button>
-      <div class="hint">Tagged copies go here. The originals are never modified unless you tick in place.</div>
-    </div>
-    <div class="field check">
-      <label></label>
-      <label class="inline"><input type="checkbox" id="fInPlace"> write into the original scans instead (in place)</label>
+      <div class="hint">Leave empty to write the tags into the original scans. Pick a folder to write tagged copies there instead.</div>
     </div>
 
     <h2>Camera &amp; film <span style="color:var(--muted);font-weight:normal;letter-spacing:0;text-transform:none">(optional, applied to every frame)</span></h2>
     <div class="row2">
-      <div class="field"><label for="fMake">make</label><input type="text" id="fMake" placeholder="Nikon"><span></span></div>
-      <div class="field"><label for="fCamera">camera</label><input type="text" id="fCamera" placeholder="FM2"><span></span></div>
-      <div class="field"><label for="fFilm">film</label><input type="text" id="fFilm" placeholder="Portra 400"><span></span></div>
-      <div class="field"><label for="fIso">ISO</label><input type="number" id="fIso" placeholder="400" min="1" step="1"><span></span></div>
+      <div class="field"><label for="fMake">make</label><input type="text" id="fMake"><span></span></div>
+      <div class="field"><label for="fCamera">camera</label><input type="text" id="fCamera"><span></span></div>
+      <div class="field"><label for="fFilm">film</label><input type="text" id="fFilm"><span></span></div>
+      <div class="field"><label for="fIso">ISO</label><input type="number" id="fIso" min="1" step="1"><span></span></div>
     </div>
 
     <h2>Time zone</h2>
@@ -210,7 +206,7 @@
     <div class="intro">Renames the scans folder above to the roll name and each image to <i>name</i>-01, -02, … in place. Check the preview first. A folder renamed before shows its current name here to correct, and keeps its frame numbers.</div>
     <div class="field">
       <label for="rName">roll name</label>
-      <input type="text" id="rName" placeholder="tokyo-fm2-portra400">
+      <input type="text" id="rName">
       <button type="button" id="rReverse" aria-pressed="false" title="The lab numbered the roll last frame first: give the highest-numbered scan -01">Reverse numbering</button>
     </div>
     <div class="field check">
@@ -243,12 +239,11 @@ let cols = [];         // [{scan: name|null, entry: id|null}]
 let results = {};      // scan name -> {ok, error}
 
 /* ---------- setup screen ---------- */
-const FORM = { scans_dir: "fScans", log_path: "fLog", out_dir: "fOut", make: "fMake", camera: "fCamera", film: "fFilm", iso: "fIso", tz: "fTz" };
+const REMEMBERED = { scans_dir: "fScans", log_path: "fLog", out_dir: "fOut", tz: "fTz" };
 
 function showSetup() {
   const r = S.remembered || {};
-  for (const [key, id] of Object.entries(FORM)) $(id).value = r[key] ?? "";
-  $("fInPlace").checked = !!r.in_place;
+  for (const [key, id] of Object.entries(REMEMBERED)) $(id).value = r[key] ?? "";
   if (!$("fTz").value) $("fTz").value = S.default_tz || "";
   $("exifWarn").hidden = !!S.exiftool;
   $("setupError").textContent = "";
@@ -263,8 +258,9 @@ function showStrip() {
   $("setup").hidden = true;
   $("strip").hidden = false; $("help").hidden = false;
   for (const id of ["changeRoll", "autoPair", "reverse", "write"]) $(id).hidden = false;
+  $("autoPair").hidden = noLog();
   $("roll").textContent = S.roll;
-  $("meta").textContent = S.scans.length + " scans · " + S.entries.length + " frames" + (S.exiftool ? "" : " · exiftool missing");
+  $("meta").textContent = S.scans.length + " scans · " + (noLog() ? "no log" : S.entries.length + " frames") + (S.exiftool ? "" : " · exiftool missing");
   results = {};
   if (!restore()) autoPair(); else render();
 }
@@ -288,7 +284,7 @@ async function loadRoll(ev) {
   ev.preventDefault();
   const body = {
     scans_dir: $("fScans").value.trim(), log_path: $("fLog").value.trim(), out_dir: $("fOut").value.trim(),
-    in_place: $("fInPlace").checked, tz: $("fTz").value.trim(),
+    tz: $("fTz").value.trim(),
     make: $("fMake").value.trim(), camera: $("fCamera").value.trim(), film: $("fFilm").value.trim(),
     iso: $("fIso").value ? parseInt($("fIso").value, 10) : null,
   };
@@ -360,6 +356,7 @@ async function applyRename(ev) {
 }
 
 /* ---------- pairing model ---------- */
+function noLog() { return !S.log_path; }   // scans only: each gets the roll-wide tags
 function normalize() {
   // Trim trailing empty columns, then add exactly one spare so there's always a drop target.
   while (cols.length && cols[cols.length - 1].scan == null && cols[cols.length - 1].entry == null) cols.pop();
@@ -400,7 +397,7 @@ function swap(row, i, j) {
   normalize(); render();
 }
 function pairs() {
-  return cols.filter((c) => c.scan != null && c.entry != null).map((c) => ({ scan: c.scan, entry: c.entry }));
+  return cols.filter((c) => c.scan != null && (c.entry != null || noLog())).map((c) => ({ scan: c.scan, entry: c.entry }));
 }
 
 /* ---------- persistence (survive an accidental reload) ---------- */
@@ -490,6 +487,7 @@ function render() {
     }
     dragify(sc, "scan", i);
     col.append(shiftBar("scan", i), sc);
+    if (noLog()) { strip.append(col); return; }
 
     // connector
     const both = c.scan != null && c.entry != null;
@@ -527,6 +525,9 @@ function render() {
 }
 function renderStats() {
   const p = pairs().length;
+  $("write").disabled = !S.exiftool || p === 0;
+  $("write").title = S.exiftool ? "Write metadata into " + p + " scan(s)" : "exiftool not found; restart with --exiftool <path>";
+  if (noLog()) { $("stats").innerHTML = "<b>" + p + "</b> scans · roll-wide tags only"; return; }
   const scansUn = cols.filter((c) => c.scan != null && c.entry == null).length;
   const entriesUn = cols.filter((c) => c.entry != null && c.scan == null).length;
   const fallback = S.entries.filter((e) => e.zone_source === "fallback").length;
@@ -535,8 +536,6 @@ function renderStats() {
     (scansUn ? ' · <span class="warn">' + scansUn + " scan" + (scansUn > 1 ? "s" : "") + " without log</span>" : "") +
     (entriesUn ? ' · <span class="warn">' + entriesUn + " log entr" + (entriesUn > 1 ? "ies" : "y") + " without scan</span>" : "") +
     (fallback ? ' · <span class="warn" title="these frames were logged before the phone recorded its zone">' + fallback + " frame" + (fallback > 1 ? "s" : "") + " on fallback zone " + S.tz + "</span>" : "");
-  $("write").disabled = !S.exiftool || p === 0;
-  $("write").title = S.exiftool ? "Write metadata into " + p + " paired scan(s)" : "exiftool not found; restart with --exiftool <path>";
 }
 
 /* ---------- preview + toast ---------- */

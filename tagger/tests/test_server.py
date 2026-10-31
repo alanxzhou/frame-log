@@ -82,7 +82,7 @@ def test_load_builds_session_and_resolves_zones(env):
     j = r.json()
     assert j["loaded"] and j["roll"] == "Test roll" and j["tz"] == "America/New_York"
     assert [s["name"] for s in j["scans"]] == ["1.jpg", "2.jpg", "10.jpg"]
-    assert Path(j["out_dir"]) == env["scans"] / "tagged"
+    assert Path(j["out_dir"]) == env["scans"] and j["in_place"]
     e0, e1 = j["entries"]
     assert e0["zone"] == "Asia/Tokyo" and e0["zone_source"] == "phone" and e0["offset"] == "+09:00"
     assert e0["local"] == "Aug 30, 23:05:12"
@@ -90,8 +90,23 @@ def test_load_builds_session_and_resolves_zones(env):
     assert e1["local"] == "Aug 30, 10:06:12"
     # the setup values are remembered for next time
     remembered = json.loads((env["tmp"] / "config.json").read_text())
-    assert remembered["scans_dir"] == str(env["scans"]) and remembered["camera"] == "FM2" and remembered["iso"] == 400
-    assert env["client"].get("/api/session").json()["remembered"]["camera"] == "FM2"
+    assert remembered["scans_dir"] == str(env["scans"]) and remembered["log_path"] == str(env["log"])
+    # camera and film change roll to roll, so they start blank
+    assert "camera" not in remembered and "iso" not in remembered
+    assert "camera" not in env["client"].get("/api/session").json()["remembered"]
+
+
+def test_load_without_log(env):
+    c = env["client"]
+    r = c.post("/api/load", json={"scans_dir": str(env["scans"]), "camera": "FM2", "film": "Portra 400"})
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["roll"] == "scans" and j["entries"] == [] and j["log_path"] == ""
+    r = c.post("/api/write", json={"pairs": [{"scan": "1.jpg"}, {"scan": "2.jpg", "entry": None}]})
+    assert r.status_code == 200 and r.json()["written"] == 2
+    assert c.post("/api/write", json={"pairs": [{"scan": "1.jpg", "entry": 0}]}).status_code == 400
+    r = c.post("/api/load", json={"scans_dir": str(env["scans"]), "log_path": str(env["tmp"] / "nope.json")})
+    assert r.status_code == 400 and "log file not found" in r.json()["detail"]
 
 
 def test_load_rejects_bad_input(env):
@@ -125,16 +140,23 @@ def test_thumbnail_and_preview(env):
 
 def test_write_copies_and_reports_per_file(env):
     c = env["client"]
-    assert _load(env).status_code == 200
+    out = env["tmp"] / "out"
+    assert _load(env, out_dir=str(out)).status_code == 200
     r = c.post("/api/write", json={"pairs": [{"scan": "1.jpg", "entry": 0}, {"scan": "2.jpg", "entry": 1}]})
     assert r.status_code == 200
     j = r.json()
     assert j["written"] == 1
     ok, bad = j["results"]
-    out = env["scans"] / "tagged"
     assert ok["ok"] and Path(ok["path"]) == out / "1.jpg" and (out / "1.jpg").exists()
     assert not bad["ok"] and "stubbed failure" in bad["error"]
     assert (env["scans"] / "1.jpg").exists()  # originals untouched
+
+
+def test_write_defaults_to_in_place(env):
+    assert _load(env).status_code == 200
+    j = env["client"].post("/api/write", json={"pairs": [{"scan": "1.jpg", "entry": 0}]}).json()
+    assert j["written"] == 1 and Path(j["results"][0]["path"]) == env["scans"] / "1.jpg"
+    assert not (env["scans"] / "tagged").exists()
 
 
 def test_write_validates_input(env):

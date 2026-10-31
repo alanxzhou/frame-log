@@ -36,9 +36,13 @@ uv run framelog-tagger     # from this folder, no install needed
 ```
 
 That opens `http://127.0.0.1:8765/` on a setup screen. Browse to the folder
-of JPEGs from the lab and the roll's `.json` export from the phone, optionally
-fill in camera, film and ISO, and click **Load roll**. The values are
-remembered for next time.
+of JPEGs from the lab and, if you logged the roll, its `.json` export from the
+phone. Optionally fill in camera, film and ISO, and click **Load roll**. The
+folders and the fallback zone are remembered for next time; camera and film
+start blank on every roll.
+
+Without an export the strip shows only the scans, and **Write** gives every
+scan the roll-wide tags (camera, make, ISO, roll and film).
 
 ### Renaming the lab's folder
 
@@ -74,8 +78,9 @@ and so on). Fix the exceptions:
 - **Auto-pair** resets to positional order.
 - Click a **frame number** to see exactly which ExifTool tags will be written.
 
-**Write** copies each paired scan into `<scans>/tagged/` and writes the tags
-into the copy. Originals are never touched unless you tick *in place*.
+**Write** writes the tags into each paired scan in place. Fill in *write to*
+on the setup screen to leave the originals alone and write tagged copies into
+that folder instead.
 Pairing state is remembered in the browser so a reload doesn't lose your work.
 
 Do this **before** importing the scans into Lightroom. Lightroom reads file
@@ -113,6 +118,9 @@ The setup screen covers everything per roll. The command itself takes only:
 | aperture, shutter | FNumber, ExposureTime |
 | notes | ImageDescription, XMP-dc:Description (Lightroom's Caption) |
 | roll, film, frame # | UserComment |
+
+Camera, make and ISO from the setup screen go to Model, Make and ISO on every
+scan, with or without an export.
 
 A shutter value the tool can't parse (e.g. `bulb`) is left untagged rather
 than written wrong; everything else for that frame is still written.

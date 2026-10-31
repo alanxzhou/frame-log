@@ -73,3 +73,9 @@ def test_gear_notes_and_roll_context():
 def test_unparseable_shutter_is_skipped_not_written():
     a = _args(LogEntry(frame=1, iso="2026-08-30T14:05:12Z", shutter="bulb", aperture=""))
     assert "ExposureTime" not in a and "FNumber" not in a
+
+
+def test_no_entry_writes_roll_wide_tags_only():
+    args = build_args(None, TagContext(tz=NY, roll="tokyo", camera="FM2", make="Nikon", film="Portra 400", iso=400))
+    assert args == ["-Model=FM2", "-Make=Nikon", "-ISO=400", "-UserComment=roll: tokyo | film: Portra 400"]
+    assert build_args(None, TagContext(tz=NY)) == []

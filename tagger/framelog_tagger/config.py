@@ -6,7 +6,8 @@ import json
 import os
 from pathlib import Path
 
-FIELDS = ("scans_dir", "log_path", "out_dir", "in_place", "tz", "camera", "make", "film", "iso")
+# Camera and film are left out on purpose: they change roll to roll, and a stale one would be written silently.
+FIELDS = ("scans_dir", "log_path", "out_dir", "tz")
 
 
 def config_path() -> Path:

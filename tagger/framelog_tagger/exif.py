@@ -76,8 +76,33 @@ def resolve_zone(entry: LogEntry, ctx: TagContext) -> tuple[ZoneInfo, str]:
     return ctx.tz, "fallback"
 
 
-def build_args(entry: LogEntry, ctx: TagContext) -> list[str]:
-    """ExifTool tag assignments for one frame. No file paths, no -o/-overwrite."""
+def build_args(entry: Optional[LogEntry], ctx: TagContext) -> list[str]:
+    """ExifTool tag assignments for one frame. No file paths, no -o/-overwrite.
+
+    With no entry (a scan with no log behind it) only the roll-wide tags are written.
+    """
+    args = _frame_args(entry, ctx) if entry else []
+
+    if ctx.camera:
+        args.append(f"-Model={ctx.camera}")
+    if ctx.make:
+        args.append(f"-Make={ctx.make}")
+    if ctx.iso is not None:
+        args.append(f"-ISO={ctx.iso}")
+
+    comment_bits = [f"Frame Log frame {entry.frame}"] if entry else []
+    if ctx.roll:
+        comment_bits.append(f"roll: {ctx.roll}")
+    if ctx.film:
+        comment_bits.append(f"film: {ctx.film}")
+    if comment_bits:
+        args.append("-UserComment=" + " | ".join(comment_bits))
+
+    args += ctx.extra_args
+    return args
+
+
+def _frame_args(entry: LogEntry, ctx: TagContext) -> list[str]:
     zone, _ = resolve_zone(entry, ctx)
     local = entry.utc.astimezone(zone)
     stamp = local.strftime("%Y:%m:%d %H:%M:%S")
@@ -113,22 +138,6 @@ def build_args(entry: LogEntry, ctx: TagContext) -> list[str]:
     if entry.notes:
         # Lightroom's Caption field reads dc:description / ImageDescription.
         args += [f"-ImageDescription={entry.notes}", f"-XMP-dc:Description={entry.notes}"]
-
-    if ctx.camera:
-        args.append(f"-Model={ctx.camera}")
-    if ctx.make:
-        args.append(f"-Make={ctx.make}")
-    if ctx.iso is not None:
-        args.append(f"-ISO={ctx.iso}")
-
-    comment_bits = [f"Frame Log frame {entry.frame}"]
-    if ctx.roll:
-        comment_bits.append(f"roll: {ctx.roll}")
-    if ctx.film:
-        comment_bits.append(f"film: {ctx.film}")
-    args.append("-UserComment=" + " | ".join(comment_bits))
-
-    args += ctx.extra_args
     return args
 
 
