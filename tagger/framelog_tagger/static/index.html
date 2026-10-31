@@ -64,6 +64,17 @@
   .actions { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
   #setupError { color: var(--danger); font-family: var(--mono); font-size: 12px; }
   #exifWarn { font-family: var(--mono); font-size: 12px; color: var(--rebate); margin-bottom: 14px; }
+  #renameForm { margin-top: 18px !important; }
+  #renameForm .intro { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+  button[aria-pressed="true"] { background: var(--rebate-dim); border-color: var(--rebate); }
+  #renameError { color: var(--danger); font-family: var(--mono); font-size: 12px; }
+  #renamePreview { margin-top: 14px; max-height: 300px; overflow: auto; border: 1px solid var(--panel-edge); border-radius: 4px; }
+  #renamePreview table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+  #renamePreview th { position: sticky; top: 0; background: var(--panel-edge); color: var(--muted); font-weight: normal; text-align: left; padding: 5px 9px; }
+  #renamePreview td { padding: 3px 9px; border-top: 1px solid var(--panel-edge); white-space: nowrap; }
+  #renamePreview td.old { color: var(--muted); }
+  #renamePreview td.arrow { color: var(--rebate-dim); width: 1%; }
+  #renamePreview tr.folder td { color: var(--rebate); }
 
   /* ---- strip ---- */
   #strip {
@@ -193,6 +204,25 @@
       <span id="setupError"></span>
     </div>
   </form>
+
+  <form id="renameForm" autocomplete="off">
+    <h2>Rename scans <span style="color:var(--muted);font-weight:normal;letter-spacing:0;text-transform:none">(optional, before loading)</span></h2>
+    <div class="intro">Renames the scans folder above to the roll name and each image to <i>name</i>-01, -02, … in place. Check the preview first. A folder renamed before shows its current name here to correct, and keeps its frame numbers.</div>
+    <div class="field">
+      <label for="rName">roll name</label>
+      <input type="text" id="rName" placeholder="tokyo-fm2-portra400">
+      <button type="button" id="rReverse" aria-pressed="false" title="The lab numbered the roll last frame first: give the highest-numbered scan -01">Reverse numbering</button>
+    </div>
+    <div class="field check">
+      <label></label>
+      <label class="inline"><input type="checkbox" id="rFolder" checked> rename the folder too</label>
+    </div>
+    <div class="actions">
+      <button type="submit" class="primary" id="renameBtn" disabled>Rename</button>
+      <span id="renameError"></span>
+    </div>
+    <div id="renamePreview" hidden></div>
+  </form>
 </div>
 
 <div id="strip" hidden></div>
@@ -227,6 +257,7 @@ function showSetup() {
   for (const id of ["changeRoll", "autoPair", "reverse", "write"]) $(id).hidden = true;
   $("roll").textContent = ""; $("meta").textContent = ""; $("stats").textContent = "";
   $("preview").style.display = "none";
+  onScansChanged();
 }
 function showStrip() {
   $("setup").hidden = true;
@@ -247,7 +278,7 @@ async function pickInto(kind, inputId) {
       body: JSON.stringify({ kind, title: kind === "folder" ? "Choose folder" : "Choose the roll's JSON export", initial }) });
     const j = await r.json();
     if (j.error) { toast(j.error + " — you can type the path instead", true); return; }
-    if (j.path) $(inputId).value = j.path;
+    if (j.path) { $(inputId).value = j.path; if (inputId === "fScans") onScansChanged(); }
   } finally {
     btns.forEach((b) => { b.disabled = false; });
   }
@@ -271,6 +302,60 @@ async function loadRoll(ev) {
     $("setupError").textContent = e.message;
   } finally {
     $("loadBtn").disabled = false;
+  }
+}
+
+/* ---------- rename ---------- */
+let renameReq = 0;     // drops out-of-order preview responses
+function renameBody() {
+  return { scans_dir: $("fScans").value.trim(), name: $("rName").value.trim(),
+           reverse: $("rReverse").getAttribute("aria-pressed") === "true", rename_folder: $("rFolder").checked };
+}
+async function previewRename() {
+  const body = renameBody(), my = ++renameReq;
+  $("renameBtn").disabled = true;
+  if (!body.scans_dir || !body.name) { $("renamePreview").hidden = true; $("renameError").textContent = ""; return; }
+  const r = await fetch("/api/rename/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json();
+  if (my !== renameReq) return;
+  if (!r.ok) { $("renamePreview").hidden = true; $("renameError").textContent = j.detail || r.statusText; return; }
+  $("renameError").textContent = "";
+  const table = el("table");
+  const head = el("tr"); head.append(el("th", null, "now"), el("th"), el("th", null, "becomes")); table.append(head);
+  const row = (cls, a, b) => { const tr = el("tr", cls); tr.append(el("td", "old", a), el("td", "arrow", "→"), el("td", null, b)); table.append(tr); };
+  const base = (p) => p.split(/[\\/]/).filter(Boolean).pop();
+  if (j.dst_dir !== j.src_dir) row("folder", base(j.src_dir) + "/", base(j.dst_dir) + "/");
+  for (const it of j.items) row(null, it.old, it.new);
+  $("renamePreview").replaceChildren(table); $("renamePreview").hidden = false;
+  $("renameBtn").disabled = j.dst_dir === j.src_dir && j.items.every((it) => it.old === it.new);
+}
+let detected = "";     // name read off an already-renamed folder; replaced when the folder changes, unless you typed over it
+async function detectName() {
+  const scans_dir = $("fScans").value.trim();
+  if (!scans_dir) return;
+  const r = await fetch("/api/rename/detect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scans_dir }) });
+  const name = (await r.json()).name || "";
+  if (!$("rName").value || $("rName").value === detected) $("rName").value = name;
+  detected = name;
+}
+let renameTimer = null;
+function onScansChanged() { clearTimeout(renameTimer); renameTimer = setTimeout(() => detectName().then(previewRename).catch((e) => { $("renameError").textContent = e.message; }), 250); }
+function schedulePreview() { clearTimeout(renameTimer); renameTimer = setTimeout(() => previewRename().catch((e) => { $("renameError").textContent = e.message; }), 250); }
+async function applyRename(ev) {
+  ev.preventDefault();
+  const body = renameBody();
+  if (!confirm("Rename the scans in place?\n\n" + body.scans_dir + (body.rename_folder ? "\n→ folder renamed to " + body.name : ""))) return;
+  $("renameBtn").disabled = true;
+  try {
+    const r = await fetch("/api/rename/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!r.ok) { $("renameError").textContent = j.detail || r.statusText; return; }
+    $("fScans").value = j.dst_dir;
+    detected = body.name;
+    $("rReverse").setAttribute("aria-pressed", "false");   // files are now in order; leaving it on would offer to flip them back
+    toast("renamed " + j.renamed + " files → " + j.dst_dir);
+  } finally {
+    await previewRename();
   }
 }
 
@@ -498,6 +583,14 @@ async function boot() {
   S = await (await fetch("/api/session")).json();
   document.querySelectorAll("[data-pick]").forEach((b) => { b.onclick = () => pickInto(b.dataset.pick, b.dataset.for); });
   $("setupForm").addEventListener("submit", loadRoll);
+  $("renameForm").addEventListener("submit", applyRename);
+  $("fScans").addEventListener("input", onScansChanged);
+  $("rName").addEventListener("input", schedulePreview);
+  $("rFolder").addEventListener("change", schedulePreview);
+  $("rReverse").onclick = () => {
+    $("rReverse").setAttribute("aria-pressed", $("rReverse").getAttribute("aria-pressed") === "true" ? "false" : "true");
+    schedulePreview();
+  };
   $("changeRoll").onclick = async () => { S = await (await fetch("/api/unload", { method: "POST" })).json(); showSetup(); };
   $("autoPair").onclick = () => { if (confirm("Reset all pairing to positional order?")) autoPair(); };
   $("reverse").onclick = reverseScans;

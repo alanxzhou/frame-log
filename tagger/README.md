@@ -37,6 +37,30 @@ of JPEGs from the lab and the roll's `.json` export from the phone, optionally
 fill in camera, film and ISO, and click **Load roll**. The values are
 remembered for next time.
 
+### Renaming the lab's folder
+
+Labs deliver something like `12345678/123456780001.jpg`. The **Rename scans**
+panel under the setup form turns the scans folder into `<roll name>/` and its
+images into `<roll name>-01.jpg`, `-02`, … in natural-sort order, in place.
+
+- **Reverse numbering** gives the lab's last scan `-01`, for labs that number
+  a roll last frame first. Applying it again to an already-renamed folder
+  flips the order back.
+- To fix a typo or change the name, point it at the renamed folder. The
+  current name is filled in for you, and the frames keep their numbers, so
+  deleting a blank doesn't shift the frames after it. This works whenever
+  every image is `<name>-NN` with the same name.
+- Untick *rename the folder too* to rename only the files.
+- Files sharing a stem (a frame delivered as both `.jpg` and `.tif`) get the
+  same number. Other files (lab notes and the like) are left alone.
+- Frame numbers are two digits, or three on rolls with over 99 images.
+
+The preview lists every rename before anything moves. After **Rename**, the
+scans folder field points at the new folder, ready for **Load roll**. Rename
+before loading. A loaded roll keeps its paths, so **Change roll** first.
+
+### Pairing
+
 Scans and log entries start paired positionally (first scan to first frame,
 and so on). Fix the exceptions:
 
@@ -99,10 +123,11 @@ tagger/
     cli.py        startup, opens the browser
     log.py        JSON export → Roll/LogEntry (the contract with ../index.html's buildJson)
     scans.py      JPEG listing (natural sort), thumbnails, "already tagged" check
+    rename.py     lab folder → <roll>/<roll>-NN.jpg (plan, then apply)
     exif.py       LogEntry → ExifTool arguments (per-frame zone); write_tags()
     dialogs.py    native folder/file pickers via a Tk helper process
     config.py     remembered setup-screen values
-    server.py     FastAPI: /api/session, /api/pick, /api/load, /api/thumb, /api/preview, /api/write
+    server.py     FastAPI: /api/session, /api/pick, /api/load, /api/thumb, /api/preview, /api/write, /api/rename/*
     static/index.html   setup screen + the pairing UI
   tests/          pytest; ExifTool is stubbed so they run without it
 ```
