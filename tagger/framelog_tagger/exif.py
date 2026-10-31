@@ -103,25 +103,28 @@ def build_args(entry: Optional[LogEntry], ctx: TagContext) -> list[str]:
 
 
 def _frame_args(entry: LogEntry, ctx: TagContext) -> list[str]:
-    zone, _ = resolve_zone(entry, ctx)
-    local = entry.utc.astimezone(zone)
-    stamp = local.strftime("%Y:%m:%d %H:%M:%S")
-    offset = _fmt_offset(local)
-    args = [
-        f"-DateTimeOriginal={stamp}",
-        f"-CreateDate={stamp}",
-        f"-OffsetTimeOriginal={offset}",
-        f"-OffsetTimeDigitized={offset}",
-    ]
+    args = []
+    utc = entry.utc   # None on a card made in the tagger without a time: no date tags
+    if utc is not None:
+        zone, _ = resolve_zone(entry, ctx)
+        local = utc.astimezone(zone)
+        stamp = local.strftime("%Y:%m:%d %H:%M:%S")
+        offset = _fmt_offset(local)
+        args += [
+            f"-DateTimeOriginal={stamp}",
+            f"-CreateDate={stamp}",
+            f"-OffsetTimeOriginal={offset}",
+            f"-OffsetTimeDigitized={offset}",
+        ]
 
     if entry.has_gps:
         # Signed values + *Ref tags: ExifTool derives N/S and E/W from the sign.
         args += [
             f"-GPSLatitude={entry.lat}", f"-GPSLatitudeRef={entry.lat}",
             f"-GPSLongitude={entry.lon}", f"-GPSLongitudeRef={entry.lon}",
-            f"-GPSDateStamp={entry.utc.strftime('%Y:%m:%d')}",
-            f"-GPSTimeStamp={entry.utc.strftime('%H:%M:%S')}",
         ]
+        if utc is not None:
+            args += [f"-GPSDateStamp={utc.strftime('%Y:%m:%d')}", f"-GPSTimeStamp={utc.strftime('%H:%M:%S')}"]
         if entry.alt is not None:
             args += [f"-GPSAltitude={entry.alt}", f"-GPSAltitudeRef={entry.alt}"]
         if entry.acc is not None:

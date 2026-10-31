@@ -181,3 +181,63 @@ def test_pick_endpoint_delegates_to_native_dialog(env, monkeypatch):
     monkeypatch.setattr(server, "native_pick", lambda kind, title, initial: (calls.append((kind, title, initial)) or {"path": "/chosen"}))
     r = env["client"].post("/api/pick", json={"kind": "folder", "title": "T", "initial": "/start"})
     assert r.json() == {"path": "/chosen"} and calls == [("folder", "T", "/start")]
+
+
+def _card(j, entry_id):
+    return next(e for e in j["entries"] if e["id"] == entry_id)
+
+
+def test_edit_marks_card_edited_and_revert_restores(env):
+    c = env["client"]
+    j = _load(env).json()
+    assert [e["status"] for e in j["entries"]] == ["original", "original"]
+    e0 = _card(j, 0)
+    fields = {"frame": 1, "local": e0["local_iso"], "tz": "Asia/Tokyo", "lat": 40.5, "lon": -73.9}
+    # same values back (the editor saves whole seconds): still original
+    assert _card(c.put("/api/entries/0", json=fields).json(), 0)["status"] == "original"
+    j = c.put("/api/entries/0", json={**fields, "local": "2026-08-30T23:10:00", "lens": "50mm"}).json()
+    e0 = _card(j, 0)
+    assert e0["status"] == "edited" and e0["iso"] == "2026-08-30T14:10:00Z" and e0["lens"] == "50mm"
+    assert "-LensModel=50mm" in c.get("/api/preview/0").json()["args"]
+    assert _card(c.post("/api/entries/0/revert").json(), 0)["status"] == "original"
+    assert c.delete("/api/entries/0").status_code == 400   # log cards can't be deleted
+
+
+def test_edit_validates(env):
+    c = env["client"]
+    _load(env)
+    assert c.put("/api/entries/0", json={"frame": 1, "tz": "Mars/Olympus"}).status_code == 400
+    assert c.put("/api/entries/0", json={"frame": 1, "lat": 40.5}).status_code == 400
+    assert c.put("/api/entries/0", json={"frame": 1, "local": "yesterday"}).status_code == 400
+    assert c.put("/api/entries/9", json={"frame": 1}).status_code == 404
+
+
+def test_paste_and_new_cards(env):
+    c = env["client"]
+    _load(env)
+    j = c.post("/api/entries", json={"copy_of": 0}).json()
+    copy = _card(j, j["created"])
+    assert copy["status"] == "added" and copy["added"] == "copy of #1" and copy["lat"] == 40.5
+    j = c.post("/api/entries", json={"fields": {"frame": 7, "lens": "28mm"}}).json()
+    new = _card(j, j["created"])
+    assert new["status"] == "added" and new["added"] == "new" and new["local"] == "" and new["iso"] == ""
+    # no time: no date tags, but the rest is written
+    args = c.get(f"/api/preview/{new['id']}").json()["args"]
+    assert "-LensModel=28mm" in args and not any(a.startswith("-DateTimeOriginal") for a in args)
+    r = c.post("/api/write", json={"pairs": [{"scan": "1.jpg", "entry": copy["id"]}, {"scan": "10.jpg", "entry": new["id"]}]})
+    assert r.json()["written"] == 2
+    assert c.post(f"/api/entries/{new['id']}/revert").status_code == 400
+    j = c.delete(f"/api/entries/{new['id']}").json()
+    assert new["id"] not in [e["id"] for e in j["entries"]]
+    # ids are never reused
+    assert c.post("/api/entries", json={"copy_of": 1}).json()["created"] == new["id"] + 1
+    assert c.post("/api/entries", json={}).status_code == 400
+
+
+def test_cards_without_a_log(env):
+    c = env["client"]
+    c.post("/api/load", json={"scans_dir": str(env["scans"])})
+    j = c.post("/api/entries", json={"fields": {"frame": 1, "local": "2026-08-30T10:00:00"}}).json()
+    assert _card(j, j["created"])["offset"] == "-04:00"   # fallback zone
+    r = c.post("/api/write", json={"pairs": [{"scan": "1.jpg", "entry": j["created"]}, {"scan": "2.jpg"}]})
+    assert r.json()["written"] == 2

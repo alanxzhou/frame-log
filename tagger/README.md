@@ -78,6 +78,27 @@ and so on). Fix the exceptions:
 - **Auto-pair** resets to positional order.
 - Click a **frame number** to see exactly which ExifTool tags will be written.
 
+### Editing and adding cards
+
+When there's no export, or the export is missing frames, make the cards here:
+
+- **New** in an empty slot makes a card from scratch. The frame number, zone,
+  time and gear start from the card before it, as on the phone.
+- The **copy** key on a card, then **Paste** in an empty slot, adds a duplicate
+  to adjust. **▶** opens an empty slot where you need one.
+- The **pencil** key (or a double-click) edits any card: frame #, time (local,
+  in the card's zone), zone, coordinates, lens, aperture, shutter and notes.
+  Leave the time blank to leave a scan's date tags alone.
+
+The chip at the bottom of each card says where it stands: **original** (as read
+from the export), **edited** (changed here, with the old value shown under
+each changed field in the editor and a *Revert to original* button), or
+**new** / **copy of #N** (made here; these can be deleted). Edits live in the
+running tagger only. The export file is never changed, and **Change roll** or
+restarting the tagger drops them.
+
+Without an export, a scan in a slot with no card still gets the roll-wide tags.
+
 **Write** writes the tags into each paired scan in place. Fill in *write to*
 on the setup screen to leave the originals alone and write tagged copies into
 that folder instead.
@@ -138,7 +159,7 @@ tagger/
     exif.py       LogEntry → ExifTool arguments (per-frame zone); write_tags()
     dialogs.py    native folder/file pickers via a Tk helper process
     config.py     remembered setup-screen values
-    server.py     FastAPI: /api/session, /api/pick, /api/load, /api/thumb, /api/preview, /api/write, /api/rename/*
+    server.py     FastAPI: /api/session, /api/pick, /api/load, /api/thumb, /api/preview, /api/entries, /api/write, /api/rename/*
     static/index.html   setup screen + the pairing UI
   tests/          pytest; ExifTool is stubbed so they run without it
 ```
