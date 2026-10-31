@@ -108,6 +108,37 @@ Do this **before** importing the scans into Lightroom. Lightroom reads file
 metadata at import; if the files are already in a catalog you'll need
 Metadata → Read Metadata from File afterwards.
 
+### Keywords
+
+Keywords are written to each scan's XMP-dc:Subject, which Lightroom reads as
+the photo's keywords at import.
+
+- **Every scan** gets the roll's keywords from the setup screen: make and
+  camera as one (`Nikon` + `FE` → *Nikon FE*; a camera already named
+  *Nikon FE* isn't doubled) and the film (*Portra 400*). ISO isn't a keyword.
+  They show at the right of the keyword panel.
+- **Per scan**: click a scan and start typing. Enter (or Tab) takes the
+  highlighted suggestion; a comma adds exactly what you typed, so
+  `beach, Mom, ` adds two. With the box empty, ← / → move to the next scan so
+  you can keep going, and Backspace removes the scan's last keyword.
+- **Several at once**: shift-click a range, ⌘/Ctrl-click to add one, ⌘/Ctrl-A
+  for all. The box then shows each keyword as on all of them, or as *2/5* (on
+  some): click it to give it to all, × to take it off all.
+- **Suggestions** are the keywords used on this roll, then your library, most
+  recent first. Press **1–9** (with the box not focused) to toggle one on the
+  selected scans. ⌘/Ctrl-Z undoes keyword changes; Esc clears the selection.
+- Keywords match case-insensitively; the spelling you used first is kept.
+
+Each scan's keywords are remembered in the browser along with the pairing.
+Keywords already in the files (an earlier Write, another app) are read at
+**Load roll**, so re-writing a roll keeps them. Write replaces a scan's
+keywords with what the strip shows, roll's first.
+
+The **library** is every keyword you've added or written, stored on this
+computer next to the remembered setup values (`keywords.json` in
+`~/.config/framelog-tagger/`, `%APPDATA%\framelog-tagger\` on Windows).
+**Library…** lists them with counts; removing one only stops suggesting it.
+
 ### Time zones
 
 Log timestamps are UTC; EXIF wants local wall-clock time plus an offset. The
@@ -139,9 +170,10 @@ The setup screen covers everything per roll. The command itself takes only:
 | aperture, shutter | FNumber, ExposureTime |
 | notes | ImageDescription, XMP-dc:Description (Lightroom's Caption) |
 | roll, film, frame # | UserComment |
+| keywords | XMP-dc:Subject (Lightroom's Keywords) |
 
 Camera, make and ISO from the setup screen go to Model, Make and ISO on every
-scan, with or without an export.
+scan, with or without an export. Make + camera and film are also keywords.
 
 A shutter value the tool can't parse (e.g. `bulb`) is left untagged rather
 than written wrong; everything else for that frame is still written.
@@ -159,7 +191,8 @@ tagger/
     exif.py       LogEntry → ExifTool arguments (per-frame zone); write_tags()
     dialogs.py    native folder/file pickers via a Tk helper process
     config.py     remembered setup-screen values
-    server.py     FastAPI: /api/session, /api/pick, /api/load, /api/thumb, /api/preview, /api/entries, /api/write, /api/rename/*
+    keywords.py   roll keywords, reading keywords from a scan, the keyword library
+    server.py     FastAPI: /api/session, /api/pick, /api/load, /api/thumb, /api/preview, /api/entries, /api/keywords, /api/write, /api/rename/*
     static/index.html   setup screen + the pairing UI
   tests/          pytest; ExifTool is stubbed so they run without it
 ```

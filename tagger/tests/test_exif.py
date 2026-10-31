@@ -79,3 +79,18 @@ def test_no_entry_writes_roll_wide_tags_only():
     args = build_args(None, TagContext(tz=NY, roll="tokyo", camera="FM2", make="Nikon", film="Portra 400", iso=400))
     assert args == ["-Model=FM2", "-Make=Nikon", "-ISO=400", "-UserComment=roll: tokyo | film: Portra 400"]
     assert build_args(None, TagContext(tz=NY)) == []
+
+
+def _subjects(args: list[str]) -> list[str]:
+    return [a.partition("=")[2] for a in args if a.startswith("-XMP-dc:Subject=")]
+
+
+def test_keywords_roll_first_then_the_scans_own():
+    e = LogEntry(frame=1, iso="2026-08-30T14:05:12Z")
+    ctx = TagContext(tz=NY, make="Nikon", camera="FE", iso=400, keywords=["Nikon FE", "Portra 400"])
+    args = build_args(e, ctx, ["beach", "portra 400", "Mom, Dad"])
+    assert _subjects(args) == ["Nikon FE", "Portra 400", "beach", "Mom Dad"]
+    assert "-ISO=400" in args and "400" not in _subjects(args)
+    # nothing to write: the file's keywords are left alone, unless asked to clear them
+    assert _subjects(build_args(e, TagContext(tz=NY))) == []
+    assert _subjects(build_args(None, TagContext(tz=NY), clear_keywords=True)) == [""]

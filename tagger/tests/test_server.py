@@ -243,3 +243,40 @@ def test_cards_without_a_log(env):
     assert _card(j, j["created"])["offset"] == "-04:00"   # fallback zone
     r = c.post("/api/write", json={"pairs": [{"scan": "1.jpg", "entry": j["created"]}, {"scan": "2.jpg"}]})
     assert r.json()["written"] == 2
+
+
+def test_keywords_roll_wide_per_scan_and_library(env):
+    c = env["client"]
+    Image.new("RGB", (64, 40)).save(env["scans"] / "1.jpg", xmp=(
+        b'<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        b'<rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:subject><rdf:Bag>'
+        b'<rdf:li>old</rdf:li></rdf:Bag></dc:subject></rdf:Description></rdf:RDF></x:xmpmeta>'))
+    j = _load(env, make="Nikon", camera="FE", film="Portra 400", iso=400).json()
+    assert j["roll_keywords"] == ["Nikon FE", "Portra 400"]
+    assert j["scans"][0]["keywords"] == ["old"]
+    assert [k["name"] for k in j["keywords"]] == ["old"]   # keywords found in the scans join the library
+
+    lib = c.post("/api/keywords", json={"add": ["beach", "Old"]}).json()["keywords"]
+    assert [k["name"] for k in lib] == ["beach", "old"]   # "Old" is the same keyword as "old"
+
+    args = c.get("/api/preview/0", params={"scan": "1.jpg", "kw": ["beach"]}).json()["args"]
+    assert [a for a in args if "Subject" in a] == [
+        "-XMP-dc:Subject=Nikon FE", "-XMP-dc:Subject=Portra 400", "-XMP-dc:Subject=beach"]
+
+    r = c.post("/api/write", json={"pairs": [{"scan": "1.jpg", "entry": 0, "keywords": ["beach"]}]}).json()
+    assert r["written"] == 1
+    counts = {k["name"]: k["count"] for k in r["keywords"]}
+    assert counts == {"Nikon FE": 1, "Portra 400": 1, "beach": 1, "old": 0}
+    assert {k["name"] for k in json.loads((env["tmp"] / "keywords.json").read_text())["keywords"]} == set(counts)
+    assert env["state"].session.scans[0].keywords == ["Nikon FE", "Portra 400", "beach"]
+
+    lib = c.post("/api/keywords", json={"remove": ["OLD"]}).json()["keywords"]
+    assert "old" not in {k["name"] for k in lib}
+
+
+def test_keywords_cleared_only_when_the_scan_had_some(env):
+    c = env["client"]
+    _load(env)   # no camera or film: no roll keywords
+    assert not any("Subject" in a for a in c.get("/api/preview/0", params={"scan": "1.jpg"}).json()["args"])
+    env["state"].session.scans[0].keywords = ["old"]
+    assert "-XMP-dc:Subject=" in c.get("/api/preview/0", params={"scan": "1.jpg"}).json()["args"]
