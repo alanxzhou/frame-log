@@ -10,9 +10,11 @@ Python backend (FastAPI) + a single static HTML page. Metadata is written by
 
 ## Install
 
-Requires Python 3.11+ and ExifTool. The folder pickers use Python's bundled
+Requires [uv](https://docs.astral.sh/uv/) and ExifTool. uv fetches a suitable
+Python (3.11+) if you don't have one. The folder pickers use Python's bundled
 Tk; python.org and Windows Store builds include it, Homebrew needs
-`brew install python-tk`. Without it you can still type paths.
+`brew install python-tk`. Without it you can still type paths. (uv's own
+managed Pythons include Tk too.)
 
 ```
 # ExifTool
@@ -21,15 +23,16 @@ brew install exiftool                     # mac
 #          exiftool.exe and put it on PATH (or pass --exiftool <path>)
 
 # the tagger, from this folder
-uv tool install .                         # or: pip install .
-# for hacking on it:
-uv sync --extra dev                       # or: pip install -e ".[dev]"
+uv tool install .
+# or run it without installing:
+uv run framelog-tagger
 ```
 
 ## Use
 
 ```
-framelog-tagger
+framelog-tagger            # if installed with `uv tool install .`
+uv run framelog-tagger     # from this folder, no install needed
 ```
 
 That opens `http://127.0.0.1:8765/` on a setup screen. Browse to the folder
@@ -94,7 +97,7 @@ than written wrong; everything else for that frame is still written.
 
 ```
 tagger/
-  pyproject.toml
+  pyproject.toml, uv.lock
   framelog_tagger/
     cli.py        startup, opens the browser
     log.py        JSON export → Roll/LogEntry (the contract with ../index.html's buildJson)
@@ -107,4 +110,5 @@ tagger/
   tests/          pytest; ExifTool is stubbed so they run without it
 ```
 
-Run the tests with `pytest` from this folder.
+Run the tests with `uv run pytest` from this folder (the `dev` dependency
+group is installed by default).
