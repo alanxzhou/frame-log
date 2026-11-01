@@ -32,7 +32,7 @@ where = ["."]
 include = ["framelog_tagger*"]
 
 [tool.setuptools.package-data]
-framelog_tagger = ["static/*"]
+framelog_tagger = ["static/*", "models/*.onnx"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

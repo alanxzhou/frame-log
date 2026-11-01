@@ -23,12 +23,12 @@ def faces_settings_path() -> Path:
 
 
 def load_faces_settings() -> dict:
-    """The face-tagging settings kept between runs: where your Lightroom photos are, and names that aren't people."""
-    out = {"library": [], "exclude": [], "synced": ""}
+    """The face-tagging settings kept between runs: where your tagged photos are, and which names are pets."""
+    out = {"library": [], "pets": [], "synced": ""}
     try:
         data = json.loads(faces_settings_path().read_text(encoding="utf-8"))
         out["library"] = [str(p) for p in data.get("library", []) if str(p).strip()]
-        out["exclude"] = [str(n) for n in data.get("exclude", []) if str(n).strip()]
+        out["pets"] = [str(n) for n in data.get("pets", data.get("exclude", [])) if str(n).strip()]   # "exclude" is what it was called first
         out["synced"] = str(data.get("synced", ""))
     except (OSError, ValueError, AttributeError):
         pass
@@ -39,7 +39,7 @@ def save_faces_settings(settings: dict) -> None:
     p = faces_settings_path()
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({k: settings[k] for k in ("library", "exclude", "synced") if k in settings},
+        p.write_text(json.dumps({k: settings[k] for k in ("library", "pets", "synced") if k in settings},
                                 indent=2, ensure_ascii=False), encoding="utf-8")
     except OSError:
         pass  # remembering is a convenience, never a failure

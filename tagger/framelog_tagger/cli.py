@@ -39,15 +39,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def load_faces():
-    """(engine, gallery, why not): the face tools, or None and a reason if they can't load (a broken install)."""
+    """(engine, gallery, why not, pet engine, pet gallery): the face and pet tools, or None and a reason if the
+    face tools can't load (a broken install). The pet pair is None when the pet detector isn't present."""
     try:
-        from . import faces
+        from . import faces, pets
     except ImportError as e:
-        return None, None, f"face tagging couldn't load ({e}); reinstall the tagger"
+        return None, None, f"face tagging couldn't load ({e}); reinstall the tagger", None, None
     missing = faces.missing_dependency()
     if missing:
-        return None, None, f"face tagging couldn't load: {missing} isn't installed; reinstall the tagger"
-    return faces.Engine(), faces.Gallery(), ""
+        return None, None, f"face tagging couldn't load: {missing} isn't installed; reinstall the tagger", None, None
+    if not pets.available():
+        return faces.Engine(), faces.Gallery(), "", None, None
+    return faces.Engine(), faces.Gallery(), "", pets.PetEngine(), faces.Gallery(pets.gallery_path())
 
 
 def faces_main(argv: list[str]) -> int:
@@ -55,10 +58,11 @@ def faces_main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(prog="framelog-tagger faces", description="Manage the gallery of faces used to suggest names.")
     sub = p.add_subparsers(dest="cmd", required=True)
     imp = sub.add_parser("import", help="learn from photos that already have named face regions (e.g. from Lightroom). "
-                                        "The folder and --exclude are remembered, and the tagger repeats this on every start.")
+                                        "The folder and --pets are remembered, and the tagger repeats this on every start.")
     imp.add_argument("folders", nargs="*", help="folders searched recursively for JPEGs; default: the remembered ones")
-    imp.add_argument("--exclude", nargs="*", default=None, metavar="NAME",
-                     help="names that aren't people (pets); replaces the remembered list. A human-face model can't tell animals apart")
+    imp.add_argument("--pets", "--exclude", nargs="*", default=None, metavar="NAME", dest="pets",
+                     help="tagged names that are animals (they are learned by the pet model, not the face one); "
+                          "replaces the remembered list")
     imp.add_argument("--exiftool", default=None, help="path to exiftool if it isn't on PATH")
     imp.add_argument("--again", action="store_true",
                      help="read every photo again, not just new ones (after changing names in Lightroom)")
@@ -69,21 +73,24 @@ def faces_main(argv: list[str]) -> int:
     args = p.parse_args(argv)
 
     try:
-        from . import faces
+        from . import faces, pets
     except ImportError as e:
         print(f"face tagging couldn't load ({e}); reinstall the tagger", file=sys.stderr)
         return 2
     gallery = faces.Gallery()
+    pet_gallery = faces.Gallery(pets.gallery_path())
 
     if args.cmd == "people":
-        for name, n in gallery.people():
-            if n >= args.min:
-                print(f"{n:6d}  {name}")
-        print(f"{len(gallery)} faces, {len(gallery.people())} people  ({gallery.path})")
+        for label, g in (("people", gallery), ("pets", pet_gallery)):
+            for name, n in g.people():
+                if n >= args.min:
+                    print(f"{n:6d}  {name}" + ("  (pet)" if g is pet_gallery else ""))
+            print(f"{len(g)} {label} faces, {len(g.people())} {label}  ({g.path})")
         return 0
     if args.cmd == "forget":
-        gone = gallery.forget(args.name)
+        gone = gallery.forget(args.name) + pet_gallery.forget(args.name)
         gallery.save()
+        pet_gallery.save()
         print(f"removed {gone} face(s) named {args.name!r}")
         return 0
 
@@ -96,21 +103,30 @@ def faces_main(argv: list[str]) -> int:
     if not exe:
         print("exiftool not found (it reads the face regions); pass --exiftool <path>", file=sys.stderr)
         return 2
-    removed = faces.update_settings(gallery, settings, folders, settings["exclude"] if args.exclude is None else args.exclude)
+    removed = faces.update_settings(gallery, settings, folders, settings["pets"] if args.pets is None else args.pets, pet_gallery)
     if removed:
-        print(f"removed {removed} faces of names that aren't people")
+        print(f"removed {removed} faces of names that are pets, not people")
     if args.again:
         gallery.clear_done()
+        pet_gallery.clear_done()
+    pet_engine = pets.PetEngine() if pets.available() and settings["pets"] else None
+    if settings["pets"] and pet_engine is None:
+        print("no pet detector is installed, so the pets are skipped", file=sys.stderr)
 
     def progress(i: int, n: int, added: int) -> None:
         if i % 25 == 0 or i == n:
             print(f"\r  {i}/{n} images, {added} faces added", end="", flush=True)
 
     print("reading face regions with exiftool (a big library takes a minute or two)...", flush=True)
-    stats = faces.learn_library(faces.Engine(), gallery, exe, folders, settings["exclude"], progress=progress)
-    print(f"\ndone: {stats['added']} faces added from {stats['tagged_images']} tagged photos, {stats['unmatched']} tagged "
-          f"faces the detector didn't find, {stats['skipped']} photos already learned. "
-          f"Gallery: {len(gallery)} faces, {len(gallery.people())} people.")
+    def pet_progress(i: int, n: int, added: int) -> None:
+        if i % 25 == 0 or i == n:
+            print(f"\r  pets: {i}/{n} images, {added} faces added", end="", flush=True)
+
+    stats = faces.learn_library(faces.Engine(), gallery, exe, folders, settings["pets"], progress=progress,
+                                pet_engine=pet_engine, pet_gallery=pet_gallery, pet_progress=pet_progress)
+    print(f"\ndone: {stats['added']} faces and {stats['pets_added']} pet faces added from {stats['tagged_images']} tagged photos, "
+          f"{stats['unmatched']} tagged faces the detector didn't find, {stats['skipped']} photos already learned. "
+          f"Gallery: {len(gallery)} faces, {len(gallery.people())} people; {len(pet_gallery)} pet faces, {len(pet_gallery.people())} pets.")
     return 0
 
 def main(argv: list[str] | None = None) -> int:
@@ -133,18 +149,20 @@ def main(argv: list[str] | None = None) -> int:
               "put it on PATH\n"
               "  or pass --exiftool <path>", file=sys.stderr)
 
-    engine, gallery, faces_note = load_faces()
+    engine, gallery, faces_note, pet_engine, pet_gallery = load_faces()
     settings = config.load_faces_settings()
     sync = None
     if engine:
         from .faces import Sync
-        sync = Sync(engine, gallery, exe, settings)
-        print(f"face tagging on: {len(gallery)} faces, {len(gallery.people())} people in the gallery")
+        sync = Sync(engine, gallery, exe, settings, pet_engine, pet_gallery)
+        print(f"face tagging on: {len(gallery)} faces, {len(gallery.people())} people in the gallery"
+              + (f"; {len(pet_gallery.people())} pets" if pet_engine else "; no pet detector"))
         if sync.start():
             where = ", ".join(settings["library"])
             print(f"learning in the background from {where} (new photos only, after the first time)")
     state = AppState(exiftool=exe, default_tz=local_tz_name(), remembered=config.load(), engine=engine,
-                     gallery=gallery, faces_note=faces_note, sync=sync, face_settings=settings)
+                     gallery=gallery, faces_note=faces_note, sync=sync, face_settings=settings,
+                     pet_engine=pet_engine, pet_gallery=pet_gallery)
 
     import uvicorn
     app = create_app(state)

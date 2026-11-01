@@ -34,14 +34,15 @@ from .dialogs import pick as native_pick
 from .exif import ExifToolError, TagContext, build_args, resolve_zone, write_tags
 from .keywords import Library, clean, merge, roll_keywords
 from .log import LogEntry, LogFormatError, read_log
-from .regions import FaceBox, merge_regions, read_regions, region_args
+from .regions import FaceBox, iou as regions_iou, merge_regions, read_regions, region_args
 from .rename import apply_rename, detect_name, plan_rename
 from .scans import ScanInfo, ThumbnailCache, list_scans
 
-try:   # needs numpy: only there with the `faces` extra
+try:   # a broken install (numpy or onnxruntime missing) leaves the rest of the tagger working
     from . import faces as faces_mod
+    from . import pets as pets_mod
 except ImportError:
-    faces_mod = None
+    faces_mod = pets_mod = None
 
 STATIC = Path(__file__).parent / "static"
 
@@ -98,12 +99,14 @@ class AppState:
     gallery: Optional["faces_mod.Gallery"] = None
     faces_note: str = ""
     sync: Optional["faces_mod.Sync"] = None          # learns from your Lightroom folder in the background
-    face_settings: dict = field(default_factory=lambda: {"library": [], "exclude": [], "synced": ""})
+    face_settings: dict = field(default_factory=lambda: {"library": [], "pets": [], "synced": ""})
+    pet_engine: Optional["pets_mod.PetEngine"] = None   # None: no pet detector, so pets are skipped
+    pet_gallery: Optional["faces_mod.Gallery"] = None
 
 
 class LibraryRequest(BaseModel):
     folders: list[str] = []   # where your Lightroom-tagged photos live; the tagger learns who people are from them
-    exclude: list[str] = []   # names that aren't people (pets): never learned, and removed if already learned
+    pets: list[str] = []      # tagged names that are animals: learned into the pet gallery, not the people one
 
 
 class FaceTag(BaseModel):
@@ -244,15 +247,56 @@ def card_view(e: LogEntry, ctx: TagContext) -> dict:
     return card
 
 
+def gallery_for(state: AppState, det):
+    """The gallery a detection belongs to: pets and people are fingerprinted by different models."""
+    return state.pet_gallery if det.kind == "pet" else state.gallery
+
+
+def learns(state: AppState, det, name: str) -> bool:
+    """Whether naming this detection should teach its gallery. A face box given a pet's name (the face model
+    fired on the animal) or a pet box given a person's name would teach the wrong model, so the region is
+    written but nothing is learned."""
+    gallery = gallery_for(state, det)
+    if gallery is None:
+        return False
+    pets = {n.lower() for n in state.face_settings.get("pets", [])}
+    if state.pet_gallery is not None:
+        pets |= {n.lower() for n, _ in state.pet_gallery.people()}
+    if det.kind == "pet":
+        return name.lower() in pets or name.lower() not in {n.lower() for n, _ in state.gallery.people()}
+    return name.lower() not in pets
+
+
+def find_in_scan(state: AppState, path):
+    """People and pets in one scan, left to right, and a note if the pets couldn't be looked for.
+
+    A face box that lands on a pet's head is the face model misfiring on the animal (it does, now and then),
+    so the pet wins. If the pet model fails (its first download needs the internet), the faces still come back.
+    """
+    size, dets = state.engine.detect(path)
+    note = ""
+    if state.pet_engine is not None:
+        try:
+            _, pets = state.pet_engine.detect(path)
+        except Exception as e:  # noqa: BLE001
+            return size, dets, f"pets skipped: {e}"
+        dets = [d for d in dets if not any(regions_iou(d.box, p.box) >= 0.3 for p in pets)] + pets
+        dets.sort(key=lambda d: d.box.x)
+    return size, dets, note
+
+
 def faces_payload(state: AppState) -> dict:
     """What the UI needs to offer face tagging: whether it's available, and the names to complete."""
     if state.engine is None or state.gallery is None:
         return {"available": False, "reason": state.faces_note, "names": [], "people": 0, "count": 0}
     people = state.gallery.people()
-    return {"available": True, "reason": "", "names": [n for n, _ in people], "people": len(people),
+    animals = state.pet_gallery.people() if state.pet_gallery is not None else []
+    return {"available": True, "reason": "", "names": [n for n, _ in people] + [n for n, _ in animals if n not in dict(people)],
+            "people": len(people), "pets_available": state.pet_engine is not None, "pet_names": [n for n, _ in animals],
+            "pet_count": len(state.pet_gallery) if state.pet_gallery is not None else 0,
             "count": len(state.gallery), "accept": faces_mod.ACCEPT, "suggest": faces_mod.SUGGEST,
             "min_examples": faces_mod.MIN_EXAMPLES, "gallery_file": str(state.gallery.path),
-            "library": state.face_settings["library"], "exclude": state.face_settings["exclude"],
+            "library": state.face_settings["library"], "pets": state.face_settings["pets"],
             "synced": state.face_settings["synced"],
             "sync": ({**state.sync.status, "running": state.sync.running} if state.sync else None)}
 
@@ -414,7 +458,7 @@ def create_app(state: AppState) -> FastAPI:
         for f in folders:
             if not Path(f).is_dir():
                 raise HTTPException(400, f"folder not found: {f}")
-        faces_mod.update_settings(state.gallery, state.face_settings, folders, req.exclude)
+        faces_mod.update_settings(state.gallery, state.face_settings, folders, req.pets, state.pet_gallery)
         state.sync.start()
         return faces_payload(state)
 
@@ -427,19 +471,22 @@ def create_app(state: AppState) -> FastAPI:
         scan = s.scan_by_name(name)
         if scan is None:
             raise HTTPException(404, "no such scan")
+        note = ""
         if name not in s.detections:
             try:
-                s.detections[name] = state.engine.detect(scan.path)
+                size, dets, note = find_in_scan(state, scan.path)
             except Exception as e:  # noqa: BLE001  (a bad file or a model that won't load)
                 raise HTTPException(500, f"face detection failed: {e}")
+            s.detections[name] = (size, dets)
         (w, h), dets = s.detections[name]
         out = []
         for i, d in enumerate(dets):
-            sug = [{"name": n, "score": round(sc, 3)} for n, sc in state.gallery.suggest(d.emb) if sc >= faces_mod.SUGGEST]
-            auto = bool(sug) and sug[0]["score"] >= faces_mod.ACCEPT and d.score >= faces_mod.AUTO_DET
-            out.append({"id": i, "box": [d.box.x, d.box.y, d.box.w, d.box.h], "score": round(d.score, 3),
-                        "low": d.score < faces_mod.AUTO_DET, "suggestions": sug, "name": sug[0]["name"] if auto else ""})
-        return {"scan": name, "width": w, "height": h, "faces": out}
+            gallery, t = (state.pet_gallery, pets_mod) if d.kind == "pet" else (state.gallery, faces_mod)
+            sug = [{"name": n, "score": round(sc, 3)} for n, sc in gallery.suggest(d.emb) if sc >= t.SUGGEST]
+            auto = bool(sug) and sug[0]["score"] >= t.ACCEPT and d.score >= t.AUTO_DET
+            out.append({"id": i, "kind": d.kind, "box": [d.box.x, d.box.y, d.box.w, d.box.h], "score": round(d.score, 3),
+                        "low": d.score < t.AUTO_DET, "suggestions": sug, "name": sug[0]["name"] if auto else ""})
+        return {"scan": name, "width": w, "height": h, "faces": out, "note": note}
 
     def scan_args(s: Session, scan: Optional[ScanInfo], entry: Optional[LogEntry], kws: list[str],
                   face_args: list[str] = ()) -> list[str]:
@@ -521,7 +568,7 @@ def create_app(state: AppState) -> FastAPI:
                 if name:
                     named.append(FaceBox(*f.box, name=name))
                     det = s.detections.get(scan.name)
-                    if state.gallery is not None and det and f.id is not None and 0 <= f.id < len(det[1]):
+                    if det and f.id is not None and 0 <= f.id < len(det[1]) and learns(state, det[1][f.id], name):
                         learn.append((name, det[1][f.id]))
             face_args = []
             if named:
@@ -559,13 +606,14 @@ def create_app(state: AppState) -> FastAPI:
                 state.library.add(r.pop("keywords"), written=1)
         state.library.save()
         learned = 0
-        if state.gallery is not None:   # every confirmed face teaches the gallery; naming a face again corrects it
-            for _, learn in done:
-                for name, det, source in learn:
-                    state.gallery.add(name, det.emb, source, det.box)
-                    learned += 1
-            if learned:
-                state.gallery.save()
+        for _, learn in done:   # every confirmed face or pet teaches its gallery; naming one again corrects it
+            for name, det, source in learn:
+                gallery_for(state, det).add(name, det.emb, source, det.box)
+                learned += 1
+        if learned:
+            for g in (state.gallery, state.pet_gallery):
+                if g is not None:
+                    g.save()
         return {"results": results, "written": sum(r["ok"] for r in results), "keywords": state.library.to_list(),
                 "learned": learned, "faces": faces_payload(state)}
 

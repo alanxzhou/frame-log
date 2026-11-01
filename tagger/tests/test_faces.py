@@ -155,9 +155,9 @@ def test_the_gallery_survives_a_background_writer(tmp_path):
 
 def test_settings_round_trip_and_defaults(tmp_path, monkeypatch):
     monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
-    assert config.load_faces_settings() == {"library": [], "exclude": [], "synced": ""}
-    config.save_faces_settings({"library": ["D:\\photos"], "exclude": ["Kepler"], "synced": "2026-11-01T00:00:00Z", "junk": 1})
-    assert config.load_faces_settings() == {"library": ["D:\\photos"], "exclude": ["Kepler"], "synced": "2026-11-01T00:00:00Z"}
+    assert config.load_faces_settings() == {"library": [], "pets": [], "synced": ""}
+    config.save_faces_settings({"library": ["D:\\photos"], "pets": ["Kepler"], "synced": "2026-11-01T00:00:00Z", "junk": 1})
+    assert config.load_faces_settings() == {"library": ["D:\\photos"], "pets": ["Kepler"], "synced": "2026-11-01T00:00:00Z"}
     (tmp_path / "faces.json").write_text("not json")
     assert config.load_faces_settings()["library"] == []
 
@@ -165,14 +165,14 @@ def test_settings_round_trip_and_defaults(tmp_path, monkeypatch):
 def test_changing_who_is_not_a_person_prunes_and_rereads(tmp_path, monkeypatch, gallery):
     monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
     gallery.mark_done("D:/p/1.jpg")
-    settings = {"library": [], "exclude": [], "synced": ""}
+    settings = {"library": [], "pets": [], "synced": ""}
     removed = update_settings(gallery, settings, ["D:/photos"], ["ana"])      # Ana turns out to be a dog
     assert removed == 4 and "Ana" not in dict(gallery.people())
-    assert settings["library"] == ["D:/photos"] and settings["exclude"] == ["ana"]
+    assert settings["library"] == ["D:/photos"] and settings["pets"] == ["ana"]
     assert gallery.is_done("D:/p/1.jpg")                                       # nothing to re-read yet
     update_settings(gallery, settings, ["D:/photos"], [])                      # ...no, a person: their photos need reading again
-    assert not gallery.is_done("D:/p/1.jpg") and settings["exclude"] == []
-    assert config.load_faces_settings()["exclude"] == []
+    assert not gallery.is_done("D:/p/1.jpg") and settings["pets"] == []
+    assert config.load_faces_settings()["pets"] == []
 
 
 def _library_images():
@@ -187,7 +187,7 @@ def test_sync_learns_in_the_background_and_only_new_photos_next_time(tmp_path, m
     monkeypatch.setattr(faces, "read_regions", lambda exe, folders: imgs)
     g = Gallery(tmp_path / "faces.npz")
     engine = FakeEngine(fps)
-    settings = {"library": ["D:/lib"], "exclude": ["Rex"], "synced": ""}
+    settings = {"library": ["D:/lib"], "pets": ["Rex"], "synced": ""}
     sync = Sync(engine, g, "exiftool", settings)
     assert sync.start() is True
     sync.join(10)
@@ -206,8 +206,93 @@ def test_sync_reports_errors_and_missing_pieces(tmp_path, monkeypatch):
     def boom(exe, folders):
         raise RuntimeError("exiftool exploded")
     monkeypatch.setattr(faces, "read_regions", boom)
-    s = Sync(FakeEngine({}), Gallery(tmp_path / "f.npz"), "exiftool", {"library": ["D:/lib"], "exclude": []})
+    s = Sync(FakeEngine({}), Gallery(tmp_path / "f.npz"), "exiftool", {"library": ["D:/lib"], "pets": []})
     assert s.start() and (s.join(10) or True) and s.status["phase"] == "error" and "exploded" in s.status["error"] and not s.running
-    assert Sync(FakeEngine({}), Gallery(tmp_path / "f.npz"), "exiftool", {"library": [], "exclude": []}).start() is False   # nothing set
-    no_exe = Sync(FakeEngine({}), Gallery(tmp_path / "f.npz"), None, {"library": ["D:/lib"], "exclude": []})
+    assert Sync(FakeEngine({}), Gallery(tmp_path / "f.npz"), "exiftool", {"library": [], "pets": []}).start() is False   # nothing set
+    no_exe = Sync(FakeEngine({}), Gallery(tmp_path / "f.npz"), None, {"library": ["D:/lib"], "pets": []})
     assert no_exe.start() is False and "exiftool" in no_exe.status["error"]
+
+
+class FakePets:
+    """Finds one animal head per image and registers its fingerprint by file, like FakeEngine does for faces."""
+
+    def __init__(self, fps):
+        self.fps, self.calls = fps, []
+
+    def detect(self, path):
+        self.calls.append(path)
+        return (100, 100), [Detection(FaceBox(0.4, 0.4, 0.2, 0.2), 0.9, self.fps[path], kind="pet")]
+
+
+def test_only_the_listed_names_are_learned_and_only_those_photos_are_recorded(tmp_path):
+    fps = {"D:/p/1.jpg": fp("Ana"), "D:/p/2.jpg": fp("Cy")}
+    tag = lambda n: [FaceBox(0.35, 0.35, 0.3, 0.3, n)]
+    images = [TaggedImage("D:/p/1.jpg", 1, tag("Ana")), TaggedImage("D:/p/2.jpg", 1, tag("Rex"))]
+    g = Gallery(tmp_path / "pets.npz")
+    stats = import_tagged(FakeEngine(fps), g, images, include=["rex"])
+    assert stats["added"] == 1 and dict(g.people()) == {"Rex": 1}
+    assert g.is_done("D:/p/2.jpg") and not g.is_done("D:/p/1.jpg")     # the person's photo isn't this gallery's business
+
+
+def test_learn_library_sends_pets_to_the_pet_gallery_and_people_to_the_people_one(tmp_path, monkeypatch):
+    fps = {"D:/lib/1.jpg": fp("Ana"), "D:/lib/2.jpg": fp("Cy")}
+    imgs = [TaggedImage("D:/lib/1.jpg", 1, [FaceBox(0.35, 0.35, 0.3, 0.3, "Ana")]),
+            TaggedImage("D:/lib/2.jpg", 1, [FaceBox(0.35, 0.35, 0.3, 0.3, "Rex")])]
+    monkeypatch.setattr(faces, "read_regions", lambda exe, folders: imgs)
+    people, animals = Gallery(tmp_path / "faces.npz"), Gallery(tmp_path / "pets.npz")
+    people_engine, pet_engine = FakeEngine(fps), FakePets(fps)
+    stats = faces.learn_library(people_engine, people, "exiftool", ["D:/lib"], pets=["Rex"], pet_engine=pet_engine, pet_gallery=animals)
+    assert dict(people.people()) == {"Ana": 1} and dict(animals.people()) == {"Rex": 1} and stats["pets_added"] == 1
+    assert pet_engine.calls == ["D:/lib/2.jpg"] and not any(c.endswith("2.jpg") for c in people_engine.calls)
+    # without a pet detector the pets are simply left out
+    people2 = Gallery(tmp_path / "f2.npz")
+    stats = faces.learn_library(FakeEngine(fps), people2, "exiftool", ["D:/lib"], pets=["Rex"])
+    assert dict(people2.people()) == {"Ana": 1} and stats["pets_added"] == 0
+
+
+def test_a_name_becoming_a_pet_leaves_the_people_gallery_and_a_pet_becoming_a_person_leaves_the_pets(tmp_path, monkeypatch, gallery):
+    monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
+    animals = Gallery(tmp_path / "pets.npz")
+    animals.add("Rex", fp("Cy"), "D:/p/rex.jpg", box())
+    settings = {"library": [], "pets": [], "synced": ""}
+    assert update_settings(gallery, settings, [], ["Ana"], animals) == 4 and "Ana" not in dict(gallery.people())
+    gallery.mark_done("D:/p/1.jpg")
+    update_settings(gallery, settings, [], ["Ana", "Rex"], animals)
+    assert gallery.is_done("D:/p/1.jpg")                                # adding a pet doesn't make people be re-read
+    update_settings(gallery, settings, [], ["Ana"], animals)            # Rex is a person after all
+    assert not gallery.is_done("D:/p/1.jpg") and "Rex" not in dict(animals.people())
+
+
+def test_a_new_pet_is_looked_for_in_photos_already_read_for_another(tmp_path, monkeypatch, gallery):
+    monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
+    fps = {"D:/lib/1.jpg": fp("Cy")}
+    imgs = [TaggedImage("D:/lib/1.jpg", 1, [FaceBox(0.05, 0.35, 0.3, 0.3, "Rex"), FaceBox(0.55, 0.35, 0.3, 0.3, "Tom")])]
+    monkeypatch.setattr(faces, "read_regions", lambda exe, folders: imgs)
+
+    class TwoPets(FakePets):
+        def detect(self, path):
+            self.calls.append(path)
+            return (1000, 1000), [Detection(FaceBox(0.05, 0.35, 0.3, 0.3), 0.9, fp("Cy"), kind="pet"),
+                                  Detection(FaceBox(0.55, 0.35, 0.3, 0.3), 0.9, fp("Ben"), kind="pet")]
+
+    animals, settings = Gallery(tmp_path / "pets.npz"), {"library": ["D:/lib"], "pets": [], "synced": ""}
+    update_settings(gallery, settings, ["D:/lib"], ["Rex"], animals)
+    faces.learn_library(FakeEngine(fps), gallery, "exiftool", ["D:/lib"], settings["pets"], pet_engine=TwoPets(fps), pet_gallery=animals)
+    assert dict(animals.people()) == {"Rex": 1} and animals.is_done("D:/lib/1.jpg")
+    update_settings(gallery, settings, ["D:/lib"], ["Rex", "Tom"], animals)      # Tom is in the same photo
+    faces.learn_library(FakeEngine(fps), gallery, "exiftool", ["D:/lib"], settings["pets"], pet_engine=TwoPets(fps), pet_gallery=animals)
+    assert dict(animals.people()) == {"Rex": 1, "Tom": 1}                       # and Rex isn't learned twice
+
+
+def test_sync_learns_pets_after_people_and_counts_both(tmp_path, monkeypatch):
+    monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
+    fps = {"D:/lib/1.jpg": fp("Ana"), "D:/lib/2.jpg": fp("Cy")}
+    imgs = [TaggedImage("D:/lib/1.jpg", 1, [FaceBox(0.35, 0.35, 0.3, 0.3, "Ana")]),
+            TaggedImage("D:/lib/2.jpg", 1, [FaceBox(0.35, 0.35, 0.3, 0.3, "Rex")])]
+    monkeypatch.setattr(faces, "read_regions", lambda exe, folders: imgs)
+    animals = Gallery(tmp_path / "pets.npz")
+    sync = Sync(FakeEngine(fps), Gallery(tmp_path / "faces.npz"), "exiftool", {"library": ["D:/lib"], "pets": ["Rex"], "synced": ""},
+                pet_engine=FakePets(fps), pet_gallery=animals)
+    assert sync.start()
+    sync.join(10)
+    assert sync.status["phase"] == "done" and sync.status["added"] == 2 and dict(animals.people()) == {"Rex": 1}

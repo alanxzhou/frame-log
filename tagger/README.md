@@ -153,8 +153,8 @@ already named. Every name you confirm makes the next suggestion better. How well
 that was measured: [docs/face-tagging-experiments.md](docs/face-tagging-experiments.md).
 
 **Teach it who people are, once.** On the setup screen, under **Faces**, give the folder of photos that already
-have face tags (everything inside is searched) and, under **skip names**, any tagged names that aren't people,
-such as pets. Click **Save and learn**. Both are remembered on this computer (`faces.json`, next to
+have face tags (everything inside is searched) and, under **pets**, which of the tagged names are animals.
+Click **Save and learn**. Both are remembered on this computer (`faces.json`, next to
 `keywords.json`), and from then on the tagger checks the folder for new photos in the background every time it
 starts, so the gallery follows what you tag in Lightroom with nothing to run. A header note shows its progress;
 you can carry on working, and names improve as it goes. Lightroom has to have saved the tags into the files
@@ -162,14 +162,16 @@ first (select all, Metadata → Save Metadata to Files, or Ctrl/⌘-S).
 
 It reads each file's face regions with ExifTool, finds the face under every named box and keeps its
 fingerprint. About 0.4 s per photo on a CPU, so a first pass over ten thousand photos is an hour or so; after
-that only new photos are read, and the folder scan itself takes a minute or two. Pets go under **skip names**:
-a model built for human faces can't tell animals apart, and a pet's fingerprints would just clutter the
-gallery (adding a name there also removes it from a gallery that already has it).
+that only new photos are read, and the folder scan itself takes a minute or two.
 
-The same thing from a terminal: `framelog-tagger faces import [FOLDER ...] [--exclude NAME ...]`. It also
+Pets are found and learned by a separate model (see **Pets** below), in a separate gallery (`pets.npz`):
+the face model only knows people. Marking a name as a pet removes it from the people gallery if it was
+learned there.
+
+The same thing from a terminal: `framelog-tagger faces import [FOLDER ...] [--pets NAME ...]`. It also
 remembers the folder and the names, so with no arguments it repeats the last one. `--again` reads every
 photo again (a name changed in Lightroom after it was learned isn't picked up otherwise).
-`framelog-tagger faces people` lists who's in the gallery; `faces forget NAME` removes someone.
+`framelog-tagger faces people` lists who's in the galleries; `faces forget NAME` removes someone.
 
 **Use it.** On the strip, **Find faces** looks at every scan (about half a second each; the first one
 loads the model). Each card shows how many faces are named. Double-click a scan to review:
@@ -182,6 +184,14 @@ loads the model). Each card shows how many faces are named. Double-click a scan 
 - A name is only filled in on its own when it's a close match **and** the detector is confident (0.6+).
   Doubtful boxes, which are mostly hair, ears and blurs, get suggestions but never a name you didn't pick.
 - Names you choose are remembered for the roll if you reload the page (you'll need to Find faces again).
+
+**Pets.** The same Find faces also finds pets, using a head detector trained on the pet boxes you drew in Lightroom, so
+its boxes look like yours. Pets are named from a gallery of their own and appear like any other face (box, suggestions,
+confirm). A name is only filled in on its own when the detector is 0.5+ sure and the match is 0.70+, which for Kepler
+was right every time in testing and named about four in five of the heads it found. Pets need three confirmed photos
+before they are suggested, so only Kepler, with hundreds of tagged photos, works well to begin with; the others get
+better as you tag more of them. Very small heads (under about 40 px) are often missed. Details and how to retrain the
+detector: [docs/pet-tagging-experiments.md](docs/pet-tagging-experiments.md).
 
 **Write** stores every named face as a face region (`XMP-mwg-rs:RegionInfo`) and as a keyword
 (`XMP-dc:Subject`). Lightroom wants both: the region puts the name on the face, and the keyword makes it
@@ -259,8 +269,10 @@ tagger/
     faces.py      detector + recognition model, the gallery of named faces, learning from your Lightroom folder
     server.py     FastAPI: /api/session, /api/pick, /api/load, /api/thumb, /api/preview, /api/entries, /api/keywords, /api/faces/detect, /api/write, /api/rename/*
     static/index.html   setup screen + the pairing UI
-  experiments/    the scripts behind docs/face-tagging-experiments.md (standalone: `uv run experiments/face_eval.py --help`)
-  docs/           face-tagging-experiments.md
+  pets.py       pet head detector + fingerprints (ONNX, models/pet_head.onnx), the same flow as faces
+  models/         pet_head.onnx, the detector trained on the pet boxes tagged in Lightroom
+  experiments/    the scripts behind the docs below (standalone: `uv run experiments/face_eval.py --help`)
+  docs/           face-tagging-experiments.md, pet-tagging-experiments.md
   tests/          pytest; ExifTool and the face model are stubbed so they run without them
 ```
 
