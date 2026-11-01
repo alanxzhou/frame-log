@@ -271,8 +271,7 @@ In rough order of expected payoff:
 
 ## 10. What it costs to run
 
-Measured on the development machine (Windows 11, 16 cores, no GPU used). This is why face tagging is part of
-the normal install rather than an optional extra: nothing here is a barrier on a reasonably modern computer.
+Measured on the development machine (Windows 11, 16 cores, no GPU used).
 
 | | |
 | --- | --- |
