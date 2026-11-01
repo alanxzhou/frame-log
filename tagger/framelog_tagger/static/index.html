@@ -420,10 +420,10 @@
       <div class="hint">Subfolders are included. Separate several folders with ;</div>
     </div>
     <div class="field">
-      <label for="fFaceSkip">skip names</label>
-      <input type="text" id="fFaceSkip" placeholder="e.g. Kepler, Elvis">
+      <label for="fFaceSkip">pets</label>
+      <input type="text" id="fFaceSkip" placeholder="names of your pets, e.g. Kepler, Elvis">
       <span></span>
-      <div class="hint">Names to ignore, separated by commas: pets, or anything else tagged as a face that isn't a person. The face model only knows human faces, so these are left out (and removed if already learned).</div>
+      <div class="hint">Which of the names tagged on your photos are animals, separated by commas. They're learned by a separate pet model, since the face model only knows people.</div>
     </div>
     <div class="actions">
       <button type="submit" class="primary" id="faceBtn">Save and learn</button>
@@ -1502,9 +1502,10 @@ function syncText() {
   const f = S.faces, s = f?.sync;
   if (!f?.available) return "";
   if (s?.running) return s.phase === "reading" ? "reading the face tags in your library…"
-    : "learning " + s.done.toLocaleString() + " / " + s.total.toLocaleString() + " photos · " + s.added.toLocaleString() + " faces so far";
+    : (s.phase === "pets" ? "learning pets " : "learning ") + s.done.toLocaleString() + " / " + s.total.toLocaleString() + " photos · " + s.added.toLocaleString() + " faces so far";
   if (s?.phase === "error") return "couldn't learn from the library: " + s.error;
-  const have = f.count ? f.count.toLocaleString() + " faces, " + f.people + " people" : "nobody learned yet";
+  const animals = f.pet_names?.length ? ", " + f.pet_names.length + (f.pet_names.length === 1 ? " pet" : " pets") : "";
+  const have = f.count ? f.count.toLocaleString() + " faces, " + f.people + " people" + animals : "nobody learned yet";
   return f.library.length ? have + (f.synced ? " · checked " + ago(f.synced) : "") : have;
 }
 function paintSync() {
@@ -1531,7 +1532,7 @@ function renderFaceSetup() {
   const f = S.faces;
   $("faceForm").hidden = !f?.available;
   if (!f?.available) return;
-  $("fFaceLib").value = f.library.join("; "); $("fFaceSkip").value = f.exclude.join(", ");
+  $("fFaceLib").value = f.library.join("; "); $("fFaceSkip").value = f.pets.join(", ");
   paintSync();
 }
 async function saveLibrary(ev) {
@@ -1539,7 +1540,7 @@ async function saveLibrary(ev) {
   const list = (s, sep) => s.split(sep).map((x) => x.trim()).filter(Boolean);
   $("faceBtn").disabled = true;
   try {
-    S.faces = await api("POST", "/api/faces/library", { folders: list($("fFaceLib").value, ";"), exclude: list($("fFaceSkip").value, ",") });
+    S.faces = await api("POST", "/api/faces/library", { folders: list($("fFaceLib").value, ";"), pets: list($("fFaceSkip").value, ",") });
     renderFaceNames(); paintSync(); pollSync();
   } catch (e) {
     $("faceStatus").textContent = e.message; $("faceStatus").className = "err"; $("faceBtn").disabled = false;
@@ -1633,7 +1634,7 @@ function paintFaceBar() {
   if (!data.faces.length) { bar.append(el("span", null, "no faces found")); return; }
   if (fSel < 0 || fSel >= data.faces.length) { bar.append(el("span", null, data.faces.length + (data.faces.length === 1 ? " face" : " faces") + " found: click one to name it")); return; }
   const i = fSel, f = data.faces[i];
-  bar.append(el("span", null, "face " + (i + 1) + " of " + data.faces.length + (f.low ? " · unsure it's a face" : "")));
+  bar.append(el("span", null, (f.kind === "pet" ? "pet " : "face ") + (i + 1) + " of " + data.faces.length + (f.low ? " · unsure it's " + (f.kind === "pet" ? "a pet" : "a face") : "")));
   for (const s of f.suggestions) {
     const b = el("button", "kw" + (s.name === f.name ? " on" : ""), s.name);
     b.append(el("span", "pct", Math.round(s.score * 100)));

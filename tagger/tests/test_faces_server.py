@@ -55,7 +55,7 @@ def env(tmp_path: Path, monkeypatch):
     existing = []   # what ExifTool would find in a file already; tests append TaggedImage objects
     monkeypatch.setattr(server, "read_regions", lambda exe, paths: list(existing))
     monkeypatch.setattr(faces_mod, "read_regions", lambda exe, folders: [])   # the library folder holds nothing new
-    settings = {"library": [], "exclude": [], "synced": ""}
+    settings = {"library": [], "pets": [], "synced": ""}
     engine = FakeEngine()
     state = AppState(exiftool="exiftool", default_tz="UTC", engine=engine, gallery=gallery,
                      sync=Sync(engine, gallery, "exiftool", settings), face_settings=settings)
@@ -195,20 +195,20 @@ def test_a_name_takes_the_spelling_already_used_as_a_keyword(env):
 
 def test_session_reports_the_library_settings_and_sync(env):
     f = env["client"].get("/api/session").json()["faces"]
-    assert f["library"] == [] and f["exclude"] == [] and f["sync"]["running"] is False and f["sync"]["phase"] == "idle"
+    assert f["library"] == [] and f["pets"] == [] and f["sync"]["running"] is False and f["sync"]["phase"] == "idle"
 
 
 def test_setting_the_library_is_remembered_and_starts_learning(env, tmp_path):
     lib = tmp_path / "lightroom"
     lib.mkdir()
     c = env["client"]
-    j = c.post("/api/faces/library", json={"folders": [str(lib)], "exclude": ["Kepler", " kepler ", "Elvis"]}).json()
-    assert j["library"] == [str(lib)] and j["exclude"] == ["Kepler", "Elvis"]
+    j = c.post("/api/faces/library", json={"folders": [str(lib)], "pets": ["Kepler", " kepler ", "Elvis"]}).json()
+    assert j["library"] == [str(lib)] and j["pets"] == ["Kepler", "Elvis"]
     env["state"].sync.join(10)
     s = c.get("/api/faces/sync").json()
     assert s["sync"]["phase"] == "done" and not s["sync"]["running"] and s["synced"].endswith("Z")
     saved = config.load_faces_settings()                   # kept on disk for the next launch
-    assert saved["library"] == [str(lib)] and saved["exclude"] == ["Kepler", "Elvis"] and saved["synced"] == s["synced"]
+    assert saved["library"] == [str(lib)] and saved["pets"] == ["Kepler", "Elvis"] and saved["synced"] == s["synced"]
 
 
 def test_a_missing_folder_is_rejected_and_nothing_is_saved(env, tmp_path):
@@ -218,7 +218,7 @@ def test_a_missing_folder_is_rejected_and_nothing_is_saved(env, tmp_path):
 
 
 def test_marking_a_name_as_not_a_person_removes_it_from_the_gallery(env, tmp_path):
-    r = env["client"].post("/api/faces/library", json={"folders": [], "exclude": ["Ana"]}).json()
+    r = env["client"].post("/api/faces/library", json={"folders": [], "pets": ["Ana"]}).json()
     assert r["names"] == [] and r["count"] == 0            # the fixture's four Ana faces are gone
 
 
@@ -241,3 +241,61 @@ def test_without_the_face_tools_the_library_endpoint_explains(tmp_path, monkeypa
     c = TestClient(create_app(AppState(exiftool=None, default_tz="UTC", faces_note="face tagging couldn't load")))
     r = c.post("/api/faces/library", json={"folders": []})
     assert r.status_code == 409 and "couldn't load" in r.json()["detail"]
+
+class FakePetEngine:
+    """One animal head in every scan, sitting on top of the doubtful 'face' the fake face detector reports."""
+
+    def detect(self, path):
+        with Image.open(path) as im:
+            w, h = im.size
+        return (w, h), [Detection(FaceBox(0.38, 0.68, 0.14, 0.14), 0.9, unit(DOG + RNG.normal(size=768) * 0.01), kind="pet")]
+
+
+DOG = unit(RNG.normal(size=768))
+
+
+@pytest.fixture
+def pet_env(env, tmp_path):
+    animals = Gallery(tmp_path / "pets.npz")
+    for i in range(4):
+        animals.add("Kepler", unit(DOG + RNG.normal(size=768) * 0.01), f"D:/old/dog{i}.jpg", FaceBox(0.1, 0.1, 0.1, 0.1))
+    env["state"].pet_engine, env["state"].pet_gallery = FakePetEngine(), animals
+    env["animals"] = animals
+    return env
+
+
+def test_pets_are_found_alongside_faces_and_a_face_box_on_a_pet_is_dropped(pet_env):
+    j = pet_env["client"].post("/api/faces/detect/a.jpg").json()
+    kinds = [(f["kind"], f["box"][0]) for f in j["faces"]]
+    assert [k for k, _ in kinds] == ["face", "pet", "face"] and len(j["faces"]) == 3   # left to right; the face on the dog is gone
+    pet = next(f for f in j["faces"] if f["kind"] == "pet")
+    assert pet["name"] == "Kepler" and pet["suggestions"][0]["score"] > 0.9 and not pet["low"]   # named from the PET gallery
+    assert next(f for f in j["faces"] if f["box"][0] == 0.1)["name"] == "Ana"                      # people still from theirs
+
+
+def test_the_session_lists_pet_names_for_completion(pet_env):
+    f = pet_env["client"].get("/api/session").json()["faces"]
+    assert f["pets_available"] and f["pet_names"] == ["Kepler"] and "Kepler" in f["names"] and "Ana" in f["names"]
+
+
+def test_a_named_pet_is_written_like_a_face_and_teaches_the_pet_gallery_only(pet_env):
+    c = pet_env["client"]
+    faces = c.post("/api/faces/detect/a.jpg").json()["faces"]
+    pet = next(f for f in faces if f["kind"] == "pet")
+    j = c.post("/api/write", json={"pairs": [{"scan": "a.jpg", "faces": [{"id": pet["id"], "box": pet["box"], "name": "Kepler"}]}]}).json()
+    assert j["written"] == 1 and j["learned"] == 1
+    args = pet_env["calls"][0]
+    assert "Name=Kepler,Type=Face" in region_arg(args) and "-XMP-dc:Subject=Kepler" in args
+    assert dict(pet_env["animals"].people()) == {"Kepler": 5} and dict(pet_env["gallery"].people()) == {"Ana": 4}
+
+
+def test_without_a_pet_detector_nothing_changes(env):
+    assert len(env["client"].post("/api/faces/detect/a.jpg").json()["faces"]) == 3
+    assert env["client"].get("/api/session").json()["faces"]["pets_available"] is False
+
+
+def test_the_pet_names_are_saved_with_the_library(env, tmp_path):
+    lib = tmp_path / "lightroom"
+    lib.mkdir()
+    j = env["client"].post("/api/faces/library", json={"folders": [str(lib)], "pets": ["Kepler", " kepler ", "Elvis"]}).json()
+    assert j["pets"] == ["Kepler", "Elvis"] and config.load_faces_settings()["pets"] == ["Kepler", "Elvis"]

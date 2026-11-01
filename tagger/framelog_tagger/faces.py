@@ -60,7 +60,8 @@ def missing_dependency() -> Optional[str]:
 class Detection:
     box: FaceBox            # in the upright picture
     score: float            # detector confidence
-    emb: np.ndarray         # unit-length 512-vector
+    emb: np.ndarray         # unit-length fingerprint (512 numbers for a face, 768 for a pet)
+    kind: str = "face"      # "face" or "pet"; each has its own gallery
 
 
 class Engine:
@@ -242,22 +243,26 @@ class Gallery:
             pass   # like the keyword library: remembering is a convenience, never a failure
 
 
-def import_tagged(engine: Engine, gallery: Gallery, images: Iterable[TaggedImage], exclude: Iterable[str] = (),
-                  progress: Optional[Callable[[int, int, int], None]] = None, save_every: int = 100) -> dict:
+def import_tagged(engine, gallery: Gallery, images: Iterable[TaggedImage], exclude: Iterable[str] = (),
+                  progress: Optional[Callable[[int, int, int], None]] = None, save_every: int = 100,
+                  include: Optional[Iterable[str]] = None) -> dict:
     """Learn from photos already tagged elsewhere (Lightroom's face regions).
 
-    Each tagged box is matched to the face the detector finds there; that face's fingerprint goes into
-    the gallery under the tagged name. Images already imported are skipped, so it can be stopped and resumed.
-    `exclude` names are skipped (pets: a human-face model can't tell them apart).
+    Each tagged box is matched to what the detector finds there; that fingerprint goes into the gallery under
+    the tagged name. Images already imported are skipped, so it can be stopped and resumed.
+    `exclude` names are skipped (the pets, when learning people). With `include`, only those names are learned
+    (the pets, when learning pets) and an image is only recorded as done if it has one.
     """
     skip = {n.lower() for n in exclude}
+    only = None if include is None else {n.lower() for n in include}
     images = list(images)
     added = unmatched = skipped = 0
     for i, img in enumerate(images, 1):
         if gallery.is_done(img.path):
             skipped += 1
         else:
-            tagged = [f for f in img.faces if f.name and f.name.lower() not in skip]
+            tagged = [f for f in img.faces if f.name and f.name.lower() not in skip
+                      and (only is None or f.name.lower() in only)]
             if tagged:
                 try:
                     _, dets = engine.detect(img.path)
@@ -269,7 +274,8 @@ def import_tagged(engine: Engine, gallery: Gallery, images: Iterable[TaggedImage
                     else:
                         gallery.add(t.name, dets[di].emb, img.path, dets[di].box)
                         added += 1
-            gallery.mark_done(img.path)
+            if tagged or only is None:
+                gallery.mark_done(img.path)
         if progress:
             progress(i, len(images), added)
         if i % save_every == 0:
@@ -278,46 +284,63 @@ def import_tagged(engine: Engine, gallery: Gallery, images: Iterable[TaggedImage
     return {"images": len(images), "skipped": skipped, "added": added, "unmatched": unmatched}
 
 
-def learn_library(engine: Engine, gallery: Gallery, exiftool: str, folders: Sequence[str], exclude: Iterable[str] = (),
+def learn_library(engine: Engine, gallery: Gallery, exiftool: str, folders: Sequence[str], pets: Iterable[str] = (),
                   on_read: Optional[Callable[[], None]] = None,
-                  progress: Optional[Callable[[int, int, int], None]] = None) -> dict:
-    """Learn from every photo under `folders` that already has named face regions (Lightroom's). Resumable."""
+                  progress: Optional[Callable[[int, int, int], None]] = None,
+                  pet_engine=None, pet_gallery: Optional[Gallery] = None,
+                  pet_progress: Optional[Callable[[int, int, int], None]] = None) -> dict:
+    """Learn from every photo under `folders` that already has named face regions (Lightroom's). Resumable.
+
+    Names in `pets` aren't people: with a pet engine they are learned into the pet gallery, otherwise left out.
+    """
     if on_read:
         on_read()
+    pets = list(pets)
     images = read_regions(exiftool, folders)
-    return {**import_tagged(engine, gallery, images, exclude, progress), "tagged_images": len(images)}
+    stats = {**import_tagged(engine, gallery, images, exclude=pets, progress=progress), "tagged_images": len(images)}
+    stats["pets_added"] = 0
+    if pets and pet_engine is not None and pet_gallery is not None:
+        stats["pets_added"] = import_tagged(pet_engine, pet_gallery, images, include=pets, progress=pet_progress)["added"]
+    return stats
 
 
-def update_settings(gallery: Gallery, settings: dict, folders: Sequence[str], exclude: Iterable[str]) -> int:
-    """Change where the library is and which names aren't people, and keep the gallery consistent with that.
+def update_settings(gallery: Gallery, settings: dict, folders: Sequence[str], pets: Iterable[str],
+                    pet_gallery: Optional[Gallery] = None) -> int:
+    """Change where the library is and which names are pets, and keep the galleries consistent with that.
 
-    Someone newly marked "not a person" (a pet) is removed from the gallery. Someone no longer marked is a
-    person after all, so their photos must be read again: the record of what's been imported is cleared.
-    Returns how many faces were removed. Settings are saved.
+    A name newly marked as a pet is removed from the people gallery. A name no longer marked is a person after
+    all: its photos must be read again as people (the record of what's been imported is cleared) and it leaves
+    the pet gallery. Returns how many faces were removed from the people gallery. Settings are saved.
     """
-    old = {n.lower() for n in settings.get("exclude", [])}
-    names = merge(exclude)
+    old = {n.lower() for n in settings.get("pets", [])}
+    names = merge(pets)
     now = {n.lower() for n in names}
     removed = sum(gallery.forget(n) for n in names if n.lower() not in old)
     if old - now:
         gallery.clear_done()
+        if pet_gallery is not None:
+            for n in old - now:
+                pet_gallery.forget(n)
+            pet_gallery.save()
     if removed or old - now:
         gallery.save()
-    settings.update(library=list(folders), exclude=names)
+    settings.update(library=list(folders), pets=names)
     config.save_faces_settings(settings)
     return removed
 
 
 class Sync:
-    """Keeps the gallery in step with your Lightroom folder, in a background thread.
+    """Keeps the galleries in step with your Lightroom folder, in a background thread.
 
     Started on every launch (and when the folder setting changes). Reading the folder's tags takes a minute or
-    two for a big library; after that only photos not seen before are run through the model, so a start with
+    two for a big library; after that only photos not seen before are run through the models, so a start with
     nothing new is quick. `status` is what the UI shows.
     """
 
-    def __init__(self, engine: Engine, gallery: Gallery, exiftool: Optional[str], settings: dict):
+    def __init__(self, engine: Engine, gallery: Gallery, exiftool: Optional[str], settings: dict,
+                 pet_engine=None, pet_gallery: Optional[Gallery] = None):
         self.engine, self.gallery, self.exiftool, self.settings = engine, gallery, exiftool, settings
+        self.pet_engine, self.pet_gallery = pet_engine, pet_gallery
         self._thread: Optional[threading.Thread] = None
         self.status = {"running": False, "phase": "idle", "done": 0, "total": 0, "added": 0, "error": ""}
 
@@ -344,12 +367,16 @@ class Sync:
     def _run(self) -> None:
         def progress(done: int, total: int, added: int) -> None:
             self.status.update(phase="learning", done=done, total=total, added=added)
+
+        def pet_progress(done: int, total: int, added: int) -> None:
+            self.status.update(phase="pets", done=done, total=total, added=added)
         try:
             stats = learn_library(self.engine, self.gallery, self.exiftool, list(self.settings["library"]),
-                                  self.settings.get("exclude", []), progress=progress)
+                                  self.settings.get("pets", []), progress=progress, pet_engine=self.pet_engine,
+                                  pet_gallery=self.pet_gallery, pet_progress=pet_progress)
             self.settings["synced"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             config.save_faces_settings(self.settings)
             self.status.update(running=False, phase="done", done=stats["images"], total=stats["images"],
-                               added=stats["added"], error="")
+                               added=stats["added"] + stats["pets_added"], error="")
         except Exception as e:  # noqa: BLE001  (an unreadable folder, a model that won't load, ...)
             self.status.update(running=False, phase="error", error=str(e) or e.__class__.__name__)
