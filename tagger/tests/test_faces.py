@@ -1,9 +1,13 @@
 """The gallery and the import, with made-up fingerprints so no model is needed."""
 
+import threading
+import warnings
+
 import numpy as np
 import pytest
 
-from framelog_tagger.faces import ACCEPT, Detection, Gallery, import_tagged
+from framelog_tagger import config, faces
+from framelog_tagger.faces import ACCEPT, Detection, Gallery, Sync, import_tagged, update_settings
 from framelog_tagger.regions import FaceBox, TaggedImage
 
 RNG = np.random.default_rng(7)
@@ -112,3 +116,98 @@ def test_import_learns_from_tagged_boxes_skips_pets_and_resumes(tmp_path):
     assert stats["skipped"] == 4 and stats["added"] == 0         # everything but the unreadable file is already done
     assert engine2.calls == ["D:/p/broken.jpg"]
     assert (tmp_path / "faces.npz").exists()
+
+
+def test_insightface_alignment_warning_is_silenced():
+    """InsightFace's face alignment calls a scikit-image function that is deprecated; it must not print per face."""
+    from insightface.utils import face_align
+    img = np.zeros((200, 200, 3), np.uint8)
+    kps = np.array([[70, 80], [130, 80], [100, 110], [75, 140], [125, 140]], dtype=np.float32)
+    with warnings.catch_warnings(record=True) as caught:   # keeps whatever filters are installed
+        faces.silence_insightface_warning()                # (a test runner resets them, so apply ours as the model load does)
+        face_align.norm_crop(img, kps)
+    assert not [w for w in caught if issubclass(w.category, FutureWarning)]
+
+
+def test_the_gallery_survives_a_background_writer(tmp_path):
+    g = Gallery(tmp_path / "faces.npz")
+    for i in range(3):
+        g.add("Ana", fp("Ana"), f"D:/p/seed{i}.jpg", box())
+    errors = []
+
+    def writer():
+        try:
+            for i in range(300):
+                g.add("Ben", fp("Ben"), f"D:/p/b{i}.jpg", box())
+                g.mark_done(f"D:/p/b{i}.jpg")
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    t = threading.Thread(target=writer)
+    t.start()
+    for _ in range(300):   # the UI reading while the sync writes
+        g.suggest(fp("Ana"))
+        g.people()
+        g.save()
+    t.join()
+    assert not errors and dict(g.people())["Ben"] == 300
+
+
+def test_settings_round_trip_and_defaults(tmp_path, monkeypatch):
+    monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
+    assert config.load_faces_settings() == {"library": [], "exclude": [], "synced": ""}
+    config.save_faces_settings({"library": ["D:\\photos"], "exclude": ["Kepler"], "synced": "2026-11-01T00:00:00Z", "junk": 1})
+    assert config.load_faces_settings() == {"library": ["D:\\photos"], "exclude": ["Kepler"], "synced": "2026-11-01T00:00:00Z"}
+    (tmp_path / "faces.json").write_text("not json")
+    assert config.load_faces_settings()["library"] == []
+
+
+def test_changing_who_is_not_a_person_prunes_and_rereads(tmp_path, monkeypatch, gallery):
+    monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
+    gallery.mark_done("D:/p/1.jpg")
+    settings = {"library": [], "exclude": [], "synced": ""}
+    removed = update_settings(gallery, settings, ["D:/photos"], ["ana"])      # Ana turns out to be a dog
+    assert removed == 4 and "Ana" not in dict(gallery.people())
+    assert settings["library"] == ["D:/photos"] and settings["exclude"] == ["ana"]
+    assert gallery.is_done("D:/p/1.jpg")                                       # nothing to re-read yet
+    update_settings(gallery, settings, ["D:/photos"], [])                      # ...no, a person: their photos need reading again
+    assert not gallery.is_done("D:/p/1.jpg") and settings["exclude"] == []
+    assert config.load_faces_settings()["exclude"] == []
+
+
+def _library_images():
+    fps = {"D:/lib/1.jpg": fp("Ana"), "D:/lib/2.jpg": fp("Ben")}
+    imgs = [TaggedImage(p, 1, [FaceBox(0.35, 0.35, 0.3, 0.3, n)]) for p, n in (("D:/lib/1.jpg", "Ana"), ("D:/lib/2.jpg", "Ben"), ("D:/lib/3.jpg", "Rex"))]
+    return fps, imgs
+
+
+def test_sync_learns_in_the_background_and_only_new_photos_next_time(tmp_path, monkeypatch):
+    monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
+    fps, imgs = _library_images()
+    monkeypatch.setattr(faces, "read_regions", lambda exe, folders: imgs)
+    g = Gallery(tmp_path / "faces.npz")
+    engine = FakeEngine(fps)
+    settings = {"library": ["D:/lib"], "exclude": ["Rex"], "synced": ""}
+    sync = Sync(engine, g, "exiftool", settings)
+    assert sync.start() is True
+    sync.join(10)
+    assert not sync.running and sync.status["phase"] == "done" and sync.status["added"] == 2 and not sync.status["error"]
+    assert dict(g.people()) == {"Ana": 1, "Ben": 1} and settings["synced"].endswith("Z")
+    assert config.load_faces_settings()["synced"] == settings["synced"]
+    first_calls = len(engine.calls)
+    sync.start()
+    sync.join(10)
+    assert len(engine.calls) == first_calls and sync.status["added"] == 0     # a restart finds nothing new to read
+
+
+def test_sync_reports_errors_and_missing_pieces(tmp_path, monkeypatch):
+    monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
+
+    def boom(exe, folders):
+        raise RuntimeError("exiftool exploded")
+    monkeypatch.setattr(faces, "read_regions", boom)
+    s = Sync(FakeEngine({}), Gallery(tmp_path / "f.npz"), "exiftool", {"library": ["D:/lib"], "exclude": []})
+    assert s.start() and (s.join(10) or True) and s.status["phase"] == "error" and "exploded" in s.status["error"] and not s.running
+    assert Sync(FakeEngine({}), Gallery(tmp_path / "f.npz"), "exiftool", {"library": [], "exclude": []}).start() is False   # nothing set
+    no_exe = Sync(FakeEngine({}), Gallery(tmp_path / "f.npz"), None, {"library": ["D:/lib"], "exclude": []})
+    assert no_exe.start() is False and "exiftool" in no_exe.status["error"]

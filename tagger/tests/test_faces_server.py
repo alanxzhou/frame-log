@@ -8,8 +8,10 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from framelog_tagger import server
-from framelog_tagger.faces import Detection, Gallery
+import threading
+
+from framelog_tagger import config, faces as faces_mod, server
+from framelog_tagger.faces import Detection, Gallery, Sync
 from framelog_tagger.regions import FaceBox, TaggedImage
 from framelog_tagger.server import AppState, create_app
 
@@ -52,7 +54,11 @@ def env(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(server, "write_tags", lambda exe, src, dst, args: calls.append(list(args)))
     existing = []   # what ExifTool would find in a file already; tests append TaggedImage objects
     monkeypatch.setattr(server, "read_regions", lambda exe, paths: list(existing))
-    state = AppState(exiftool="exiftool", default_tz="UTC", engine=FakeEngine(), gallery=gallery)
+    monkeypatch.setattr(faces_mod, "read_regions", lambda exe, folders: [])   # the library folder holds nothing new
+    settings = {"library": [], "exclude": [], "synced": ""}
+    engine = FakeEngine()
+    state = AppState(exiftool="exiftool", default_tz="UTC", engine=engine, gallery=gallery,
+                     sync=Sync(engine, gallery, "exiftool", settings), face_settings=settings)
     client = TestClient(create_app(state))
     assert client.post("/api/load", json={"scans_dir": str(scans)}).status_code == 200
     return {"client": client, "state": state, "gallery": gallery, "calls": calls, "scans": scans, "existing": existing}
@@ -185,3 +191,53 @@ def test_a_name_takes_the_spelling_already_used_as_a_keyword(env):
     env["client"].post("/api/write", json={"pairs": [{"scan": "a.jpg", "faces": [
         {"id": 1, "box": faces[1]["box"], "name": "  dean "}]}]})
     assert "-XMP-dc:Subject=Dean" in env["calls"][0] and "Name=Dean,Type=Face" in region_arg(env["calls"][0])
+
+
+def test_session_reports_the_library_settings_and_sync(env):
+    f = env["client"].get("/api/session").json()["faces"]
+    assert f["library"] == [] and f["exclude"] == [] and f["sync"]["running"] is False and f["sync"]["phase"] == "idle"
+
+
+def test_setting_the_library_is_remembered_and_starts_learning(env, tmp_path):
+    lib = tmp_path / "lightroom"
+    lib.mkdir()
+    c = env["client"]
+    j = c.post("/api/faces/library", json={"folders": [str(lib)], "exclude": ["Kepler", " kepler ", "Elvis"]}).json()
+    assert j["library"] == [str(lib)] and j["exclude"] == ["Kepler", "Elvis"]
+    env["state"].sync.join(10)
+    s = c.get("/api/faces/sync").json()
+    assert s["sync"]["phase"] == "done" and not s["sync"]["running"] and s["synced"].endswith("Z")
+    saved = config.load_faces_settings()                   # kept on disk for the next launch
+    assert saved["library"] == [str(lib)] and saved["exclude"] == ["Kepler", "Elvis"] and saved["synced"] == s["synced"]
+
+
+def test_a_missing_folder_is_rejected_and_nothing_is_saved(env, tmp_path):
+    r = env["client"].post("/api/faces/library", json={"folders": [str(tmp_path / "nope")]})
+    assert r.status_code == 400 and "not found" in r.json()["detail"]
+    assert config.load_faces_settings()["library"] == [] and not env["state"].sync.running
+
+
+def test_marking_a_name_as_not_a_person_removes_it_from_the_gallery(env, tmp_path):
+    r = env["client"].post("/api/faces/library", json={"folders": [], "exclude": ["Ana"]}).json()
+    assert r["names"] == [] and r["count"] == 0            # the fixture's four Ana faces are gone
+
+
+def test_cannot_change_the_library_while_it_is_learning(env, tmp_path, monkeypatch):
+    lib = tmp_path / "lightroom"
+    lib.mkdir()
+    gate = threading.Event()
+    monkeypatch.setattr(faces_mod, "read_regions", lambda exe, folders: gate.wait(10) and [])
+    c = env["client"]
+    assert c.post("/api/faces/library", json={"folders": [str(lib)]}).status_code == 200
+    assert c.get("/api/faces/sync").json()["sync"]["running"] is True
+    assert c.post("/api/faces/library", json={"folders": [str(lib)]}).status_code == 409
+    gate.set()
+    env["state"].sync.join(10)
+    assert c.get("/api/faces/sync").json()["sync"]["phase"] == "done"
+
+
+def test_without_the_face_tools_the_library_endpoint_explains(tmp_path, monkeypatch):
+    monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
+    c = TestClient(create_app(AppState(exiftool=None, default_tz="UTC", faces_note="face tagging couldn't load")))
+    r = c.post("/api/faces/library", json={"folders": []})
+    assert r.status_code == 409 and "couldn't load" in r.json()["detail"]

@@ -38,18 +38,15 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-FACES_HINT = 'install them with:  uv tool install ".[faces]"   (from the tagger folder)'
-
-
 def load_faces():
-    """(engine, gallery, why not): the face tools if their dependencies are installed, else None and a reason."""
+    """(engine, gallery, why not): the face tools, or None and a reason if they can't load (a broken install)."""
     try:
         from . import faces
-    except ImportError:
-        return None, None, "face tagging needs numpy and the faces extra; " + FACES_HINT
+    except ImportError as e:
+        return None, None, f"face tagging couldn't load ({e}); reinstall the tagger"
     missing = faces.missing_dependency()
     if missing:
-        return None, None, f"face tagging needs {missing}; " + FACES_HINT
+        return None, None, f"face tagging couldn't load: {missing} isn't installed; reinstall the tagger"
     return faces.Engine(), faces.Gallery(), ""
 
 
@@ -57,11 +54,14 @@ def faces_main(argv: list[str]) -> int:
     """`framelog-tagger faces ...`: manage the gallery of faces you've named."""
     p = argparse.ArgumentParser(prog="framelog-tagger faces", description="Manage the gallery of faces used to suggest names.")
     sub = p.add_subparsers(dest="cmd", required=True)
-    imp = sub.add_parser("import", help="learn from photos that already have named face regions (e.g. from Lightroom)")
-    imp.add_argument("folders", nargs="+", help="folders searched recursively for JPEGs")
-    imp.add_argument("--exclude", nargs="*", default=[], metavar="NAME",
-                     help="names to skip: pets, or anyone who isn't a person (a human-face model can't tell animals apart)")
+    imp = sub.add_parser("import", help="learn from photos that already have named face regions (e.g. from Lightroom). "
+                                        "The folder and --exclude are remembered, and the tagger repeats this on every start.")
+    imp.add_argument("folders", nargs="*", help="folders searched recursively for JPEGs; default: the remembered ones")
+    imp.add_argument("--exclude", nargs="*", default=None, metavar="NAME",
+                     help="names that aren't people (pets); replaces the remembered list. A human-face model can't tell animals apart")
     imp.add_argument("--exiftool", default=None, help="path to exiftool if it isn't on PATH")
+    imp.add_argument("--again", action="store_true",
+                     help="read every photo again, not just new ones (after changing names in Lightroom)")
     ppl = sub.add_parser("people", help="list who is in the gallery and how many faces each has")
     ppl.add_argument("--min", type=int, default=1, help="only people with at least this many faces")
     fg = sub.add_parser("forget", help="remove a person, and every face filed under them, from the gallery")
@@ -70,8 +70,8 @@ def faces_main(argv: list[str]) -> int:
 
     try:
         from . import faces
-    except ImportError:
-        print("face tagging needs numpy and the faces extra; " + FACES_HINT, file=sys.stderr)
+    except ImportError as e:
+        print(f"face tagging couldn't load ({e}); reinstall the tagger", file=sys.stderr)
         return 2
     gallery = faces.Gallery()
 
@@ -87,30 +87,31 @@ def faces_main(argv: list[str]) -> int:
         print(f"removed {gone} face(s) named {args.name!r}")
         return 0
 
-    missing = faces.missing_dependency()
-    if missing:
-        print(f"face tagging needs {missing}; " + FACES_HINT, file=sys.stderr)
+    settings = config.load_faces_settings()
+    folders = args.folders or settings["library"]
+    if not folders:
+        print("give the folder that holds your Lightroom-tagged photos; it's remembered after this", file=sys.stderr)
         return 2
     exe = find_exiftool(args.exiftool)
     if not exe:
         print("exiftool not found (it reads the face regions); pass --exiftool <path>", file=sys.stderr)
         return 2
-    from .regions import read_regions
-    print("reading face regions with exiftool (a big library takes a few minutes)...", flush=True)
-    images = read_regions(exe, args.folders)
-    named = sum(1 for im in images for f in im.faces if f.name)
-    print(f"{len(images)} images with face regions, {named} named faces. Detecting and fingerprinting "
-          f"(about 0.4 s per image on a CPU); safe to stop and resume.", flush=True)
+    removed = faces.update_settings(gallery, settings, folders, settings["exclude"] if args.exclude is None else args.exclude)
+    if removed:
+        print(f"removed {removed} faces of names that aren't people")
+    if args.again:
+        gallery.clear_done()
 
     def progress(i: int, n: int, added: int) -> None:
         if i % 25 == 0 or i == n:
             print(f"\r  {i}/{n} images, {added} faces added", end="", flush=True)
 
-    stats = faces.import_tagged(faces.Engine(), gallery, images, args.exclude, progress)
-    print(f"\ndone: {stats['added']} faces added, {stats['unmatched']} tagged faces the detector didn't find, "
-          f"{stats['skipped']} images already imported. Gallery: {len(gallery)} faces, {len(gallery.people())} people.")
+    print("reading face regions with exiftool (a big library takes a minute or two)...", flush=True)
+    stats = faces.learn_library(faces.Engine(), gallery, exe, folders, settings["exclude"], progress=progress)
+    print(f"\ndone: {stats['added']} faces added from {stats['tagged_images']} tagged photos, {stats['unmatched']} tagged "
+          f"faces the detector didn't find, {stats['skipped']} photos already learned. "
+          f"Gallery: {len(gallery)} faces, {len(gallery.people())} people.")
     return 0
-
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
@@ -133,10 +134,17 @@ def main(argv: list[str] | None = None) -> int:
               "  or pass --exiftool <path>", file=sys.stderr)
 
     engine, gallery, faces_note = load_faces()
+    settings = config.load_faces_settings()
+    sync = None
     if engine:
+        from .faces import Sync
+        sync = Sync(engine, gallery, exe, settings)
         print(f"face tagging on: {len(gallery)} faces, {len(gallery.people())} people in the gallery")
-    state = AppState(exiftool=exe, default_tz=local_tz_name(), remembered=config.load(),
-                     engine=engine, gallery=gallery, faces_note=faces_note)
+        if sync.start():
+            where = ", ".join(settings["library"])
+            print(f"learning in the background from {where} (new photos only, after the first time)")
+    state = AppState(exiftool=exe, default_tz=local_tz_name(), remembered=config.load(), engine=engine,
+                     gallery=gallery, faces_note=faces_note, sync=sync, face_settings=settings)
 
     import uvicorn
     app = create_app(state)

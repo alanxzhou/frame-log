@@ -26,10 +26,12 @@ brew install exiftool                     # mac
 uv tool install .
 # or run it without installing:
 uv run framelog-tagger
-
-# optional: face tagging (see "Faces" below)
-uv tool install ".[faces]"
 ```
+
+Face tagging is part of the install (see [Faces](#faces)): about 1 GB of disk (0.4 GB of packages and a 0.6 GB
+face model, which downloads the first time it's needed, so that run needs internet), 0.5 to 0.7 GB of memory
+while it runs, and no GPU. The dependencies install on Python 3.11 through 3.14 (detection itself has only been
+run on 3.11).
 
 ## Use
 
@@ -142,7 +144,7 @@ computer next to the remembered setup values (`keywords.json` in
 `~/.config/framelog-tagger/`, `%APPDATA%\framelog-tagger\` on Windows).
 **Library…** lists them with counts; removing one only stops suggesting it.
 
-### Faces (optional)
+### Faces
 
 Finds the faces in your scans, suggests who they are, and writes the names as face regions and
 keywords that Lightroom reads at import. Nothing is trained: a detector finds faces, a pretrained
@@ -150,23 +152,24 @@ network turns each into a fingerprint, and a name is suggested by comparing it w
 already named. Every name you confirm makes the next suggestion better. How well it works, and how
 that was measured: [docs/face-tagging-experiments.md](docs/face-tagging-experiments.md).
 
-```
-uv tool install ".[faces]"        # from this folder; Python 3.11. The first use downloads a ~280 MB model
-```
-
-**Teach it who people are.** If your photos already have faces named in Lightroom, import them. Lightroom
-has to have saved them into the files first (select all, Metadata → Save Metadata to Files, or Ctrl/⌘-S).
-
-```
-framelog-tagger faces import D:\photos\film --exclude Kepler "Some Dog"
-```
+**Teach it who people are, once.** On the setup screen, under **Faces**, give the folder that holds your
+Lightroom-tagged photos (everything inside is searched) and, under **not people**, the names that are pets.
+Click **Save and learn**. Both are remembered on this computer (`faces.json`, next to `keywords.json`), and
+from then on the tagger checks the folder for new photos in the background every time it starts, so the
+gallery follows what you tag in Lightroom with nothing to run. A header note shows its progress; you can
+carry on working, and names improve as it goes. Lightroom has to have saved the tags into the files first
+(select all, Metadata → Save Metadata to Files, or Ctrl/⌘-S).
 
 It reads each file's face regions with ExifTool, finds the face under every named box and keeps its
-fingerprint. About 0.4 s per photo on a CPU, so a library of ten thousand photos is an hour or so; it
-saves as it goes and skips photos it has already done, so you can stop and resume. Name pets in
-`--exclude`: a model built for human faces can't tell animals apart, and a pet's fingerprints would
-just clutter the gallery. `framelog-tagger faces people` lists who's in it; `faces forget NAME` removes
-someone.
+fingerprint. About 0.4 s per photo on a CPU, so a first pass over ten thousand photos is an hour or so; after
+that only new photos are read, and the folder scan itself takes a minute or two. Pets go under **not people**:
+a model built for human faces can't tell animals apart, and a pet's fingerprints would just clutter the
+gallery (adding a name there also removes it from a gallery that already has it).
+
+The same thing from a terminal: `framelog-tagger faces import [FOLDER ...] [--exclude NAME ...]`. It also
+remembers the folder and the names, so with no arguments it repeats the last one. `--again` reads every
+photo again (a name changed in Lightroom after it was learned isn't picked up otherwise).
+`framelog-tagger faces people` lists who's in the gallery; `faces forget NAME` removes someone.
 
 **Use it.** On the strip, **Find faces** looks at every scan (about half a second each; the first one
 loads the model). Each card shows how many faces are named. Double-click a scan to review:
@@ -230,7 +233,7 @@ The setup screen covers everything per roll. The command itself takes only:
 | notes | ImageDescription, XMP-dc:Description (Lightroom's Caption) |
 | roll, film, frame # | UserComment |
 | keywords | XMP-dc:Subject (Lightroom's Keywords) |
-| named faces | XMP-mwg-rs:RegionInfo (face regions) and XMP-dc:Subject (see [Faces](#faces-optional)) |
+| named faces | XMP-mwg-rs:RegionInfo (face regions) and XMP-dc:Subject (see [Faces](#faces)) |
 
 Camera, make and ISO from the setup screen go to Model, Make and ISO on every
 scan, with or without an export. Make + camera and film are also keywords.
@@ -253,7 +256,7 @@ tagger/
     config.py     remembered setup-screen values
     keywords.py   roll keywords, reading keywords from a scan, the keyword library
     regions.py    face regions: Lightroom's coordinate convention, matching boxes, writing/reading XMP regions (no model needed)
-    faces.py      optional: detector + recognition model, the gallery of named faces, import from Lightroom tags
+    faces.py      detector + recognition model, the gallery of named faces, learning from your Lightroom folder
     server.py     FastAPI: /api/session, /api/pick, /api/load, /api/thumb, /api/preview, /api/entries, /api/keywords, /api/faces/detect, /api/write, /api/rename/*
     static/index.html   setup screen + the pairing UI
   experiments/    the scripts behind docs/face-tagging-experiments.md (standalone: `uv run experiments/face_eval.py --help`)

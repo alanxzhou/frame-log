@@ -94,9 +94,16 @@ class AppState:
     session: Optional[Session] = None
     remembered: dict = field(default_factory=dict)
     library: Library = field(default_factory=Library)
-    engine: Optional["faces_mod.Engine"] = None      # None: the face tools aren't installed (see faces_note)
+    engine: Optional["faces_mod.Engine"] = None      # None: the face tools couldn't load (see faces_note)
     gallery: Optional["faces_mod.Gallery"] = None
     faces_note: str = ""
+    sync: Optional["faces_mod.Sync"] = None          # learns from your Lightroom folder in the background
+    face_settings: dict = field(default_factory=lambda: {"library": [], "exclude": [], "synced": ""})
+
+
+class LibraryRequest(BaseModel):
+    folders: list[str] = []   # where your Lightroom-tagged photos live; the tagger learns who people are from them
+    exclude: list[str] = []   # names that aren't people (pets): never learned, and removed if already learned
 
 
 class FaceTag(BaseModel):
@@ -244,7 +251,10 @@ def faces_payload(state: AppState) -> dict:
     people = state.gallery.people()
     return {"available": True, "reason": "", "names": [n for n, _ in people], "people": len(people),
             "count": len(state.gallery), "accept": faces_mod.ACCEPT, "suggest": faces_mod.SUGGEST,
-            "min_examples": faces_mod.MIN_EXAMPLES, "gallery_file": str(state.gallery.path)}
+            "min_examples": faces_mod.MIN_EXAMPLES, "gallery_file": str(state.gallery.path),
+            "library": state.face_settings["library"], "exclude": state.face_settings["exclude"],
+            "synced": state.face_settings["synced"],
+            "sync": ({**state.sync.status, "running": state.sync.running} if state.sync else None)}
 
 
 def session_payload(state: AppState) -> dict:
@@ -387,6 +397,26 @@ def create_app(state: AppState) -> FastAPI:
         if scan is None:
             raise HTTPException(404, "no such scan")
         return FileResponse(scan.path, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
+
+    @app.get("/api/faces/sync")
+    def faces_sync():
+        """Progress of learning from the library folder, for the UI to poll while it runs."""
+        return faces_payload(state)
+
+    @app.post("/api/faces/library")
+    def faces_library(req: LibraryRequest):
+        """Set (once; it's remembered) where your Lightroom photos are and which names aren't people, then learn from them."""
+        if state.sync is None or state.gallery is None:
+            raise HTTPException(409, state.faces_note or "the face tools aren't available")
+        if state.sync.running:
+            raise HTTPException(409, "still learning from the library; wait for it to finish")
+        folders = [str(Path(f.strip()).expanduser()) for f in req.folders if f.strip()]
+        for f in folders:
+            if not Path(f).is_dir():
+                raise HTTPException(400, f"folder not found: {f}")
+        faces_mod.update_settings(state.gallery, state.face_settings, folders, req.exclude)
+        state.sync.start()
+        return faces_payload(state)
 
     @app.post("/api/faces/detect/{name}")
     def detect_faces(name: str):

@@ -18,6 +18,33 @@ def config_path() -> Path:
     return root / "framelog-tagger" / "config.json"
 
 
+def faces_settings_path() -> Path:
+    return config_path().parent / "faces.json"
+
+
+def load_faces_settings() -> dict:
+    """The face-tagging settings kept between runs: where your Lightroom photos are, and names that aren't people."""
+    out = {"library": [], "exclude": [], "synced": ""}
+    try:
+        data = json.loads(faces_settings_path().read_text(encoding="utf-8"))
+        out["library"] = [str(p) for p in data.get("library", []) if str(p).strip()]
+        out["exclude"] = [str(n) for n in data.get("exclude", []) if str(n).strip()]
+        out["synced"] = str(data.get("synced", ""))
+    except (OSError, ValueError, AttributeError):
+        pass
+    return out
+
+
+def save_faces_settings(settings: dict) -> None:
+    p = faces_settings_path()
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({k: settings[k] for k in ("library", "exclude", "synced") if k in settings},
+                                indent=2, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass  # remembering is a convenience, never a failure
+
+
 def load() -> dict:
     try:
         data = json.loads(config_path().read_text(encoding="utf-8"))

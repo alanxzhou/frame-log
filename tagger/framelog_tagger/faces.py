@@ -1,7 +1,6 @@
 """Find faces in a scan, suggest who they are, and learn from the names you confirm.
 
-Optional: needs the `faces` extra (`uv tool install ".[faces]"`): numpy, onnxruntime, OpenCV and
-InsightFace. Nothing is trained. A detector finds faces, a pretrained network turns each into a
+Nothing is trained. A detector finds faces, a pretrained network turns each into a
 512-number fingerprint, and a name is suggested by comparing it with the fingerprints of faces you
 have already named (the gallery). Every name you confirm is added to the gallery, so suggestions
 get better as you go. Measurements and the reasoning: docs/face-tagging-experiments.md.
@@ -12,10 +11,13 @@ library code is MIT. Fine for sorting your own photos; check before distributing
 
 from __future__ import annotations
 
+import functools
 import importlib.util
 import os
 import threading
+import warnings
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Optional, Sequence
 
@@ -23,7 +25,21 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from . import config
-from .regions import FaceBox, TaggedImage, match_boxes
+from .keywords import merge
+from .regions import FaceBox, TaggedImage, match_boxes, read_regions
+
+def silence_insightface_warning() -> None:
+    """InsightFace aligns every face with a scikit-image call that 0.26 deprecated (`tform.estimate`).
+
+    It works, and stays until scikit-image 2.2 (pyproject keeps us below that), but it would print once per
+    face. Silence only that. Called when the module loads and again when the model does, since code that
+    resets warning filters (a test runner, say) would otherwise bring it back.
+    """
+    warnings.filterwarnings("ignore", message=r".*estimate.*deprecated.*", category=FutureWarning,
+                            module=r"insightface\.utils\.face_align")
+
+
+silence_insightface_warning()
 
 DET_SIZE = 640        # detector input size; see the writeup for what larger sizes buy
 DET_THRESH = 0.4      # detections below this confidence are dropped
@@ -36,7 +52,7 @@ DEPENDENCIES = ("cv2", "onnxruntime", "insightface")
 
 
 def missing_dependency() -> Optional[str]:
-    """The first optional dependency that isn't installed, or None."""
+    """The first dependency that can't be found (a broken install), or None."""
     return next((m for m in DEPENDENCIES if importlib.util.find_spec(m) is None), None)
 
 
@@ -57,6 +73,7 @@ class Engine:
         self._lock = threading.Lock()
 
     def _load(self):
+        silence_insightface_warning()
         from insightface.app import FaceAnalysis
         app = FaceAnalysis(name="buffalo_l", allowed_modules=["detection", "recognition"],
                            providers=["CPUExecutionProvider"])
@@ -84,6 +101,15 @@ class Engine:
         return (w, h), dets
 
 
+def _locked(fn):
+    """Run a Gallery method holding its lock: the background sync writes while the UI reads."""
+    @functools.wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return fn(self, *args, **kwargs)
+    return wrapper
+
+
 def gallery_path() -> Path:
     return config.config_path().parent / "faces.npz"
 
@@ -97,6 +123,7 @@ class Gallery:
 
     def __init__(self, path: Path | None = None):
         self.path = path or gallery_path()
+        self._lock = threading.RLock()
         self.names: list[str] = []
         self.keys: list[str] = []
         self.done: set[str] = set()   # images already imported, so a re-run skips them
@@ -125,9 +152,23 @@ class Gallery:
     def key(cls, path: Path | str, box: FaceBox) -> str:
         return f"{cls.source(path)}#{box.key()}"
 
+    @_locked
+    def is_done(self, path: Path | str) -> bool:
+        return self.source(path) in self.done
+
+    @_locked
+    def mark_done(self, path: Path | str) -> None:
+        self.done.add(self.source(path))
+
+    @_locked
+    def clear_done(self) -> None:
+        self.done.clear()
+
+    @_locked
     def __len__(self) -> int:
         return len(self.names)
 
+    @_locked
     def add(self, name: str, emb: np.ndarray, source: str, box: FaceBox) -> None:
         """Add a named face, or update the entry for this very face (a correction)."""
         k = self.key(source, box)
@@ -149,6 +190,7 @@ class Gallery:
             self._rows[i] = emb
         self._matrix = self._arrays = None
 
+    @_locked
     def forget(self, name: str) -> int:
         """Remove a person and every face filed under them. Returns how many faces went."""
         keep = [i for i, n in enumerate(self.names) if n.lower() != name.lower()]
@@ -164,6 +206,7 @@ class Gallery:
             self._matrix = self._arrays = None
         return gone
 
+    @_locked
     def people(self) -> list[tuple[str, int]]:
         """(name, faces on file), most faces first."""
         return sorted(((n, len(ix)) for n, ix in self._groups.items()), key=lambda p: (-p[1], p[0].lower()))
@@ -174,6 +217,7 @@ class Gallery:
             self._matrix = np.stack(self._rows) if self._rows else np.zeros((0, 512), dtype=np.float32)
         return self._matrix
 
+    @_locked
     def suggest(self, emb: np.ndarray, n: int = 3, min_examples: int = MIN_EXAMPLES, k: int = 3) -> list[tuple[str, float]]:
         """The `n` people this face most resembles, best first, each scored by the mean of their `k` closest faces."""
         if not self._rows:
@@ -186,6 +230,7 @@ class Gallery:
         scored.sort(key=lambda p: -p[1])
         return scored[:n]
 
+    @_locked
     def save(self) -> None:
         tmp = self.path.with_name(self.path.stem + ".tmp.npz")
         try:
@@ -209,8 +254,7 @@ def import_tagged(engine: Engine, gallery: Gallery, images: Iterable[TaggedImage
     images = list(images)
     added = unmatched = skipped = 0
     for i, img in enumerate(images, 1):
-        source = Gallery.source(img.path)
-        if source in gallery.done:
+        if gallery.is_done(img.path):
             skipped += 1
         else:
             tagged = [f for f in img.faces if f.name and f.name.lower() not in skip]
@@ -225,10 +269,87 @@ def import_tagged(engine: Engine, gallery: Gallery, images: Iterable[TaggedImage
                     else:
                         gallery.add(t.name, dets[di].emb, img.path, dets[di].box)
                         added += 1
-            gallery.done.add(source)
+            gallery.mark_done(img.path)
         if progress:
             progress(i, len(images), added)
         if i % save_every == 0:
             gallery.save()
     gallery.save()
     return {"images": len(images), "skipped": skipped, "added": added, "unmatched": unmatched}
+
+
+def learn_library(engine: Engine, gallery: Gallery, exiftool: str, folders: Sequence[str], exclude: Iterable[str] = (),
+                  on_read: Optional[Callable[[], None]] = None,
+                  progress: Optional[Callable[[int, int, int], None]] = None) -> dict:
+    """Learn from every photo under `folders` that already has named face regions (Lightroom's). Resumable."""
+    if on_read:
+        on_read()
+    images = read_regions(exiftool, folders)
+    return {**import_tagged(engine, gallery, images, exclude, progress), "tagged_images": len(images)}
+
+
+def update_settings(gallery: Gallery, settings: dict, folders: Sequence[str], exclude: Iterable[str]) -> int:
+    """Change where the library is and which names aren't people, and keep the gallery consistent with that.
+
+    Someone newly marked "not a person" (a pet) is removed from the gallery. Someone no longer marked is a
+    person after all, so their photos must be read again: the record of what's been imported is cleared.
+    Returns how many faces were removed. Settings are saved.
+    """
+    old = {n.lower() for n in settings.get("exclude", [])}
+    names = merge(exclude)
+    now = {n.lower() for n in names}
+    removed = sum(gallery.forget(n) for n in names if n.lower() not in old)
+    if old - now:
+        gallery.clear_done()
+    if removed or old - now:
+        gallery.save()
+    settings.update(library=list(folders), exclude=names)
+    config.save_faces_settings(settings)
+    return removed
+
+
+class Sync:
+    """Keeps the gallery in step with your Lightroom folder, in a background thread.
+
+    Started on every launch (and when the folder setting changes). Reading the folder's tags takes a minute or
+    two for a big library; after that only photos not seen before are run through the model, so a start with
+    nothing new is quick. `status` is what the UI shows.
+    """
+
+    def __init__(self, engine: Engine, gallery: Gallery, exiftool: Optional[str], settings: dict):
+        self.engine, self.gallery, self.exiftool, self.settings = engine, gallery, exiftool, settings
+        self._thread: Optional[threading.Thread] = None
+        self.status = {"running": False, "phase": "idle", "done": 0, "total": 0, "added": 0, "error": ""}
+
+    @property
+    def running(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
+
+    def start(self) -> bool:
+        """Begin learning from the configured folders. False if there's nothing to do or it's already running."""
+        if self.running or not self.settings.get("library"):
+            return False
+        if not self.exiftool:
+            self.status = {**self.status, "phase": "error", "error": "exiftool isn't available, so face tags can't be read"}
+            return False
+        self.status = {"running": True, "phase": "reading", "done": 0, "total": 0, "added": 0, "error": ""}
+        self._thread = threading.Thread(target=self._run, name="faces-sync", daemon=True)
+        self._thread.start()
+        return True
+
+    def join(self, timeout: Optional[float] = None) -> None:
+        if self._thread:
+            self._thread.join(timeout)
+
+    def _run(self) -> None:
+        def progress(done: int, total: int, added: int) -> None:
+            self.status.update(phase="learning", done=done, total=total, added=added)
+        try:
+            stats = learn_library(self.engine, self.gallery, self.exiftool, list(self.settings["library"]),
+                                  self.settings.get("exclude", []), progress=progress)
+            self.settings["synced"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            config.save_faces_settings(self.settings)
+            self.status.update(running=False, phase="done", done=stats["images"], total=stats["images"],
+                               added=stats["added"], error="")
+        except Exception as e:  # noqa: BLE001  (an unreadable folder, a model that won't load, ...)
+            self.status.update(running=False, phase="error", error=str(e) or e.__class__.__name__)

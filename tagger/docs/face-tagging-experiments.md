@@ -269,7 +269,27 @@ In rough order of expected payoff:
    1080 Ti in the test machine is Pascal, which current CUDA builds of onnxruntime may no longer support.
 10. A better test: hold out by roll rather than by year, with a second person's tags.
 
-## 10. Reproducing
+## 10. What it costs to run
+
+Measured on the development machine (Windows 11, 16 cores, no GPU used). This is why face tagging is part of
+the normal install rather than an optional extra: nothing here is a barrier on a reasonably modern computer.
+
+| | |
+| --- | --- |
+| Python environment | about 410 MB in total, most of it the face packages (OpenCV 112, SciPy 88, NumPy 44, onnxruntime 42, scikit-image 21, onnx 19) |
+| Model on disk | about 600 MB in `~/.insightface`: the 275 MB download zip stays next to the unpacked files, and only 2 of its 5 networks (16 MB detector, 166 MB recognition) are used. About 420 MB of that could be deleted. |
+| Gallery | about 2 KB per face: 12 MB for 6,442 faces |
+| Memory | about 450 MB resident while detecting, 700 MB peak. The first photo takes 2.8 s while the model loads. |
+| Speed | about 0.13 s per photo on a decoded image; 0.4 s per photo in a real run, including reading the scan. CPU only. |
+| First run | needs internet once, to download the 275 MB model from GitHub. Nothing is sent anywhere afterwards. |
+| Python | the packages install and import on 3.11, 3.12, 3.13 and 3.14 as plain wheels (no compiler needed). Detection was run on 3.11 only. |
+
+What would make it unusable: a machine too slow to want 0.4 s per photo, under about 2 GB of free memory, or no
+internet on the very first run. A GPU would make a first pass over a big library minutes instead of an hour, and
+`onnxruntime-gpu` is the way to try it (not done: the 1080 Ti in the test machine is Pascal, which current CUDA
+builds may not support).
+
+## 11. Reproducing
 
 All from `tagger/`, Python 3.11 (the scripts declare their own dependencies):
 
