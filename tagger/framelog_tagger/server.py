@@ -32,10 +32,16 @@ from pydantic import BaseModel
 from . import config
 from .dialogs import pick as native_pick
 from .exif import ExifToolError, TagContext, build_args, resolve_zone, write_tags
-from .keywords import Library, merge, roll_keywords
+from .keywords import Library, clean, merge, roll_keywords
 from .log import LogEntry, LogFormatError, read_log
+from .regions import FaceBox, merge_regions, read_regions, region_args
 from .rename import apply_rename, detect_name, plan_rename
 from .scans import ScanInfo, ThumbnailCache, list_scans
+
+try:   # needs numpy: only there with the `faces` extra
+    from . import faces as faces_mod
+except ImportError:
+    faces_mod = None
 
 STATIC = Path(__file__).parent / "static"
 
@@ -55,6 +61,7 @@ class Session:
     next_id: int = 0
     thumbs: ThumbnailCache = field(default_factory=ThumbnailCache)
     views: ThumbnailCache = field(default_factory=lambda: ThumbnailCache(2400))   # the zoomed-in view
+    detections: dict = field(default_factory=dict)   # scan name -> ((w, h), [faces.Detection]): kept so Write can learn from them
 
     def __post_init__(self):
         self.next_id = max(self.entries, default=-1) + 1
@@ -87,12 +94,29 @@ class AppState:
     session: Optional[Session] = None
     remembered: dict = field(default_factory=dict)
     library: Library = field(default_factory=Library)
+    engine: Optional["faces_mod.Engine"] = None      # None: the face tools couldn't load (see faces_note)
+    gallery: Optional["faces_mod.Gallery"] = None
+    faces_note: str = ""
+    sync: Optional["faces_mod.Sync"] = None          # learns from your Lightroom folder in the background
+    face_settings: dict = field(default_factory=lambda: {"library": [], "exclude": [], "synced": ""})
+
+
+class LibraryRequest(BaseModel):
+    folders: list[str] = []   # where your Lightroom-tagged photos live; the tagger learns who people are from them
+    exclude: list[str] = []   # names that aren't people (pets): never learned, and removed if already learned
+
+
+class FaceTag(BaseModel):
+    id: Optional[int] = None     # the detection this came from (this session), whose fingerprint Write learns from
+    box: list[float]             # x, y, w, h: top-left corner and size, fractions of the upright picture
+    name: str = ""               # blank: not named, so not written
 
 
 class Pair(BaseModel):
     scan: str                    # scan filename
     entry: Optional[int] = None  # index into session.entries; None writes roll-wide tags only
     keywords: list[str] = []     # this scan's own keywords, on top of the roll's
+    faces: Optional[list[FaceTag]] = None   # None: faces weren't looked at for this scan, leave its regions alone
 
 
 class WriteRequest(BaseModel):
@@ -220,6 +244,19 @@ def card_view(e: LogEntry, ctx: TagContext) -> dict:
     return card
 
 
+def faces_payload(state: AppState) -> dict:
+    """What the UI needs to offer face tagging: whether it's available, and the names to complete."""
+    if state.engine is None or state.gallery is None:
+        return {"available": False, "reason": state.faces_note, "names": [], "people": 0, "count": 0}
+    people = state.gallery.people()
+    return {"available": True, "reason": "", "names": [n for n, _ in people], "people": len(people),
+            "count": len(state.gallery), "accept": faces_mod.ACCEPT, "suggest": faces_mod.SUGGEST,
+            "min_examples": faces_mod.MIN_EXAMPLES, "gallery_file": str(state.gallery.path),
+            "library": state.face_settings["library"], "exclude": state.face_settings["exclude"],
+            "synced": state.face_settings["synced"],
+            "sync": ({**state.sync.status, "running": state.sync.running} if state.sync else None)}
+
+
 def session_payload(state: AppState) -> dict:
     s = state.session
     base = {
@@ -229,6 +266,7 @@ def session_payload(state: AppState) -> dict:
         "remembered": state.remembered,
         "keywords": state.library.to_list(),
         "keywords_file": str(state.library.path),
+        "faces": faces_payload(state),
     }
     if s is None:
         return base
@@ -360,9 +398,53 @@ def create_app(state: AppState) -> FastAPI:
             raise HTTPException(404, "no such scan")
         return FileResponse(scan.path, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
 
-    def scan_args(s: Session, scan: Optional[ScanInfo], entry: Optional[LogEntry], kws: list[str]) -> list[str]:
+    @app.get("/api/faces/sync")
+    def faces_sync():
+        """Progress of learning from the library folder, for the UI to poll while it runs."""
+        return faces_payload(state)
+
+    @app.post("/api/faces/library")
+    def faces_library(req: LibraryRequest):
+        """Set (once; it's remembered) where your Lightroom photos are and which names aren't people, then learn from them."""
+        if state.sync is None or state.gallery is None:
+            raise HTTPException(409, state.faces_note or "the face tools aren't available")
+        if state.sync.running:
+            raise HTTPException(409, "still learning from the library; wait for it to finish")
+        folders = [str(Path(f.strip()).expanduser()) for f in req.folders if f.strip()]
+        for f in folders:
+            if not Path(f).is_dir():
+                raise HTTPException(400, f"folder not found: {f}")
+        faces_mod.update_settings(state.gallery, state.face_settings, folders, req.exclude)
+        state.sync.start()
+        return faces_payload(state)
+
+    @app.post("/api/faces/detect/{name}")
+    def detect_faces(name: str):
+        """Find the faces in one scan and suggest who they are. Detections are kept for Write to learn from."""
+        s = need_session()
+        if state.engine is None or state.gallery is None:
+            raise HTTPException(409, state.faces_note or "the face tools aren't installed")
+        scan = s.scan_by_name(name)
+        if scan is None:
+            raise HTTPException(404, "no such scan")
+        if name not in s.detections:
+            try:
+                s.detections[name] = state.engine.detect(scan.path)
+            except Exception as e:  # noqa: BLE001  (a bad file or a model that won't load)
+                raise HTTPException(500, f"face detection failed: {e}")
+        (w, h), dets = s.detections[name]
+        out = []
+        for i, d in enumerate(dets):
+            sug = [{"name": n, "score": round(sc, 3)} for n, sc in state.gallery.suggest(d.emb) if sc >= faces_mod.SUGGEST]
+            auto = bool(sug) and sug[0]["score"] >= faces_mod.ACCEPT and d.score >= faces_mod.AUTO_DET
+            out.append({"id": i, "box": [d.box.x, d.box.y, d.box.w, d.box.h], "score": round(d.score, 3),
+                        "low": d.score < faces_mod.AUTO_DET, "suggestions": sug, "name": sug[0]["name"] if auto else ""})
+        return {"scan": name, "width": w, "height": h, "faces": out}
+
+    def scan_args(s: Session, scan: Optional[ScanInfo], entry: Optional[LogEntry], kws: list[str],
+                  face_args: list[str] = ()) -> list[str]:
         # A scan that has keywords and is given none (and no roll ones) gets them cleared, as you'd expect.
-        return build_args(entry, s.ctx, kws, clear_keywords=bool(scan and scan.keywords))
+        return build_args(entry, s.ctx, kws, clear_keywords=bool(scan and scan.keywords), face_args=face_args)
 
     @app.get("/api/preview/{entry}")
     def preview(entry: int, scan: str = "", kw: list[str] = Query(default=[])):
@@ -426,27 +508,65 @@ def create_app(state: AppState) -> FastAPI:
                 raise HTTPException(400, f"unknown scan {p.scan!r}")
             if p.entry is not None and p.entry not in s.entries:
                 raise HTTPException(400, f"unknown entry {p.entry}")
-            jobs.append((scan, p.entry, None if p.entry is None else s.entries[p.entry], p.keywords))
+            if p.faces is not None and any(len(f.box) != 4 for f in p.faces):
+                raise HTTPException(400, f"a face box needs x, y, w, h ({p.scan})")
+            jobs.append((scan, p.entry, None if p.entry is None else s.entries[p.entry], p.keywords, p.faces))
 
         def run(job):
-            scan, idx, entry, kws = job
+            scan, idx, entry, kws, faces = job
             dst = scan.path if s.in_place else s.out_dir / scan.name
+            named, learn, note = [], [], ""
+            for f in faces or []:   # named faces only; a name spelled like a keyword already in use takes its spelling
+                name = state.library.canonical(clean(f.name)) if clean(f.name) else ""
+                if name:
+                    named.append(FaceBox(*f.box, name=name))
+                    det = s.detections.get(scan.name)
+                    if state.gallery is not None and det and f.id is not None and 0 <= f.id < len(det[1]):
+                        learn.append((name, det[1][f.id]))
+            face_args = []
+            if named:
+                if scan.orientation != 1 or not (scan.width and scan.height):
+                    # regions would have to be mapped back into the file's stored frame; not done yet
+                    note = f"face regions not written: this scan is rotated (EXIF orientation {scan.orientation})"
+                else:
+                    # Write replaces the file's whole region list, so carry over the boxes already there
+                    # (Lightroom's, or an earlier Write's) for faces that weren't just named.
+                    try:
+                        existing = [f for img in read_regions(state.exiftool, [scan.path]) for f in img.faces]
+                    except (OSError, ValueError, RuntimeError) as e:
+                        existing = None
+                        note = f"face regions not written: couldn't read the ones already in the file ({e})"
+                    if existing is not None:
+                        face_args = region_args(merge_regions(existing, named), scan.width, scan.height, keep_unnamed=True)
+            kws = merge(kws, [f.name for f in named])   # a named face is also a keyword, which is what Lightroom lists
             try:
-                write_tags(state.exiftool, scan.path, dst, scan_args(s, scan, entry, kws))
+                write_tags(state.exiftool, scan.path, dst, scan_args(s, scan, entry, kws, face_args))
                 scan.tagged = True
                 written = merge(s.ctx.keywords, kws)
                 if s.in_place:   # copies start from the original each time, so only then has the file changed
                     scan.keywords = written
-                return {"scan": scan.name, "entry": idx, "ok": True, "path": str(dst), "keywords": written}
+                return ({"scan": scan.name, "entry": idx, "ok": True, "path": str(dst), "keywords": written,
+                         "faces": len(named) if face_args else 0, "note": note},
+                        [(n, d, str(scan.path)) for n, d in learn])
             except (ExifToolError, OSError) as e:
-                return {"scan": scan.name, "entry": idx, "ok": False, "error": str(e)}
+                return {"scan": scan.name, "entry": idx, "ok": False, "error": str(e)}, []
 
         with ThreadPoolExecutor(max_workers=4) as pool:
-            results = list(pool.map(run, jobs))
+            done = list(pool.map(run, jobs))
+        results = [r for r, _ in done]
         for r in results:
             if r["ok"]:
                 state.library.add(r.pop("keywords"), written=1)
         state.library.save()
-        return {"results": results, "written": sum(r["ok"] for r in results), "keywords": state.library.to_list()}
+        learned = 0
+        if state.gallery is not None:   # every confirmed face teaches the gallery; naming a face again corrects it
+            for _, learn in done:
+                for name, det, source in learn:
+                    state.gallery.add(name, det.emb, source, det.box)
+                    learned += 1
+            if learned:
+                state.gallery.save()
+        return {"results": results, "written": sum(r["ok"] for r in results), "keywords": state.library.to_list(),
+                "learned": learned, "faces": faces_payload(state)}
 
     return app

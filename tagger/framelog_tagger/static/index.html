@@ -85,10 +85,13 @@
   .actions { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
   #setupError { color: var(--danger); font-size: 12.5px; }
   #exifWarn { font-size: 12.5px; color: var(--warn); margin-bottom: 14px; }
-  #renameForm { margin-top: 18px !important; }
-  #renameForm .intro { font-size: 12.5px; line-height: 1.5; color: var(--muted); margin-bottom: 12px; }
+  #renameForm, #faceForm { margin-top: 18px !important; }
+  #renameForm .intro, #faceForm .intro { font-size: 12.5px; line-height: 1.5; color: var(--muted); margin-bottom: 12px; }
   button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
   #renameError { color: var(--danger); font-size: 12.5px; }
+  #faceStatus { color: var(--muted); font-size: 12.5px; }
+  #faceStatus.err { color: var(--danger); }
+  #faceForm .note { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
   #renamePreview { margin-top: 14px; max-height: 300px; overflow: auto; background: var(--input); border: 1px solid var(--line); border-radius: 10px; }
   #renamePreview table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11.5px; }
   #renamePreview th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-family: var(--sans); font-weight: 600; text-align: left; padding: 6px 10px; }
@@ -309,6 +312,24 @@
   #zoom.still img, #zoom.panning img { transition: none; }
   #zoom .name { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 
+  /* faces: boxes over the zoomed scan (green = named, dashed = suggested by the gallery and not yet confirmed,
+     amber = nobody yet, dim = the detector isn't sure it's a face), and the bar that names the selected one */
+  #zoom .faces { position: absolute; inset: 0; pointer-events: none; }
+  #zoom .fbox { position: absolute; border: 2px solid var(--warn); border-radius: 4px; pointer-events: auto; cursor: pointer; transition: left .18s, top .18s, width .18s, height .18s; }
+  #zoom .fbox.named { border-color: var(--ok); }
+  #zoom .fbox.auto { border-style: dashed; }
+  #zoom .fbox.low { opacity: .55; }
+  #zoom .fbox.sel { box-shadow: 0 0 0 2px var(--text), 0 0 12px rgba(0,0,0,.6); opacity: 1; }
+  #zoom .fbox .label { position: absolute; left: -2px; bottom: 100%; margin-bottom: 3px; font-size: 11px; font-weight: 600; line-height: 1.4; background: rgba(0,0,0,.72); color: var(--text); padding: 1px 7px; border-radius: 7px; white-space: nowrap; }
+  #zoom.still .fbox, #zoom.panning .fbox { transition: none; }
+  #zoom .facebar { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; min-height: 30px; font-size: 12px; color: var(--muted); }
+  #zoom .facebar input { width: 170px; background: var(--input); color: var(--text); border: 0; border-radius: 9px; padding: 6px 10px; font: inherit; box-shadow: inset 0 1px 3px rgba(0,0,0,.5), 0 0 0 1px var(--line); }
+  #zoom .facebar input:focus { outline: 0; box-shadow: inset 0 1px 3px rgba(0,0,0,.5), 0 0 0 1px var(--accent); }
+  #zoom .facebar button .pct { font-family: var(--mono); font-size: 9.5px; opacity: .6; margin-left: 6px; }
+  .scan .fbadge { bottom: 48px; left: 12px; background: rgba(0,0,0,.6); backdrop-filter: blur(6px); }
+  .scan .fbadge.none { color: var(--muted); }
+  .scan .fbadge.none::before { background: var(--led-off); box-shadow: none; }
+
   #toast {
     position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--panel); color: var(--text);
     padding: 10px 16px 10px 30px; border-radius: 12px; font-size: 12.5px; max-width: 80vw; display: none; z-index: 10;
@@ -335,12 +356,14 @@
   <h1>Frame Log <span>tagger</span></h1>
   <span class="roll" id="roll"></span>
   <span class="meta" id="meta"></span>
+  <span class="meta" id="faceSync" hidden></span>
   <span class="tags" id="tags" hidden title="Written into every scan's metadata on Write. Set them on the setup screen (Change roll)."></span>
   <span class="spacer"></span>
   <span class="stats" id="stats"></span>
   <button id="changeRoll" hidden title="Back to the setup screen">Change roll</button>
   <button id="autoPair" hidden title="Reset to positional pairing: 1st scan ↔ 1st frame, and so on">Auto-pair</button>
   <button id="reverse" hidden title="Reverse the scan order (roll scanned tail-first)">Reverse scans</button>
+  <button id="findFaces" hidden title="Find the faces in every scan and suggest who they are. Double-click a scan to review and name them.">Find faces</button>
   <button id="write" class="primary" hidden title="Write metadata into every paired scan">Write</button>
 </header>
 
@@ -384,6 +407,27 @@
     <div class="actions">
       <button type="submit" class="primary" id="loadBtn">Load roll</button>
       <span id="setupError"></span>
+    </div>
+  </form>
+
+  <form id="faceForm" autocomplete="off" hidden>
+    <h2>Faces <span style="color:var(--muted);font-weight:normal;letter-spacing:0;text-transform:none">(set once, remembered on this computer)</span></h2>
+    <div class="intro">Point this at the folder of photos that already have face tags (from Lightroom) and it learns who everyone is from the names on those faces. It checks the folder for new photos every time it starts, so there is nothing to run again. In Lightroom, save the tags into the files first: Metadata → Save Metadata to Files.</div>
+    <div class="field">
+      <label for="fFaceLib">tagged photos</label>
+      <input type="text" id="fFaceLib" placeholder="folder of photos with face tags">
+      <button type="button" data-pick="folder" data-for="fFaceLib">Browse…</button>
+      <div class="hint">Subfolders are included. Separate several folders with ;</div>
+    </div>
+    <div class="field">
+      <label for="fFaceSkip">skip names</label>
+      <input type="text" id="fFaceSkip" placeholder="e.g. Kepler, Elvis">
+      <span></span>
+      <div class="hint">Names to ignore, separated by commas: pets, or anything else tagged as a face that isn't a person. The face model only knows human faces, so these are left out (and removed if already learned).</div>
+    </div>
+    <div class="actions">
+      <button type="submit" class="primary" id="faceBtn">Save and learn</button>
+      <span id="faceStatus"></span>
     </div>
   </form>
 
@@ -472,7 +516,8 @@
   <div class="actions"><span class="spacer"></span><button type="button" class="primary" id="kwLibClose">Done</button></div>
 </dialog>
 
-<dialog id="zoom"><div class="frame"><img alt="" draggable="false"></div><div class="name"></div></dialog>
+<dialog id="zoom"><div class="frame"><img alt="" draggable="false"><div class="faces"></div></div><div class="facebar" hidden></div><div class="name"></div></dialog>
+<datalist id="faceNames"></datalist>
 
 <div id="toast"></div>
 <div id="preview"><h3><span id="previewTitle"></span><span id="previewClose">✕</span></h3><pre id="previewBody"></pre></div>
@@ -490,6 +535,9 @@ let kwOrder = [];      // keywords used on this roll, in the order first used: s
 let sel = new Set();   // selected scan names: the keyword box works on these
 let anchor = null, lead = null;   // shift-click / shift-arrow ranges run anchor..lead
 let kwUndo = [];       // snapshots of kw before each change, newest last
+let fc = {};           // scan name -> {width, height, faces: [{id, box, low, suggestions, name, auto}]}, filled by Find faces
+let fcNames = {};      // scan name -> {box key: name}: the names you chose ("" = cleared), kept for this roll across reloads
+let fSel = -1;         // the face selected in the zoom panel
 
 async function api(method, url, body) {
   const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -506,10 +554,11 @@ function showSetup() {
   for (const [key, id] of Object.entries(REMEMBERED)) $(id).value = r[key] ?? "";
   if (!$("fTz").value) $("fTz").value = S.default_tz || "";
   $("exifWarn").hidden = !!S.exiftool;
+  renderFaceSetup();
   $("setupError").textContent = "";
   $("setup").hidden = false;
   $("strip").hidden = true; $("help").hidden = true; $("kwPanel").hidden = true;
-  for (const id of ["changeRoll", "autoPair", "reverse", "write"]) $(id).hidden = true;
+  for (const id of ["changeRoll", "autoPair", "reverse", "findFaces", "write"]) $(id).hidden = true;
   $("roll").textContent = ""; $("meta").textContent = ""; $("stats").textContent = ""; $("tags").hidden = true;
   $("preview").style.display = "none";
   onScansChanged();
@@ -517,12 +566,13 @@ function showSetup() {
 function showStrip() {
   $("setup").hidden = true;
   $("strip").hidden = false; $("help").hidden = false; $("kwPanel").hidden = false;
-  for (const id of ["changeRoll", "autoPair", "reverse", "write"]) $(id).hidden = false;
+  for (const id of ["changeRoll", "autoPair", "reverse", "findFaces", "write"]) $(id).hidden = false;
   $("roll").textContent = S.roll;
   renderTags();
   results = {}; clip = null;
   sel = new Set(); anchor = lead = null; kwUndo = [];
   restoreKw();
+  restoreFaces();
   if (!restore()) autoPair(); else render();
 }
 
@@ -671,7 +721,12 @@ function swap(row, i, j) {
 }
 function pairs() {
   return cols.filter((c) => c.scan != null && (c.entry != null || noLog()))
-             .map((c) => ({ scan: c.scan, entry: c.entry, keywords: kw[c.scan] || [] }));
+             .map((c) => {
+               const p = { scan: c.scan, entry: c.entry, keywords: kw[c.scan] || [] };
+               // only scans whose faces were looked at: for the rest, Write leaves any regions in the file alone
+               if (fc[c.scan]) p.faces = fc[c.scan].faces.map((f) => ({ id: f.id, box: f.box, name: f.name }));
+               return p;
+             });
 }
 
 /* ---------- persistence (survive an accidental reload) ---------- */
@@ -814,8 +869,15 @@ function render() {
       sc.addEventListener("click", (ev) => clickScan(s.name, ev));
       sc.addEventListener("dblclick", () => openZoom(s.name));
       if (s.tagged) sc.append(el("span", "pill warn badge", "tagged"));
+      const fd = fc[s.name];
+      if (fd) {
+        const named = fd.faces.filter((f) => f.name).length, n = fd.faces.length;
+        const fb = el("span", "pill fbadge" + (!n ? " none" : named < n ? " warn" : ""), !n ? "no faces" : named + "/" + n + (n === 1 ? " face" : " faces"));
+        fb.title = !n ? "no faces found" : named + " of " + n + " faces named. Double-click the scan to review them.";
+        sc.append(fb);
+      }
       const r = results[s.name];
-      if (r) { const b = el("span", "pill result " + (r.ok ? "ok" : "err"), r.ok ? "written" : r.error); b.title = r.error || r.path || ""; sc.append(b); }
+      if (r) { const b = el("span", "pill result " + (r.ok ? "ok" : "err"), r.ok ? "written" : r.error); b.title = r.error || (r.note ? r.note + " — " : "") + (r.path || ""); sc.append(b); }
     } else {
       sc.textContent = "no scan";
     }
@@ -1344,6 +1406,8 @@ function openZoom(name) {
   d.querySelector(".name").textContent = name;
   d.classList.add("still");
   d.showModal();
+  fSel = -1;
+  paintFaces(); paintFaceBar();
   layoutZoom();
   requestAnimationFrame(() => d.classList.remove("still"));
 }
@@ -1359,6 +1423,8 @@ function layoutZoom() {
   const clamp = (v, size, room) => size <= room ? (room - size) / 2 : Math.min(0, Math.max(room - size, v));
   zm.x = clamp(zm.x, w, W); zm.y = clamp(zm.y, h, H);
   Object.assign(img.style, { width: w + "px", height: h + "px", left: zm.x + "px", top: zm.y + "px" });
+  zm.dw = w; zm.dh = h;
+  placeFaces();
   d.classList.toggle("fits", !canZoom);
   d.classList.toggle("zoomed", zm.at100);
 }
@@ -1405,9 +1471,196 @@ function initZoom() {
   d.addEventListener("pointerdown", () => { dragged = false; });
   d.addEventListener("click", (ev) => {
     if (dragged) { dragged = false; return; }
+    if (ev.target.closest(".facebar, .fbox")) return;   // naming a face isn't a click outside the picture
     if (ev.target !== img) d.close();
   });
+  d.addEventListener("close", () => { fSel = -1; zm = null; if (S && S.loaded) render(); });   // the cards show how many faces are named
   addEventListener("resize", () => { if (d.open) layoutZoom(); });
+}
+
+/* ---------- faces ---------- */
+// Find faces asks the server for each scan's faces and who they look like. Names the gallery is sure of are filled in
+// (dashed until you confirm them); everything else waits for you. What you choose is remembered per roll by box position,
+// because the server keeps nothing between runs and detection is repeatable. Write sends the names; the server stores
+// them as face regions and keywords, and every confirmed face teaches the gallery.
+const faceKey = (b) => b[0].toFixed(3) + "," + b[1].toFixed(3);
+function persistFaces() { try { localStorage.setItem(storeKey() + "#faces", JSON.stringify(fcNames)); } catch (e) {} }
+function restoreFaces() {
+  fc = {}; fSel = -1;
+  try { fcNames = JSON.parse(localStorage.getItem(storeKey() + "#faces") || "{}") || {}; } catch (e) { fcNames = {}; }
+  renderFaceNames();
+}
+// The Lightroom folder is set once (here, on the setup screen) and kept on this computer; the server learns from it in the
+// background on every start, so the gallery follows what you tag in Lightroom without anything to run.
+let syncTimer = null;
+function ago(iso) {
+  const s = (Date.now() - Date.parse(iso)) / 1000;
+  if (!(s >= 0)) return "";
+  return s < 90 ? "just now" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 129600 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago";
+}
+function syncText() {
+  const f = S.faces, s = f?.sync;
+  if (!f?.available) return "";
+  if (s?.running) return s.phase === "reading" ? "reading the face tags in your library…"
+    : "learning " + s.done.toLocaleString() + " / " + s.total.toLocaleString() + " photos · " + s.added.toLocaleString() + " faces so far";
+  if (s?.phase === "error") return "couldn't learn from the library: " + s.error;
+  const have = f.count ? f.count.toLocaleString() + " faces, " + f.people + " people" : "nobody learned yet";
+  return f.library.length ? have + (f.synced ? " · checked " + ago(f.synced) : "") : have;
+}
+function paintSync() {
+  const f = S?.faces, s = f?.sync, chip = $("faceSync"), st = $("faceStatus");
+  st.textContent = syncText(); st.className = s?.phase === "error" && !s.running ? "err" : "";
+  if (s?.running) {
+    chip.textContent = "learning faces" + (s.total ? " " + Math.round(100 * s.done / s.total) + "%" : "…"); chip.title = syncText(); chip.hidden = false;
+  } else if (s?.phase === "error") {
+    chip.textContent = "face library error"; chip.title = s.error; chip.hidden = false;
+  } else chip.hidden = true;
+  $("faceBtn").disabled = !!s?.running;
+}
+async function pollSync() {
+  clearTimeout(syncTimer);
+  try {
+    const was = S.faces?.sync?.running;
+    S.faces = await api("GET", "/api/faces/sync");
+    renderFaceNames(); paintSync();
+    if (S.faces.sync?.running) syncTimer = setTimeout(pollSync, 1500);
+    else if (was && S.faces.sync?.phase === "done") toast("learned " + S.faces.count.toLocaleString() + " faces, " + S.faces.people + " people from your library");
+  } catch (e) { syncTimer = setTimeout(pollSync, 4000); }
+}
+function renderFaceSetup() {
+  const f = S.faces;
+  $("faceForm").hidden = !f?.available;
+  if (!f?.available) return;
+  $("fFaceLib").value = f.library.join("; "); $("fFaceSkip").value = f.exclude.join(", ");
+  paintSync();
+}
+async function saveLibrary(ev) {
+  ev.preventDefault();
+  const list = (s, sep) => s.split(sep).map((x) => x.trim()).filter(Boolean);
+  $("faceBtn").disabled = true;
+  try {
+    S.faces = await api("POST", "/api/faces/library", { folders: list($("fFaceLib").value, ";"), exclude: list($("fFaceSkip").value, ",") });
+    renderFaceNames(); paintSync(); pollSync();
+  } catch (e) {
+    $("faceStatus").textContent = e.message; $("faceStatus").className = "err"; $("faceBtn").disabled = false;
+  }
+}
+function renderFaceNames() {
+  $("faceNames").replaceChildren(...(S.faces?.names || []).map((n) => { const o = document.createElement("option"); o.value = n; return o; }));
+}
+async function detectScan(name) {
+  const j = await api("POST", "/api/faces/detect/" + encodeURIComponent(name));
+  const saved = fcNames[name] || {};
+  for (const f of j.faces) {
+    const k = faceKey(f.box);
+    if (k in saved) { f.name = saved[k]; f.auto = false; } else f.auto = !!f.name;
+  }
+  fc[name] = j;
+  return j;
+}
+let finding = false;
+async function findFaces() {
+  if (!S.faces?.available) { toast(S.faces?.reason || "face tools aren't installed", true); return; }
+  if (finding) return;
+  finding = true;
+  const btn = $("findFaces"), names = S.scans.map((s) => s.name);
+  btn.disabled = true;
+  try {
+    for (let i = 0; i < names.length; i++) {
+      btn.textContent = "Finding faces " + (i + 1) + "/" + names.length;
+      await detectScan(names[i]);
+    }
+    const all = Object.values(fc).flatMap((d) => d.faces);
+    const f = S.faces;
+    toast(all.length + " faces in " + names.length + " scans, " + all.filter((x) => x.name).length + " already named" +
+          (f.sync?.running ? ". Still learning from your library, so names will improve as it goes"
+           : !f.library.length && !f.people ? ". Nobody is learned yet: set the folder of tagged photos under Change roll → Faces" : ""));
+  } catch (e) {
+    toast("finding faces failed: " + e.message, true);
+  } finally {
+    finding = false; btn.disabled = false; btn.textContent = "Find faces";
+    render();
+  }
+}
+function setFaceName(scan, i, name) {
+  const f = fc[scan].faces[i];
+  f.name = name.trim().replace(/\s+/g, " "); f.auto = false;
+  (fcNames[scan] = fcNames[scan] || {})[faceKey(f.box)] = f.name;
+  persistFaces();
+}
+function selectFace(i, focus = true) {
+  fSel = i; paintFaces(); paintFaceBar();
+  if (focus) $("zoom").querySelector(".facebar input")?.select();
+}
+function paintFaces() {
+  const layer = $("zoom").querySelector(".faces"), data = zm && fc[zm.name];
+  layer.replaceChildren();
+  if (!data) return;
+  data.faces.forEach((f, i) => {
+    const b = el("div", "fbox" + (f.name ? " named" + (f.auto ? " auto" : "") : "") + (f.low ? " low" : "") + (i === fSel ? " sel" : ""));
+    if (f.name) b.append(el("span", "label", f.name + (f.auto ? " ?" : "")));
+    b.style.display = "none";   // until placeFaces knows where the picture is
+    b.addEventListener("click", (ev) => { ev.stopPropagation(); selectFace(i); });
+    b.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+    layer.append(b);
+  });
+  placeFaces();
+}
+function placeFaces() {
+  const data = zm && fc[zm.name];
+  if (!data || !zm.dw) return;
+  [...$("zoom").querySelector(".faces").children].forEach((b, i) => {
+    const [x, y, w, h] = data.faces[i].box;
+    Object.assign(b.style, { display: "", left: zm.x + x * zm.dw + "px", top: zm.y + y * zm.dh + "px", width: w * zm.dw + "px", height: h * zm.dh + "px" });
+  });
+}
+function paintFaceBar() {
+  const bar = $("zoom").querySelector(".facebar"), data = zm && fc[zm.name];
+  bar.replaceChildren();
+  if (!S.faces?.available) { bar.hidden = true; return; }
+  bar.hidden = false;
+  if (!data) {
+    const b = el("button", null, "Find faces in this scan");
+    b.onclick = async () => {
+      b.disabled = true;
+      try { await detectScan(zm.name); paintFaces(); paintFaceBar(); }
+      catch (e) { toast("finding faces failed: " + e.message, true); b.disabled = false; }
+    };
+    bar.append(b);
+    return;
+  }
+  const scan = zm.name;
+  if (!data.faces.length) { bar.append(el("span", null, "no faces found")); return; }
+  if (fSel < 0 || fSel >= data.faces.length) { bar.append(el("span", null, data.faces.length + (data.faces.length === 1 ? " face" : " faces") + " found: click one to name it")); return; }
+  const i = fSel, f = data.faces[i];
+  bar.append(el("span", null, "face " + (i + 1) + " of " + data.faces.length + (f.low ? " · unsure it's a face" : "")));
+  for (const s of f.suggestions) {
+    const b = el("button", "kw" + (s.name === f.name ? " on" : ""), s.name);
+    b.append(el("span", "pct", Math.round(s.score * 100)));
+    b.title = "how closely this face matches " + s.name + "'s faces on file (about 40+ is a likely match)";
+    b.onclick = () => { setFaceName(scan, i, s.name); selectFace(Math.min(i + 1, data.faces.length - 1)); };
+    bar.append(b);
+  }
+  const inp = el("input"); inp.setAttribute("list", "faceNames"); inp.placeholder = "who is this?"; inp.value = f.name;
+  inp.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") return;   // closes the panel
+    ev.stopPropagation();
+    if (ev.key === "Enter") {          // confirm and move on to the next face
+      setFaceName(scan, i, inp.value);
+      selectFace(i + 1 < data.faces.length ? i + 1 : i);
+    }
+  });
+  bar.append(inp);
+  if (f.auto) {
+    const ok = el("button", null, "Confirm " + f.name);
+    ok.onclick = () => { setFaceName(scan, i, f.name); selectFace(i + 1 < data.faces.length ? i + 1 : i); };
+    bar.append(ok);
+  }
+  if (f.name) {
+    const no = el("button", null, "Clear");
+    no.onclick = () => { setFaceName(scan, i, ""); selectFace(i, false); };
+    bar.append(no);
+  }
 }
 
 /* ---------- preview + toast ---------- */
@@ -1435,7 +1688,11 @@ async function write() {
   if (!ps.length) return;
   const dest = S.in_place ? "IN PLACE (the original scan files will be modified)" : S.out_dir;
   const rollKw = S.roll_keywords.length ? "\nEvery scan also gets the keywords " + S.roll_keywords.join(", ") + "." : "";
-  if (!confirm("Write metadata for " + ps.length + " frame(s)?\n\nDestination: " + dest + rollKw)) return;
+  const named = ps.flatMap((p) => (p.faces || []).filter((f) => f.name).map((f) => ({ ...f, scan: p.scan })));
+  const unreviewed = named.filter((f) => fc[f.scan]?.faces[f.id]?.auto).length;
+  const faceNote = named.length ? "\n\n" + named.length + " named face(s) are written as face regions and keywords" +
+    (unreviewed ? ", " + unreviewed + " of them suggested by the gallery and not yet confirmed (dashed in the zoom view)" : "") + "." : "";
+  if (!confirm("Write metadata for " + ps.length + " frame(s)?\n\nDestination: " + dest + rollKw + faceNote)) return;
   $("write").disabled = true; $("write").textContent = "Writing…";
   try {
     const r = await fetch("/api/write", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pairs: ps }) });
@@ -1444,8 +1701,12 @@ async function write() {
     results = {};
     for (const res of j.results) results[res.scan] = res;
     S.keywords = j.keywords;
+    S.faces = j.faces; renderFaceNames();
     const failed = j.results.length - j.written;
-    toast(j.written + " written" + (failed ? ", " + failed + " failed (see cards)" : "") + " → " + (S.in_place ? "in place" : S.out_dir), failed > 0);
+    const skipped = j.results.filter((r) => r.note).length;
+    toast(j.written + " written" + (failed ? ", " + failed + " failed (see cards)" : "") + " → " + (S.in_place ? "in place" : S.out_dir) +
+          (j.learned ? " · " + j.learned + " faces added to the gallery" : "") +
+          (skipped ? " · " + skipped + " rotated scan(s) got face keywords but no face regions" : ""), failed > 0);
   } catch (e) {
     toast("write failed: " + e.message, true);
   } finally {
@@ -1459,6 +1720,7 @@ async function boot() {
   S = await (await fetch("/api/session")).json();
   document.querySelectorAll("[data-pick]").forEach((b) => { b.onclick = () => pickInto(b.dataset.pick, b.dataset.for); });
   $("setupForm").addEventListener("submit", loadRoll);
+  $("faceForm").addEventListener("submit", saveLibrary);
   $("renameForm").addEventListener("submit", applyRename);
   $("fScans").addEventListener("input", onScansChanged);
   $("rName").addEventListener("input", schedulePreview);
@@ -1487,12 +1749,15 @@ async function boot() {
   $("autoPair").onclick = () => { if (confirm("Reset all pairing to positional order?")) autoPair(); };
   $("reverse").onclick = reverseScans;
   $("write").onclick = write;
+  $("findFaces").onclick = findFaces;
   initKeywords();
   initZoom();
   $("strip").addEventListener("wheel", (ev) => {
     if (Math.abs(ev.deltaY) > Math.abs(ev.deltaX)) { ev.preventDefault(); $("strip").scrollLeft += ev.deltaY; }
   }, { passive: false });
+  if (S.faces?.sync?.running) pollSync();
   if (S.loaded) showStrip(); else showSetup();
+  paintSync();
 }
 boot().catch((e) => toast("failed to load: " + e.message, true));
 </script>

@@ -9,6 +9,12 @@ dependencies = [
     "pillow>=10",
     "tzdata>=2024.1",
     "tzlocal>=5",
+    # face tagging. InsightFace aligns faces with a scikit-image call deprecated in 0.26 and removed in 2.2.
+    "numpy>=1.26",
+    "opencv-python-headless>=4.8",
+    "onnxruntime>=1.17",
+    "insightface>=0.7",
+    "scikit-image<2.2",
 ]
 
 [dependency-groups]

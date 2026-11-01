@@ -79,12 +79,13 @@ def resolve_zone(entry: LogEntry, ctx: TagContext) -> tuple[ZoneInfo, str]:
 
 
 def build_args(entry: Optional[LogEntry], ctx: TagContext, keywords: Sequence[str] = (),
-               clear_keywords: bool = False) -> list[str]:
+               clear_keywords: bool = False, face_args: Sequence[str] = ()) -> list[str]:
     """ExifTool tag assignments for one frame. No file paths, no -o/-overwrite.
 
     With no entry (a scan with no log behind it) only the roll-wide tags are written.
     `keywords` are this scan's own, written after the roll's; together they replace the
     file's keywords. With none at all the file's are left alone, unless `clear_keywords`.
+    `face_args` are ready-made face-region assignments (see regions.region_args).
     """
     args = _frame_args(entry, ctx) if entry else []
 
@@ -110,6 +111,7 @@ def build_args(entry: Optional[LogEntry], ctx: TagContext, keywords: Sequence[st
     elif clear_keywords:
         args.append("-XMP-dc:Subject=")
 
+    args += face_args
     args += ctx.extra_args
     return args
 

@@ -14,6 +14,7 @@ from .keywords import xmp_keywords
 
 JPEG_EXTS = {".jpg", ".jpeg"}
 EXIF_DATETIME_ORIGINAL = 0x9003
+EXIF_ORIENTATION = 0x0112
 
 
 @dataclass
@@ -24,10 +25,11 @@ class ScanInfo:
     height: int
     tagged: bool  # already has DateTimeOriginal, i.e. probably tagged before
     keywords: list[str] = field(default_factory=list)  # XMP-dc:Subject already in the file
+    orientation: int = 1  # EXIF Orientation; width/height are the stored pixels, so 5-8 means the picture is turned
 
     def to_dict(self) -> dict:
         return {"name": self.name, "width": self.width, "height": self.height, "tagged": self.tagged,
-                "keywords": self.keywords}
+                "keywords": self.keywords, "orientation": self.orientation}
 
 
 def natural_key(name: str):
@@ -51,11 +53,14 @@ def list_scans(directory: Path | str) -> list[ScanInfo]:
                 exif = im.getexif()
                 tagged = bool(exif.get_ifd(0x8769).get(EXIF_DATETIME_ORIGINAL))
                 keywords = xmp_keywords(im.info.get("xmp"))
+                orientation = int(exif.get(EXIF_ORIENTATION) or 1)
         except Exception:
             w = h = 0
             tagged = False
             keywords = []
-        out.append(ScanInfo(name=p.name, path=p, width=w, height=h, tagged=tagged, keywords=keywords))
+            orientation = 1
+        out.append(ScanInfo(name=p.name, path=p, width=w, height=h, tagged=tagged, keywords=keywords,
+                            orientation=orientation))
     return out
 
 
