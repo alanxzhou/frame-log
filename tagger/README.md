@@ -152,17 +152,17 @@ network turns each into a fingerprint, and a name is suggested by comparing it w
 already named. Every name you confirm makes the next suggestion better. How well it works, and how
 that was measured: [docs/face-tagging-experiments.md](docs/face-tagging-experiments.md).
 
-**Teach it who people are, once.** On the setup screen, under **Faces**, give the folder that holds your
-Lightroom-tagged photos (everything inside is searched) and, under **not people**, the names that are pets.
-Click **Save and learn**. Both are remembered on this computer (`faces.json`, next to `keywords.json`), and
-from then on the tagger checks the folder for new photos in the background every time it starts, so the
-gallery follows what you tag in Lightroom with nothing to run. A header note shows its progress; you can
-carry on working, and names improve as it goes. Lightroom has to have saved the tags into the files first
-(select all, Metadata → Save Metadata to Files, or Ctrl/⌘-S).
+**Teach it who people are, once.** On the setup screen, under **Faces**, give the folder of photos that already
+have face tags (everything inside is searched) and, under **skip names**, any tagged names that aren't people,
+such as pets. Click **Save and learn**. Both are remembered on this computer (`faces.json`, next to
+`keywords.json`), and from then on the tagger checks the folder for new photos in the background every time it
+starts, so the gallery follows what you tag in Lightroom with nothing to run. A header note shows its progress;
+you can carry on working, and names improve as it goes. Lightroom has to have saved the tags into the files
+first (select all, Metadata → Save Metadata to Files, or Ctrl/⌘-S).
 
 It reads each file's face regions with ExifTool, finds the face under every named box and keeps its
 fingerprint. About 0.4 s per photo on a CPU, so a first pass over ten thousand photos is an hour or so; after
-that only new photos are read, and the folder scan itself takes a minute or two. Pets go under **not people**:
+that only new photos are read, and the folder scan itself takes a minute or two. Pets go under **skip names**:
 a model built for human faces can't tell animals apart, and a pet's fingerprints would just clutter the
 gallery (adding a name there also removes it from a gallery that already has it).
 

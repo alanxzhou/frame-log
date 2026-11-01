@@ -412,18 +412,18 @@
 
   <form id="faceForm" autocomplete="off" hidden>
     <h2>Faces <span style="color:var(--muted);font-weight:normal;letter-spacing:0;text-transform:none">(set once, remembered on this computer)</span></h2>
-    <div class="intro">Point this at the folder that holds your Lightroom-tagged photos and it learns who people are from the faces you named there. It checks the folder for new photos every time it starts, so there is nothing to run. Lightroom has to have saved the tags into the files (Metadata → Save Metadata to Files).</div>
+    <div class="intro">Point this at the folder of photos that already have face tags (from Lightroom) and it learns who everyone is from the names on those faces. It checks the folder for new photos every time it starts, so there is nothing to run again. In Lightroom, save the tags into the files first: Metadata → Save Metadata to Files.</div>
     <div class="field">
-      <label for="fFaceLib">Lightroom photos</label>
-      <input type="text" id="fFaceLib" placeholder="the folder with all your tagged photos">
+      <label for="fFaceLib">tagged photos</label>
+      <input type="text" id="fFaceLib" placeholder="folder of photos with face tags">
       <button type="button" data-pick="folder" data-for="fFaceLib">Browse…</button>
-      <div class="hint">Everything inside is searched, including subfolders. Separate several folders with ;</div>
+      <div class="hint">Subfolders are included. Separate several folders with ;</div>
     </div>
     <div class="field">
-      <label for="fFaceSkip">not people</label>
-      <input type="text" id="fFaceSkip" placeholder="pets, separated by commas: Kepler, Elvis">
+      <label for="fFaceSkip">skip names</label>
+      <input type="text" id="fFaceSkip" placeholder="e.g. Kepler, Elvis">
       <span></span>
-      <div class="hint">Tagged names that aren't people. A face model can't tell animals apart, so these are left out (and removed if already learned).</div>
+      <div class="hint">Names to ignore, separated by commas: pets, or anything else tagged as a face that isn't a person. The face model only knows human faces, so these are left out (and removed if already learned).</div>
     </div>
     <div class="actions">
       <button type="submit" class="primary" id="faceBtn">Save and learn</button>
@@ -1574,7 +1574,7 @@ async function findFaces() {
     const f = S.faces;
     toast(all.length + " faces in " + names.length + " scans, " + all.filter((x) => x.name).length + " already named" +
           (f.sync?.running ? ". Still learning from your library, so names will improve as it goes"
-           : !f.library.length && !f.people ? ". Nobody is learned yet: set your Lightroom folder under Change roll → Faces" : ""));
+           : !f.library.length && !f.people ? ". Nobody is learned yet: set the folder of tagged photos under Change roll → Faces" : ""));
   } catch (e) {
     toast("finding faces failed: " + e.message, true);
   } finally {
