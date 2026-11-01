@@ -122,9 +122,13 @@ def download_embedder(dest: Path | None = None) -> Path:
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".part")
-    with urllib.request.urlopen(EMBED_URL.format(variant=EMBED_VARIANT), timeout=60) as r, open(tmp, "wb") as f:
-        while chunk := r.read(1 << 20):
-            f.write(chunk)
+    url = EMBED_URL.format(variant=EMBED_VARIANT)
+    try:
+        with urllib.request.urlopen(url, timeout=60) as r, open(tmp, "wb") as f:
+            while chunk := r.read(1 << 20):
+                f.write(chunk)
+    except OSError as e:   # URLError and timeouts are OSErrors
+        raise RuntimeError(f"couldn't download the pet model from {url} ({e}); it's needed once, then kept") from e
     tmp.replace(dest)
     return dest
 

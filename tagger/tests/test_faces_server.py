@@ -242,6 +242,10 @@ def test_without_the_face_tools_the_library_endpoint_explains(tmp_path, monkeypa
     r = c.post("/api/faces/library", json={"folders": []})
     assert r.status_code == 409 and "couldn't load" in r.json()["detail"]
 
+
+DOG = unit(RNG.normal(size=768))
+
+
 class FakePetEngine:
     """One animal head in every scan, sitting on top of the doubtful 'face' the fake face detector reports."""
 
@@ -249,9 +253,6 @@ class FakePetEngine:
         with Image.open(path) as im:
             w, h = im.size
         return (w, h), [Detection(FaceBox(0.38, 0.68, 0.14, 0.14), 0.9, unit(DOG + RNG.normal(size=768) * 0.01), kind="pet")]
-
-
-DOG = unit(RNG.normal(size=768))
 
 
 @pytest.fixture
@@ -287,6 +288,31 @@ def test_a_named_pet_is_written_like_a_face_and_teaches_the_pet_gallery_only(pet
     args = pet_env["calls"][0]
     assert "Name=Kepler,Type=Face" in region_arg(args) and "-XMP-dc:Subject=Kepler" in args
     assert dict(pet_env["animals"].people()) == {"Kepler": 5} and dict(pet_env["gallery"].people()) == {"Ana": 4}
+
+
+def test_a_pet_model_that_fails_still_leaves_the_faces(pet_env):
+    class Offline:
+        def detect(self, path):
+            raise RuntimeError("couldn't download the pet model")
+
+    pet_env["state"].pet_engine = Offline()
+    j = pet_env["client"].post("/api/faces/detect/a.jpg").json()
+    assert [f["kind"] for f in j["faces"]] == ["face", "face", "face"] and "couldn't download" in j["note"]
+
+
+def test_a_box_named_as_the_other_kind_is_written_but_teaches_nothing(pet_env):
+    c = pet_env["client"]
+    pet_env["state"].face_settings["pets"] = ["Kepler"]
+    faces = c.post("/api/faces/detect/a.jpg").json()["faces"]
+    face = next(f for f in faces if f["kind"] == "face")
+    pet = next(f for f in faces if f["kind"] == "pet")
+    j = c.post("/api/write", json={"pairs": [{"scan": "a.jpg", "faces": [
+        {"id": face["id"], "box": face["box"], "name": "Kepler"},     # the face model fired on the dog
+        {"id": pet["id"], "box": pet["box"], "name": "Ana"},          # the pet model fired on a person
+    ]}]}).json()
+    assert j["written"] == 1 and j["learned"] == 0
+    assert "Name=Kepler,Type=Face" in region_arg(pet_env["calls"][0])
+    assert dict(pet_env["gallery"].people()) == {"Ana": 4} and dict(pet_env["animals"].people()) == {"Kepler": 4}
 
 
 def test_without_a_pet_detector_nothing_changes(env):

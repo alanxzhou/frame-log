@@ -58,7 +58,7 @@ def faces_main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(prog="framelog-tagger faces", description="Manage the gallery of faces used to suggest names.")
     sub = p.add_subparsers(dest="cmd", required=True)
     imp = sub.add_parser("import", help="learn from photos that already have named face regions (e.g. from Lightroom). "
-                                        "The folder and --exclude are remembered, and the tagger repeats this on every start.")
+                                        "The folder and --pets are remembered, and the tagger repeats this on every start.")
     imp.add_argument("folders", nargs="*", help="folders searched recursively for JPEGs; default: the remembered ones")
     imp.add_argument("--pets", "--exclude", nargs="*", default=None, metavar="NAME", dest="pets",
                      help="tagged names that are animals (they are learned by the pet model, not the face one); "

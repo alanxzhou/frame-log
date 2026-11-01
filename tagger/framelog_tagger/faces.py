@@ -308,7 +308,8 @@ def update_settings(gallery: Gallery, settings: dict, folders: Sequence[str], pe
                     pet_gallery: Optional[Gallery] = None) -> int:
     """Change where the library is and which names are pets, and keep the galleries consistent with that.
 
-    A name newly marked as a pet is removed from the people gallery. A name no longer marked is a person after
+    A name newly marked as a pet is removed from the people gallery, and the pet photos are read again for it
+    (learning a photo twice doesn't duplicate anything). A name no longer marked is a person after
     all: its photos must be read again as people (the record of what's been imported is cleared) and it leaves
     the pet gallery. Returns how many faces were removed from the people gallery. Settings are saved.
     """
@@ -318,10 +319,12 @@ def update_settings(gallery: Gallery, settings: dict, folders: Sequence[str], pe
     removed = sum(gallery.forget(n) for n in names if n.lower() not in old)
     if old - now:
         gallery.clear_done()
-        if pet_gallery is not None:
-            for n in old - now:
-                pet_gallery.forget(n)
-            pet_gallery.save()
+    if pet_gallery is not None and old != now:
+        for n in old - now:
+            pet_gallery.forget(n)
+        if now - old:   # a photo already read for one pet may hold the new one too
+            pet_gallery.clear_done()
+        pet_gallery.save()
     if removed or old - now:
         gallery.save()
     settings.update(library=list(folders), pets=names)

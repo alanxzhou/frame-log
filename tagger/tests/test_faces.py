@@ -263,6 +263,27 @@ def test_a_name_becoming_a_pet_leaves_the_people_gallery_and_a_pet_becoming_a_pe
     assert not gallery.is_done("D:/p/1.jpg") and "Rex" not in dict(animals.people())
 
 
+def test_a_new_pet_is_looked_for_in_photos_already_read_for_another(tmp_path, monkeypatch, gallery):
+    monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
+    fps = {"D:/lib/1.jpg": fp("Cy")}
+    imgs = [TaggedImage("D:/lib/1.jpg", 1, [FaceBox(0.05, 0.35, 0.3, 0.3, "Rex"), FaceBox(0.55, 0.35, 0.3, 0.3, "Tom")])]
+    monkeypatch.setattr(faces, "read_regions", lambda exe, folders: imgs)
+
+    class TwoPets(FakePets):
+        def detect(self, path):
+            self.calls.append(path)
+            return (1000, 1000), [Detection(FaceBox(0.05, 0.35, 0.3, 0.3), 0.9, fp("Cy"), kind="pet"),
+                                  Detection(FaceBox(0.55, 0.35, 0.3, 0.3), 0.9, fp("Ben"), kind="pet")]
+
+    animals, settings = Gallery(tmp_path / "pets.npz"), {"library": ["D:/lib"], "pets": [], "synced": ""}
+    update_settings(gallery, settings, ["D:/lib"], ["Rex"], animals)
+    faces.learn_library(FakeEngine(fps), gallery, "exiftool", ["D:/lib"], settings["pets"], pet_engine=TwoPets(fps), pet_gallery=animals)
+    assert dict(animals.people()) == {"Rex": 1} and animals.is_done("D:/lib/1.jpg")
+    update_settings(gallery, settings, ["D:/lib"], ["Rex", "Tom"], animals)      # Tom is in the same photo
+    faces.learn_library(FakeEngine(fps), gallery, "exiftool", ["D:/lib"], settings["pets"], pet_engine=TwoPets(fps), pet_gallery=animals)
+    assert dict(animals.people()) == {"Rex": 1, "Tom": 1}                       # and Rex isn't learned twice
+
+
 def test_sync_learns_pets_after_people_and_counts_both(tmp_path, monkeypatch):
     monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
     fps = {"D:/lib/1.jpg": fp("Ana"), "D:/lib/2.jpg": fp("Cy")}

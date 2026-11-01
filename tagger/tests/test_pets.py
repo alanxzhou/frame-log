@@ -67,3 +67,13 @@ def test_the_embedder_is_downloaded_once(tmp_path, monkeypatch):
     assert pets.download_embedder(dest).read_bytes() == b"model-bytes"
     pets.download_embedder(dest)
     assert len(calls) == 1 and calls[0].endswith(f"{pets.EMBED_VARIANT}.onnx") and not dest.with_suffix(".part").exists()
+
+
+def test_a_failed_download_says_what_was_being_fetched(tmp_path, monkeypatch):
+    def offline(url, timeout):
+        raise pets.urllib.error.URLError("no network")
+
+    monkeypatch.setattr(pets.urllib.request, "urlopen", offline)
+    with pytest.raises(RuntimeError, match="couldn't download the pet model"):
+        pets.download_embedder(tmp_path / "dino.onnx")
+    assert not (tmp_path / "dino.onnx").exists()

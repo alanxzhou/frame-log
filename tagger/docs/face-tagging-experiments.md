@@ -208,7 +208,7 @@ analysis; they are where the largest absolute number of missed people probably i
 | people suggested | at least 3 gallery faces each | the setting every recognition number was measured with (other values not swept) |
 | auto-fill a name | similarity 0.40+ **and** detector 0.6+ | sections 5 and 6 |
 | show as a choice | similarity 0.25+ | the sweep: at 0.20, 70% of strangers would be offered a name |
-| pets | excluded by name when importing | section 2 |
+| pets | left out of the people gallery by name; a separate pet model learns them ([pet-tagging-experiments.md](pet-tagging-experiments.md)) | section 2 |
 | gallery | one fingerprint per named face, keyed by file and box | corrections replace, never duplicate |
 | output | face region **and** keyword (`XMP-dc:Subject`) | Lightroom shows a name from the region, and a keyword lets you search by it; a region alone doesn't make one |
 | existing regions | carried over; only a face you name replaces its old box | found in the first end-to-end test: writing replaces the whole region list, so naming one face erased Lightroom's boxes for the other two people in the photo |

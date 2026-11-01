@@ -252,15 +252,37 @@ def gallery_for(state: AppState, det):
     return state.pet_gallery if det.kind == "pet" else state.gallery
 
 
+def learns(state: AppState, det, name: str) -> bool:
+    """Whether naming this detection should teach its gallery. A face box given a pet's name (the face model
+    fired on the animal) or a pet box given a person's name would teach the wrong model, so the region is
+    written but nothing is learned."""
+    gallery = gallery_for(state, det)
+    if gallery is None:
+        return False
+    pets = {n.lower() for n in state.face_settings.get("pets", [])}
+    if state.pet_gallery is not None:
+        pets |= {n.lower() for n, _ in state.pet_gallery.people()}
+    if det.kind == "pet":
+        return name.lower() in pets or name.lower() not in {n.lower() for n, _ in state.gallery.people()}
+    return name.lower() not in pets
+
+
 def find_in_scan(state: AppState, path):
-    """People and pets in one scan, left to right. A face box that lands on a pet's head is the face model
-    misfiring on the animal (it does, now and then), so the pet wins."""
+    """People and pets in one scan, left to right, and a note if the pets couldn't be looked for.
+
+    A face box that lands on a pet's head is the face model misfiring on the animal (it does, now and then),
+    so the pet wins. If the pet model fails (its first download needs the internet), the faces still come back.
+    """
     size, dets = state.engine.detect(path)
+    note = ""
     if state.pet_engine is not None:
-        _, pets = state.pet_engine.detect(path)
+        try:
+            _, pets = state.pet_engine.detect(path)
+        except Exception as e:  # noqa: BLE001
+            return size, dets, f"pets skipped: {e}"
         dets = [d for d in dets if not any(regions_iou(d.box, p.box) >= 0.3 for p in pets)] + pets
         dets.sort(key=lambda d: d.box.x)
-    return size, dets
+    return size, dets, note
 
 
 def faces_payload(state: AppState) -> dict:
@@ -449,11 +471,13 @@ def create_app(state: AppState) -> FastAPI:
         scan = s.scan_by_name(name)
         if scan is None:
             raise HTTPException(404, "no such scan")
+        note = ""
         if name not in s.detections:
             try:
-                s.detections[name] = find_in_scan(state, scan.path)
+                size, dets, note = find_in_scan(state, scan.path)
             except Exception as e:  # noqa: BLE001  (a bad file or a model that won't load)
                 raise HTTPException(500, f"face detection failed: {e}")
+            s.detections[name] = (size, dets)
         (w, h), dets = s.detections[name]
         out = []
         for i, d in enumerate(dets):
@@ -462,7 +486,7 @@ def create_app(state: AppState) -> FastAPI:
             auto = bool(sug) and sug[0]["score"] >= t.ACCEPT and d.score >= t.AUTO_DET
             out.append({"id": i, "kind": d.kind, "box": [d.box.x, d.box.y, d.box.w, d.box.h], "score": round(d.score, 3),
                         "low": d.score < t.AUTO_DET, "suggestions": sug, "name": sug[0]["name"] if auto else ""})
-        return {"scan": name, "width": w, "height": h, "faces": out}
+        return {"scan": name, "width": w, "height": h, "faces": out, "note": note}
 
     def scan_args(s: Session, scan: Optional[ScanInfo], entry: Optional[LogEntry], kws: list[str],
                   face_args: list[str] = ()) -> list[str]:
@@ -544,7 +568,7 @@ def create_app(state: AppState) -> FastAPI:
                 if name:
                     named.append(FaceBox(*f.box, name=name))
                     det = s.detections.get(scan.name)
-                    if det and f.id is not None and 0 <= f.id < len(det[1]) and gallery_for(state, det[1][f.id]) is not None:
+                    if det and f.id is not None and 0 <= f.id < len(det[1]) and learns(state, det[1][f.id], name):
                         learn.append((name, det[1][f.id]))
             face_args = []
             if named:

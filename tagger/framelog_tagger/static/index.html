@@ -420,8 +420,8 @@
       <div class="hint">Subfolders are included. Separate several folders with ;</div>
     </div>
     <div class="field">
-      <label for="fFaceSkip">pets</label>
-      <input type="text" id="fFaceSkip" placeholder="names of your pets, e.g. Kepler, Elvis">
+      <label for="fFacePets">pets</label>
+      <input type="text" id="fFacePets" placeholder="names of your pets, e.g. Kepler, Elvis">
       <span></span>
       <div class="hint">Which of the names tagged on your photos are animals, separated by commas. They're learned by a separate pet model, since the face model only knows people.</div>
     </div>
@@ -1525,14 +1525,15 @@ async function pollSync() {
     S.faces = await api("GET", "/api/faces/sync");
     renderFaceNames(); paintSync();
     if (S.faces.sync?.running) syncTimer = setTimeout(pollSync, 1500);
-    else if (was && S.faces.sync?.phase === "done") toast("learned " + S.faces.count.toLocaleString() + " faces, " + S.faces.people + " people from your library");
+    else if (was && S.faces.sync?.phase === "done") toast("learned " + S.faces.count.toLocaleString() + " faces, " + S.faces.people + " people" +
+      (S.faces.pet_names?.length ? " and " + S.faces.pet_names.length + (S.faces.pet_names.length === 1 ? " pet" : " pets") : "") + " from your library");
   } catch (e) { syncTimer = setTimeout(pollSync, 4000); }
 }
 function renderFaceSetup() {
   const f = S.faces;
   $("faceForm").hidden = !f?.available;
   if (!f?.available) return;
-  $("fFaceLib").value = f.library.join("; "); $("fFaceSkip").value = f.pets.join(", ");
+  $("fFaceLib").value = f.library.join("; "); $("fFacePets").value = f.pets.join(", ");
   paintSync();
 }
 async function saveLibrary(ev) {
@@ -1540,7 +1541,7 @@ async function saveLibrary(ev) {
   const list = (s, sep) => s.split(sep).map((x) => x.trim()).filter(Boolean);
   $("faceBtn").disabled = true;
   try {
-    S.faces = await api("POST", "/api/faces/library", { folders: list($("fFaceLib").value, ";"), pets: list($("fFaceSkip").value, ",") });
+    S.faces = await api("POST", "/api/faces/library", { folders: list($("fFaceLib").value, ";"), pets: list($("fFacePets").value, ",") });
     renderFaceNames(); paintSync(); pollSync();
   } catch (e) {
     $("faceStatus").textContent = e.message; $("faceStatus").className = "err"; $("faceBtn").disabled = false;
@@ -1567,15 +1568,17 @@ async function findFaces() {
   const btn = $("findFaces"), names = S.scans.map((s) => s.name);
   btn.disabled = true;
   try {
+    let note = "";
     for (let i = 0; i < names.length; i++) {
       btn.textContent = "Finding faces " + (i + 1) + "/" + names.length;
-      await detectScan(names[i]);
+      note = (await detectScan(names[i])).note || note;
     }
     const all = Object.values(fc).flatMap((d) => d.faces);
     const f = S.faces;
     toast(all.length + " faces in " + names.length + " scans, " + all.filter((x) => x.name).length + " already named" +
-          (f.sync?.running ? ". Still learning from your library, so names will improve as it goes"
-           : !f.library.length && !f.people ? ". Nobody is learned yet: set the folder of tagged photos under Change roll → Faces" : ""));
+          (note ? ". " + note
+           : f.sync?.running ? ". Still learning from your library, so names will improve as it goes"
+           : !f.library.length && !f.people ? ". Nobody is learned yet: set the folder of tagged photos under Change roll → Faces" : ""), !!note);
   } catch (e) {
     toast("finding faces failed: " + e.message, true);
   } finally {

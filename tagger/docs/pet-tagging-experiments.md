@@ -146,10 +146,8 @@ put head boxes on him, named two automatically, and offered "Kepler 62" on a thi
 * **The detector file is derived from tags of your photos** (it contains weights, not images), and was trained with
   Ultralytics, whose licence (AGPL-3.0) covers models trained with it. Fine for use on your own photos; worth
   knowing before the repository is shared or the file redistributed.
-* A larger network (YOLOv8s at 1280 px) was started twice and not completed. The first time `C:` filled up while
-  it trained, and the second time the system ran short of commit memory and it was stopped by hand; in both
-  cases stopping it gave the space back, so the Windows page file was the likely cause. A bigger network is
-  untested, not shown to be no better.
+* A larger network (YOLOv8s at 1280 px) was started but not finished: the machine ran out of memory while it
+  trained. A bigger network is untested, not shown to be no better.
 
 ## 8. Next
 
