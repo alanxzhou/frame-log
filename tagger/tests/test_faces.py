@@ -327,3 +327,38 @@ def test_sync_reports_steps_progress_and_a_time_left(tmp_path, monkeypatch):
     assert s["eta"] == 40.0 and s["elapsed"] == 20.0
     sync._update("pets", 0, 10)                            # a new step starts the estimate over
     assert sync.snapshot()["eta"] is None
+
+
+def test_stop_keeps_what_was_learned_and_the_next_run_carries_on(tmp_path, monkeypatch):
+    monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
+    fps, imgs = _library_images()
+    monkeypatch.setattr(faces, "read_regions", lambda exe, folders, **kw: imgs)
+    g = Gallery(tmp_path / "faces.npz")
+    engine = FakeEngine(fps)
+    settings = {"library": ["D:/lib"], "pets": ["Rex"], "synced": ""}
+    sync = Sync(engine, g, "exiftool", settings)
+    first = threading.Event()
+    gate = threading.Event()
+    real = sync._update
+
+    def update(phase, done, total, added=0):
+        if phase == "learning" and done == 1:   # pause after the first photo, so stop lands mid-run
+            first.set()
+            gate.wait(10)
+        real(phase, done, total, added)
+    monkeypatch.setattr(sync, "_update", update)
+    assert sync.start()
+    assert first.wait(10)
+    sync._stop.set()                                   # what stop() does, without blocking this thread on join
+    gate.set()
+    sync.join(10)
+    assert sync.status["phase"] == "stopped" and not sync.running and not settings["synced"]
+    assert dict(Gallery(tmp_path / "faces.npz").people()) == {"Ana": 1}   # the first photo was saved, the rest not reached
+    assert sync.stop() is True                         # nothing running: a no-op
+
+    monkeypatch.setattr(sync, "_update", real)
+    calls = len(engine.calls)
+    assert sync.start()
+    sync.join(10)
+    assert sync.status["phase"] == "done" and dict(g.people()) == {"Ana": 1, "Ben": 1}
+    assert len(engine.calls) == calls + 1              # only Ben's photo was read this time

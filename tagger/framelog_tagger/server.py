@@ -481,13 +481,20 @@ def create_app(state: AppState) -> FastAPI:
         if state.sync is None or state.gallery is None:
             raise HTTPException(409, state.faces_note or "the face tools aren't available")
         if state.sync.running:
-            raise HTTPException(409, "still learning from the library; wait for it to finish")
+            raise HTTPException(409, "still learning from the library; stop it first to change these")
         folders = [str(Path(f.strip()).expanduser()) for f in req.folders if f.strip()]
         for f in folders:
             if not Path(f).is_dir():
                 raise HTTPException(400, f"folder not found: {f}")
         faces_mod.update_settings(state.gallery, state.face_settings, folders, req.pets, state.pet_gallery)
         state.sync.start()
+        return faces_payload(state)
+
+    @app.post("/api/faces/stop")
+    def faces_stop():
+        """Stop learning from the library. What was learned so far is kept; the next run carries on from there."""
+        if state.sync is not None:
+            state.sync.stop()
         return faces_payload(state)
 
     @app.post("/api/faces/detect/{name}")
