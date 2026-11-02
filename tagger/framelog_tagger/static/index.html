@@ -91,6 +91,17 @@
   #faceStatus { color: var(--muted); font-size: 12.5px; }
   #faceStatus.err { color: var(--danger); }
   #faceForm .note { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+  .field .btns { display: flex; gap: 6px; }
+  label[for=fFaceLib] { align-self: start; padding-top: 7px; }
+  #faceFolders { grid-column: 2 / 4; display: flex; flex-direction: column; gap: 4px; }
+  #faceFolders:empty::before { content: "No folders yet"; font-size: 12.5px; color: var(--muted); }
+  #faceFolders .folder {
+    display: flex; align-items: center; gap: 8px; background: var(--input); border: 1px solid var(--line); border-radius: 10px; padding: 5px 6px 5px 11px;
+    font-family: var(--mono); font-size: 12px;
+  }
+  #faceFolders .folder > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+  #faceFolders .x { width: 20px; height: 20px; padding: 0; border-radius: 50%; background: transparent; box-shadow: none; color: var(--muted); font-size: 14px; line-height: 1; display: grid; place-items: center; }
+  #faceFolders .x:hover { color: var(--text); background: rgba(255,255,255,.08); filter: none; }
   #renamePreview { margin-top: 14px; max-height: 300px; overflow: auto; background: var(--input); border: 1px solid var(--line); border-radius: 10px; }
   #renamePreview table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11.5px; }
   #renamePreview th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-family: var(--sans); font-weight: 600; text-align: left; padding: 6px 10px; }
@@ -421,9 +432,14 @@
     <div class="intro">Point this at the folder of photos that already have face tags (from Lightroom) and it learns who everyone is from the names on those faces. It checks the folder for new photos every time it starts, so there is nothing to run again. In Lightroom, save the tags into the files first: Metadata → Save Metadata to Files.</div>
     <div class="field">
       <label for="fFaceLib">tagged photos</label>
-      <input type="text" id="fFaceLib" placeholder="folder of photos with face tags">
-      <button type="button" data-pick="folder" data-for="fFaceLib">Browse…</button>
-      <div class="hint">Subfolders are included. Separate several folders with ;</div>
+      <div id="faceFolders"></div>
+      <span></span>
+      <input type="text" id="fFaceLib" placeholder="add a folder of photos with face tags">
+      <span class="btns">
+        <button type="button" data-pick="folder" data-for="fFaceLib">Browse…</button>
+        <button type="button" id="faceAddBtn">Add</button>
+      </span>
+      <div class="hint">Add as many folders as you like; subfolders are included.</div>
     </div>
     <div class="field">
       <label for="fFacePets">pets</label>
@@ -619,7 +635,7 @@ async function setExif() {
 }
 
 async function pickInto(kind, inputId) {
-  const initial = $(inputId).value || $("fScans").value || "";
+  const initial = $(inputId).value || (inputId === "fFaceLib" && faceFolders.at(-1)) || $("fScans").value || "";
   const btns = document.querySelectorAll("[data-pick]");
   btns.forEach((b) => { b.disabled = true; });
   try {
@@ -627,7 +643,7 @@ async function pickInto(kind, inputId) {
       body: JSON.stringify({ kind, title: kind === "folder" ? "Choose folder" : kind === "program" ? "Choose exiftool" : "Choose the roll's JSON export", initial }) });
     const j = await r.json();
     if (j.error) { toast(j.error + " — you can type the path instead", true); return; }
-    if (j.path) { $(inputId).value = j.path; if (inputId === "fScans") onScansChanged(); if (inputId === "fExif") setExif(); }
+    if (j.path) { $(inputId).value = j.path; if (inputId === "fScans") onScansChanged(); if (inputId === "fExif") setExif(); if (inputId === "fFaceLib") addFaceFolders(); }
   } finally {
     btns.forEach((b) => { b.disabled = false; });
   }
@@ -1523,6 +1539,7 @@ function restoreFaces() {
 // The Lightroom folder is set once (here, on the setup screen) and kept on this computer; the server learns from it in the
 // background on every start, so the gallery follows what you tag in Lightroom without anything to run.
 let syncTimer = null;
+let faceFolders = [];   // the tagged-photo folders as edited on the Faces form, saved with "Save and learn"
 function ago(iso) {
   const s = (Date.now() - Date.parse(iso)) / 1000;
   if (!(s >= 0)) return "";
@@ -1563,15 +1580,35 @@ function renderFaceSetup() {
   const f = S.faces;
   $("faceForm").hidden = !f?.available;
   if (!f?.available) return;
-  $("fFaceLib").value = f.library.join("; "); $("fFacePets").value = f.pets.join(", ");
+  faceFolders = [...f.library]; paintFaceFolders();
+  $("fFaceLib").value = ""; $("fFacePets").value = f.pets.join(", ");
   paintSync();
+}
+function paintFaceFolders() {
+  $("faceFolders").replaceChildren(...faceFolders.map((p, i) => {
+    const row = document.createElement("div"), name = document.createElement("span"), x = document.createElement("button");
+    row.className = "folder";
+    name.textContent = "‎" + p; name.title = p;   // LRM keeps the path reading left to right under direction: rtl
+    x.type = "button"; x.className = "x"; x.textContent = "×"; x.title = "Remove this folder"; x.setAttribute("aria-label", "Remove " + p);
+    x.onclick = () => { faceFolders.splice(i, 1); paintFaceFolders(); };
+    row.append(name, x);
+    return row;
+  }));
+}
+function addFaceFolders() {
+  // several can be pasted at once, separated by ; or new lines
+  const typed = $("fFaceLib").value.split(/[;\n]/).map((x) => x.trim().replace(/^"(.*)"$/, "$1")).filter(Boolean);
+  for (const p of typed) if (!faceFolders.some((q) => q.toLowerCase() === p.toLowerCase())) faceFolders.push(p);
+  $("fFaceLib").value = "";
+  paintFaceFolders();
 }
 async function saveLibrary(ev) {
   ev.preventDefault();
+  addFaceFolders();   // a path typed but not yet added still counts
   const list = (s, sep) => s.split(sep).map((x) => x.trim()).filter(Boolean);
   $("faceBtn").disabled = true;
   try {
-    S.faces = await api("POST", "/api/faces/library", { folders: list($("fFaceLib").value, ";"), pets: list($("fFacePets").value, ",") });
+    S.faces = await api("POST", "/api/faces/library", { folders: faceFolders, pets: list($("fFacePets").value, ",") });
     renderFaceNames(); paintSync(); pollSync();
   } catch (e) {
     $("faceStatus").textContent = e.message; $("faceStatus").className = "err"; $("faceBtn").disabled = false;
@@ -1757,6 +1794,8 @@ async function boot() {
   document.querySelectorAll("[data-pick]").forEach((b) => { b.onclick = () => pickInto(b.dataset.pick, b.dataset.for); });
   $("setupForm").addEventListener("submit", loadRoll);
   $("faceForm").addEventListener("submit", saveLibrary);
+  $("faceAddBtn").onclick = addFaceFolders;
+  $("fFaceLib").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); addFaceFolders(); } });
   $("renameForm").addEventListener("submit", applyRename);
   $("fScans").addEventListener("input", onScansChanged);
   $("rName").addEventListener("input", schedulePreview);
