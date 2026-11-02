@@ -17,11 +17,13 @@ Everything inside this program uses the upright picture, as a top-left corner an
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 
 @dataclass(frozen=True)
@@ -87,16 +89,66 @@ def parse_regions(data: Sequence[dict]) -> list[TaggedImage]:
     return out
 
 
-def read_regions(exiftool: str, folders: Sequence[Path | str]) -> list[TaggedImage]:
-    """Every JPEG under `folders` that has face regions. Slow on a big library (ExifTool reads every file)."""
-    cmd = [exiftool, "-r", "-ext", "jpg", "-ext", "jpeg", "-j", "-struct", "-RegionInfo", "-Orientation#",
-           *[str(f) for f in folders]]
-    res = subprocess.run(cmd, capture_output=True)
-    if not res.stdout.strip():
-        if res.returncode:
+JPEG_EXTS = (".jpg", ".jpeg")
+CHUNK_FILES = 200         # files per exiftool run: small enough to report progress, big enough that startup doesn't dominate
+CHUNK_CHARS = 20000       # and well under Windows' 32k command-line limit
+
+
+def list_jpegs(folders: Sequence[Path | str]) -> list[str]:
+    """Every JPEG under `folders`, the way `exiftool -r -ext jpg -ext jpeg` finds them (hidden folders skipped).
+    A file given directly is kept as it is.
+
+    Paths use forward slashes, which is how ExifTool spells the files it finds itself, so a photo keeps the
+    same name in the gallery's record of what's been learned whichever way it was read.
+    """
+    out: list[str] = []
+    for folder in folders:
+        if Path(folder).is_file():
+            out.append(Path(folder).as_posix())
+            continue
+        for root, dirs, files in os.walk(folder):
+            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+            out += [Path(root, f).as_posix() for f in sorted(files) if f.lower().endswith(JPEG_EXTS)]
+    return out
+
+
+def _chunks(paths: Sequence[str]):
+    chunk: list[str] = []
+    size = 0
+    for p in paths:
+        if chunk and (len(chunk) >= CHUNK_FILES or size + len(p) > CHUNK_CHARS):
+            yield chunk
+            chunk, size = [], 0
+        chunk.append(p)
+        size += len(p) + 3
+    if chunk:
+        yield chunk
+
+
+def read_regions(exiftool: str, folders: Sequence[Path | str],
+                 progress: Optional[Callable[[int, int], None]] = None) -> list[TaggedImage]:
+    """Every JPEG under `folders` (or given as a file) that has face regions. Slow on a big library (ExifTool reads every file).
+
+    The files are read a couple of hundred at a time so `progress(done, total)` can say how far along it is.
+    """
+    paths = list_jpegs(folders)
+    if progress:
+        progress(0, len(paths))
+    out: list[TaggedImage] = []
+    done = 0
+    for chunk in _chunks(paths):
+        cmd = [exiftool, "-j", "-struct", "-RegionInfo", "-Orientation#"]
+        if sys.platform == "win32":
+            cmd += ["-charset", "filename=utf8"]
+        res = subprocess.run(cmd + chunk, capture_output=True)
+        if res.stdout.strip():
+            out += parse_regions(json.loads(res.stdout.decode("utf-8-sig")))
+        elif res.returncode:
             raise RuntimeError(res.stderr.decode("utf-8", "replace").strip() or f"exiftool exit {res.returncode}")
-        return []
-    return parse_regions(json.loads(res.stdout.decode("utf-8-sig")))
+        done += len(chunk)
+        if progress:
+            progress(done, len(paths))
+    return out
 
 
 def iou(a: FaceBox, b: FaceBox) -> float:

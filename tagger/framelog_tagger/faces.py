@@ -15,7 +15,9 @@ import functools
 import importlib.util
 import os
 import threading
+import time
 import warnings
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,6 +50,8 @@ AUTO_DET = 0.60       # ...if the detector is at least this sure it's a face. Be
                       # (hair, ears, a blur), and those match the biggest cluster in the gallery, so they only get suggestions
 SUGGEST = 0.25        # a suggestion at least this similar is offered as a choice
 MIN_EXAMPLES = 3      # reference faces a person needs before they're suggested
+ETA_WINDOW = 30.0     # seconds of recent progress the time-left estimate is based on
+ETA_MIN_SPAN = 3.0    # and how much it needs before it guesses at all
 DEPENDENCIES = ("cv2", "onnxruntime", "insightface")
 
 
@@ -288,7 +292,8 @@ def learn_library(engine: Engine, gallery: Gallery, exiftool: str, folders: Sequ
                   on_read: Optional[Callable[[], None]] = None,
                   progress: Optional[Callable[[int, int, int], None]] = None,
                   pet_engine=None, pet_gallery: Optional[Gallery] = None,
-                  pet_progress: Optional[Callable[[int, int, int], None]] = None) -> dict:
+                  pet_progress: Optional[Callable[[int, int, int], None]] = None,
+                  read_progress: Optional[Callable[[int, int], None]] = None) -> dict:
     """Learn from every photo under `folders` that already has named face regions (Lightroom's). Resumable.
 
     Names in `pets` aren't people: with a pet engine they are learned into the pet gallery, otherwise left out.
@@ -296,7 +301,7 @@ def learn_library(engine: Engine, gallery: Gallery, exiftool: str, folders: Sequ
     if on_read:
         on_read()
     pets = list(pets)
-    images = read_regions(exiftool, folders)
+    images = read_regions(exiftool, folders, progress=read_progress)
     stats = {**import_tagged(engine, gallery, images, exclude=pets, progress=progress), "tagged_images": len(images)}
     stats["pets_added"] = 0
     if pets and pet_engine is not None and pet_gallery is not None:
@@ -345,7 +350,33 @@ class Sync:
         self.engine, self.gallery, self.exiftool, self.settings = engine, gallery, exiftool, settings
         self.pet_engine, self.pet_gallery = pet_engine, pet_gallery
         self._thread: Optional[threading.Thread] = None
-        self.status = {"running": False, "phase": "idle", "done": 0, "total": 0, "added": 0, "error": ""}
+        self.status = {"running": False, "phase": "idle", "done": 0, "total": 0, "added": 0, "error": "",
+                       "steps": 0, "elapsed": 0.0, "started": "", "new_faces": 0, "photos": 0}
+        self._t0 = 0.0
+        self._samples: deque = deque()   # (time, done) during this phase, for the time-left estimate
+
+    def snapshot(self) -> dict:
+        """`status` plus how long it has been running and, once there's a rate to go on, about how long is left."""
+        out = {**self.status, "eta": None}
+        if self.status["running"]:
+            now = time.monotonic()
+            out["elapsed"] = round(now - self._t0, 1)
+            samples = list(self._samples)
+            if len(samples) >= 2:
+                (t0, d0), (t1, d1) = samples[0], samples[-1]
+                left = self.status["total"] - d1
+                if d1 > d0 and t1 - t0 >= ETA_MIN_SPAN:
+                    out["eta"] = round(left * (t1 - t0) / (d1 - d0) + (t1 - now), 1) if left > 0 else 0.0
+        return out
+
+    def _update(self, phase: str, done: int, total: int, added: int = 0) -> None:
+        now = time.monotonic()
+        if phase != self.status["phase"] or total != self.status["total"]:
+            self._samples.clear()
+        self._samples.append((now, done))
+        while len(self._samples) > 2 and now - self._samples[0][0] > ETA_WINDOW:   # recent pace: skipped photos go fast
+            self._samples.popleft()
+        self.status.update(phase=phase, done=done, total=total, added=added)
 
     @property
     def running(self) -> bool:
@@ -358,7 +389,12 @@ class Sync:
         if not self.exiftool:
             self.status = {**self.status, "phase": "error", "error": "exiftool isn't available, so face tags can't be read"}
             return False
-        self.status = {"running": True, "phase": "reading", "done": 0, "total": 0, "added": 0, "error": ""}
+        pets = self.settings.get("pets") and self.pet_engine is not None and self.pet_gallery is not None
+        self._t0 = time.monotonic()
+        self._samples.clear()
+        self.status = {"running": True, "phase": "reading", "done": 0, "total": 0, "added": 0, "error": "",
+                       "steps": 3 if pets else 2, "elapsed": 0.0, "new_faces": 0, "photos": 0,
+                       "started": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
         self._thread = threading.Thread(target=self._run, name="faces-sync", daemon=True)
         self._thread.start()
         return True
@@ -368,18 +404,23 @@ class Sync:
             self._thread.join(timeout)
 
     def _run(self) -> None:
+        def read(done: int, total: int) -> None:
+            self._update("reading", done, total)
+
         def progress(done: int, total: int, added: int) -> None:
-            self.status.update(phase="learning", done=done, total=total, added=added)
+            self._update("learning", done, total, added)
 
         def pet_progress(done: int, total: int, added: int) -> None:
-            self.status.update(phase="pets", done=done, total=total, added=added)
+            self._update("pets", done, total, added)
         try:
             stats = learn_library(self.engine, self.gallery, self.exiftool, list(self.settings["library"]),
                                   self.settings.get("pets", []), progress=progress, pet_engine=self.pet_engine,
-                                  pet_gallery=self.pet_gallery, pet_progress=pet_progress)
+                                  pet_gallery=self.pet_gallery, pet_progress=pet_progress, read_progress=read)
             self.settings["synced"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             config.save_faces_settings(self.settings)
             self.status.update(running=False, phase="done", done=stats["images"], total=stats["images"],
-                               added=stats["added"] + stats["pets_added"], error="")
+                               added=stats["added"] + stats["pets_added"], new_faces=stats["added"] + stats["pets_added"],
+                               photos=stats["tagged_images"], error="", elapsed=round(time.monotonic() - self._t0, 1))
         except Exception as e:  # noqa: BLE001  (an unreadable folder, a model that won't load, ...)
-            self.status.update(running=False, phase="error", error=str(e) or e.__class__.__name__)
+            self.status.update(running=False, phase="error", error=str(e) or e.__class__.__name__,
+                               elapsed=round(time.monotonic() - self._t0, 1))

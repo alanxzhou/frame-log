@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -97,7 +98,8 @@ def test_region_args_can_carry_unnamed_faces_but_not_alone():
 
 
 def test_read_regions_runs_exiftool_and_parses(tmp_path, monkeypatch):
-    payload = [{"SourceFile": "D:/p/a.jpg", "Orientation": 6, "RegionInfo": {"RegionList": [
+    (tmp_path / "a.jpg").write_bytes(b"")
+    payload = [{"SourceFile": (tmp_path / "a.jpg").as_posix(), "Orientation": 6, "RegionInfo": {"RegionList": [
         {"Type": "Face", "Name": "Ana", "Area": {"X": 0.5, "Y": 0.5, "W": 0.2, "H": 0.1}}]}}]
     seen = {}
 
@@ -108,4 +110,42 @@ def test_read_regions_runs_exiftool_and_parses(tmp_path, monkeypatch):
     monkeypatch.setattr(regions.subprocess, "run", fake_run)
     out = regions.read_regions("exiftool", [tmp_path])
     assert out[0].faces[0].name == "Ana" and out[0].orientation == 6
-    assert "-RegionInfo" in seen["cmd"] and "-Orientation#" in seen["cmd"] and str(tmp_path) in seen["cmd"]
+    assert "-RegionInfo" in seen["cmd"] and "-Orientation#" in seen["cmd"] and (tmp_path / "a.jpg").as_posix() in seen["cmd"]
+
+
+def test_list_jpegs_finds_what_exiftool_would(tmp_path):
+    (tmp_path / "sub").mkdir()
+    (tmp_path / ".hidden").mkdir()
+    for name in ("b.JPG", "a.jpeg", "notes.txt", "sub/c.jpg", ".hidden/d.jpg"):
+        (tmp_path / name).write_bytes(b"")
+    found = regions.list_jpegs([tmp_path])
+    assert [Path(p).name for p in found] == ["a.jpeg", "b.JPG", "c.jpg"] and all("\\" not in p for p in found)
+    assert regions.list_jpegs([tmp_path / "b.JPG"]) == [(tmp_path / "b.JPG").as_posix()]   # a file given directly
+
+
+def test_read_regions_reports_progress_in_chunks(tmp_path, monkeypatch):
+    for i in range(5):
+        (tmp_path / f"{i}.jpg").write_bytes(b"")
+    monkeypatch.setattr(regions, "CHUNK_FILES", 2)
+    runs = []
+
+    def fake_run(cmd, capture_output):
+        files = [a for a in cmd if a.endswith(".jpg")]
+        runs.append(files)
+        data = [{"SourceFile": f, "RegionInfo": {"RegionList": [{"Type": "Face", "Name": "Ana",
+                 "Area": {"X": 0.5, "Y": 0.5, "W": 0.2, "H": 0.2}}]}} for f in files]
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(data).encode(), stderr=b"")
+
+    monkeypatch.setattr(regions.subprocess, "run", fake_run)
+    seen = []
+    out = regions.read_regions("exiftool", [tmp_path], progress=lambda d, t: seen.append((d, t)))
+    assert [len(r) for r in runs] == [2, 2, 1] and len(out) == 5
+    assert seen == [(0, 5), (2, 5), (4, 5), (5, 5)]
+
+
+def test_read_regions_raises_when_exiftool_fails(tmp_path, monkeypatch):
+    (tmp_path / "a.jpg").write_bytes(b"")
+    monkeypatch.setattr(regions.subprocess, "run",
+                        lambda cmd, capture_output: subprocess.CompletedProcess(cmd, 1, stdout=b"", stderr=b"boom"))
+    with pytest.raises(RuntimeError, match="boom"):
+        regions.read_regions("exiftool", [tmp_path])
