@@ -18,6 +18,7 @@ prunes it.
 
 from __future__ import annotations
 
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -31,7 +32,7 @@ from pydantic import BaseModel
 
 from . import config
 from .dialogs import pick as native_pick
-from .exif import ExifToolError, TagContext, build_args, resolve_zone, write_tags
+from .exif import ExifToolError, TagContext, build_args, exiftool_version, find_exiftool, resolve_zone, write_tags
 from .keywords import Library, clean, merge, roll_keywords
 from .log import LogEntry, LogFormatError, read_log
 from .regions import FaceBox, iou as regions_iou, merge_regions, read_regions, region_args
@@ -102,6 +103,10 @@ class AppState:
     face_settings: dict = field(default_factory=lambda: {"library": [], "pets": [], "synced": ""})
     pet_engine: Optional["pets_mod.PetEngine"] = None   # None: no pet detector, so pets are skipped
     pet_gallery: Optional["faces_mod.Gallery"] = None
+
+
+class ExifToolRequest(BaseModel):
+    path: str = ""       # where exiftool is; blank forgets the choice and goes back to looking on PATH
 
 
 class LibraryRequest(BaseModel):
@@ -306,6 +311,7 @@ def session_payload(state: AppState) -> dict:
     base = {
         "loaded": s is not None,
         "exiftool": state.exiftool,
+        "exiftool_saved": config.load_exiftool_path(),
         "default_tz": state.default_tz,
         "remembered": state.remembered,
         "keywords": state.library.to_list(),
@@ -357,6 +363,28 @@ def create_app(state: AppState) -> FastAPI:
     @app.post("/api/pick")
     def pick(req: PickRequest):
         return native_pick(req.kind, req.title, req.initial or None)
+
+    @app.post("/api/exiftool")
+    def set_exiftool(req: ExifToolRequest):
+        """Point the app at an exiftool (remembered), or clear the choice and look for one on PATH again."""
+        wanted = req.path.strip().strip('"')
+        if wanted:
+            exe = find_exiftool(str(Path(wanted).expanduser()))
+            if not exe:
+                raise HTTPException(400, f"no exiftool at {wanted}")
+            try:
+                exiftool_version(exe)
+            except (ExifToolError, OSError, subprocess.SubprocessError) as e:
+                raise HTTPException(400, f"{wanted} doesn't run as exiftool: {e}")
+        else:
+            exe = find_exiftool()
+        state.exiftool = exe
+        config.save_exiftool_path(wanted)
+        if state.sync is not None:
+            state.sync.exiftool = exe
+            if exe:
+                state.sync.start()   # the library may have been waiting on exiftool
+        return session_payload(state)
 
     @app.post("/api/load")
     def load(req: LoadRequest):

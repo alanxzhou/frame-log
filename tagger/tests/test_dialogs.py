@@ -32,3 +32,9 @@ def test_pick_times_out(monkeypatch):
         raise subprocess.TimeoutExpired(cmd, kw.get("timeout", 0))
     monkeypatch.setattr(dialogs.subprocess, "run", slow)
     assert dialogs.pick("file") == {"error": "picker timed out"}
+
+
+def test_pick_accepts_program_kind(monkeypatch):
+    monkeypatch.setattr(dialogs.subprocess, "run",
+                        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout='{"path": "/usr/bin/exiftool"}\n', stderr=""))
+    assert dialogs.pick("program") == {"path": "/usr/bin/exiftool"}
