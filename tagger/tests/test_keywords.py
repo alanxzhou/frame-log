@@ -44,3 +44,15 @@ def test_library_round_trip_and_order(tmp_path):
     again = Library(path)
     assert [(it["name"], it["count"]) for it in again.to_list()] == [("beach", 4), ("apple", 0)]
     assert Library(tmp_path / "missing.json").to_list() == []
+
+
+def test_lightroom_face_names_join_the_keyword_library(tmp_path):
+    from framelog_tagger.cli import tag_names_are_keywords
+    lib = Library(tmp_path / "keywords.json")
+    lib.add(["beach"])
+    tag_names_are_keywords(lib, ["Ana", "Kepler"])
+    tag_names_are_keywords(lib, [])
+    again = Library(tmp_path / "keywords.json")                   # saved
+    names = {it["name"]: it for it in again.to_list()}
+    assert set(names) == {"beach", "Ana", "Kepler"}
+    assert names["Ana"]["used"] == "" and names["Ana"]["count"] == 0   # suggested, but not counted as used

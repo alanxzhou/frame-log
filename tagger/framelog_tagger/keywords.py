@@ -13,6 +13,7 @@ from __future__ import annotations
 import html
 import json
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -69,6 +70,7 @@ class Library:
     def __init__(self, path: Path | None = None):
         self.path = path or library_path()
         self.items: dict[str, dict] = {}   # lower-case name -> {"name", "used", "count"}
+        self._lock = threading.RLock()     # the face library's background run adds names too
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             for it in data.get("keywords", []):
@@ -88,22 +90,29 @@ class Library:
     def add(self, kws: Iterable[str], touch: bool = True, written: int = 0) -> None:
         """Add keywords; `touch` marks them used now, `written` adds to their scan counts."""
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        for kw in merge(kws):
-            it = self.items.setdefault(kw.lower(), {"name": kw, "used": "", "count": 0})
-            if touch:
-                it["used"] = now
-            it["count"] += written
+        with self._lock:
+            for kw in merge(kws):
+                it = self.items.setdefault(kw.lower(), {"name": kw, "used": "", "count": 0})
+                if touch:
+                    it["used"] = now
+                it["count"] += written
 
     def remove(self, kws: Iterable[str]) -> None:
-        for kw in kws:
-            self.items.pop(clean(kw).lower(), None)
+        with self._lock:
+            for kw in kws:
+                self.items.pop(clean(kw).lower(), None)
 
     def to_list(self) -> list[dict]:
         """Most recently used first, then most written, then by name."""
-        by_name = sorted(self.items.values(), key=lambda it: it["name"].lower())
+        with self._lock:
+            by_name = sorted((dict(it) for it in self.items.values()), key=lambda it: it["name"].lower())
         return sorted(by_name, key=lambda it: (it["used"], it["count"]), reverse=True)
 
     def save(self) -> None:
+        with self._lock:
+            self._save()
+
+    def _save(self) -> None:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.write_text(json.dumps({"keywords": self.to_list()}, indent=2, ensure_ascii=False),

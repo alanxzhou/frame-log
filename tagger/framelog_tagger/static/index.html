@@ -1639,9 +1639,13 @@ async function pollSync() {
     const was = S.faces?.sync?.running;
     S.faces = await api("GET", "/api/faces/sync");
     renderFaceNames(); paintSync();
-    if (S.faces.sync?.running) syncTimer = setTimeout(pollSync, 1500);
-    else if (was && S.faces.sync?.phase === "done") toast("learned " + S.faces.count.toLocaleString() + " faces, " + S.faces.people + " people" +
+    if (S.faces.sync?.running) { syncTimer = setTimeout(pollSync, 1500); return; }
+    if (!was) return;
+    if (S.faces.sync?.phase === "done") toast("learned " + S.faces.count.toLocaleString() + " faces, " + S.faces.people + " people" +
       (S.faces.pet_names?.length ? " and " + S.faces.pet_names.length + (S.faces.pet_names.length === 1 ? " pet" : " pets") : "") + " from your library");
+    // the names tagged in Lightroom have joined the keyword library
+    S.keywords = (await api("POST", "/api/keywords", { add: [] })).keywords;
+    if (S.loaded) paintKw();
   } catch (e) { syncTimer = setTimeout(pollSync, 4000); }
 }
 function renderFaceSetup() {

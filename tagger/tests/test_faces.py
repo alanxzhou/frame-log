@@ -362,3 +362,16 @@ def test_stop_keeps_what_was_learned_and_the_next_run_carries_on(tmp_path, monke
     sync.join(10)
     assert sync.status["phase"] == "done" and dict(g.people()) == {"Ana": 1, "Ben": 1}
     assert len(engine.calls) == calls + 1              # only Ben's photo was read this time
+
+
+def test_every_tagged_name_is_handed_on_once_read(tmp_path, monkeypatch):
+    monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
+    fps, imgs = _library_images()
+    imgs.append(TaggedImage("D:/lib/4.jpg", 1, [FaceBox(0.1, 0.1, 0.2, 0.2, "ana"), FaceBox(0.5, 0.5, 0.2, 0.2, "")]))
+    monkeypatch.setattr(faces, "read_regions", lambda exe, folders, **kw: imgs)
+    sync = Sync(FakeEngine(fps), Gallery(tmp_path / "faces.npz"), "exiftool", {"library": ["D:/lib"], "pets": ["Rex"]})
+    got = []
+    sync.on_names = got.append
+    sync.start()
+    sync.join(10)
+    assert got == [["Ana", "Ben", "Rex"]]   # pets too; one spelling per name; unnamed faces left out

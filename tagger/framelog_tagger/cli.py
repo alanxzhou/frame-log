@@ -10,6 +10,7 @@ from datetime import datetime
 
 from . import config
 from .exif import exiftool_version, find_exiftool
+from .keywords import Library
 from .server import AppState, create_app
 
 
@@ -31,6 +32,13 @@ def resolve_exiftool(flag: str | None) -> str | None:
         return find_exiftool(flag)
     saved = config.load_exiftool_path()
     return (find_exiftool(saved) if saved else None) or find_exiftool()
+
+
+def tag_names_are_keywords(library: Library, names: list[str]) -> None:
+    """Everyone tagged on a face in Lightroom joins the keyword library, so their name is suggested as a keyword."""
+    if names:
+        library.add(names, touch=False)
+        library.save()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -159,16 +167,20 @@ def main(argv: list[str] | None = None) -> int:
 
     engine, gallery, faces_note, pet_engine, pet_gallery = load_faces()
     settings = config.load_faces_settings()
+    library = Library()
     sync = None
     if engine:
         from .faces import Sync
         sync = Sync(engine, gallery, exe, settings, pet_engine, pet_gallery)
+        sync.on_names = lambda names: tag_names_are_keywords(library, names)
+        # the names already learned, too, so they're suggested even before (or without) a run
+        tag_names_are_keywords(library, [n for n, _ in gallery.people()] + ([n for n, _ in pet_gallery.people()] if pet_gallery else []))
         print(f"face tagging on: {len(gallery)} faces, {len(gallery.people())} people in the gallery"
               + (f"; {len(pet_gallery.people())} pets" if pet_engine else "; no pet detector"))
         if sync.start():
             where = ", ".join(settings["library"])
             print(f"learning in the background from {where} (new photos only, after the first time)")
-    state = AppState(exiftool=exe, default_tz=local_tz_name(), remembered=config.load(), engine=engine,
+    state = AppState(exiftool=exe, default_tz=local_tz_name(), remembered=config.load(), engine=engine, library=library,
                      gallery=gallery, faces_note=faces_note, sync=sync, face_settings=settings,
                      pet_engine=pet_engine, pet_gallery=pet_gallery)
 
