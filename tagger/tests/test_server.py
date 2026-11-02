@@ -286,3 +286,17 @@ def test_keywords_cleared_only_when_the_scan_had_some(env):
     assert not any("Subject" in a for a in c.get("/api/preview/0", params={"scan": "1.jpg"}).json()["args"])
     env["state"].session.scans[0].keywords = ["old"]
     assert "-XMP-dc:Subject=" in c.get("/api/preview/0", params={"scan": "1.jpg"}).json()["args"]
+
+
+def test_set_exiftool_validates_remembers_and_clears(env, monkeypatch):
+    c, state = env["client"], env["state"]
+    stub = state.exiftool
+    state.exiftool = None
+    assert c.post("/api/exiftool", json={"path": str(env["tmp"] / "nope")}).status_code == 400
+    assert state.exiftool is None
+    j = c.post("/api/exiftool", json={"path": f'"{stub}"'}).json()   # quotes from "Copy as path" are tolerated
+    assert j["exiftool"] == stub and j["exiftool_saved"] == stub and state.exiftool == stub
+    assert c.get("/api/session").json()["exiftool_saved"] == stub
+    monkeypatch.setattr(server, "find_exiftool", lambda explicit=None: None)
+    j = c.post("/api/exiftool", json={"path": ""}).json()
+    assert j["exiftool"] is None and j["exiftool_saved"] == "" and state.exiftool is None

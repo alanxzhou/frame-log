@@ -45,6 +45,30 @@ def save_faces_settings(settings: dict) -> None:
         pass  # remembering is a convenience, never a failure
 
 
+def exiftool_setting_path() -> Path:
+    return config_path().parent / "exiftool.json"
+
+
+def load_exiftool_path() -> str:
+    """The exiftool the user picked in the UI, or "" if they never did."""
+    try:
+        return str(json.loads(exiftool_setting_path().read_text(encoding="utf-8")).get("path", "")).strip()
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
+def save_exiftool_path(path: str) -> None:
+    p = exiftool_setting_path()
+    try:
+        if path:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps({"path": path}, indent=2), encoding="utf-8")
+        else:
+            p.unlink(missing_ok=True)
+    except OSError:
+        pass  # remembering is a convenience, never a failure
+
+
 def load() -> dict:
     try:
         data = json.loads(config_path().read_text(encoding="utf-8"))

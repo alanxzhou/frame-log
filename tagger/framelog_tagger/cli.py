@@ -25,6 +25,14 @@ def local_tz_name() -> str:
     return getattr(datetime.now().astimezone().tzinfo, "key", "") or "UTC"
 
 
+def resolve_exiftool(flag: str | None) -> str | None:
+    """--exiftool wins outright; otherwise the path picked in the UI, then $EXIFTOOL / PATH."""
+    if flag:
+        return find_exiftool(flag)
+    saved = config.load_exiftool_path()
+    return (find_exiftool(saved) if saved else None) or find_exiftool()
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="framelog-tagger",
@@ -99,7 +107,7 @@ def faces_main(argv: list[str]) -> int:
     if not folders:
         print("give the folder that holds your Lightroom-tagged photos; it's remembered after this", file=sys.stderr)
         return 2
-    exe = find_exiftool(args.exiftool)
+    exe = resolve_exiftool(args.exiftool)
     if not exe:
         print("exiftool not found (it reads the face regions); pass --exiftool <path>", file=sys.stderr)
         return 2
@@ -135,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         return faces_main(argv[1:])
     args = build_parser().parse_args(argv)
 
-    exe = find_exiftool(args.exiftool)
+    exe = resolve_exiftool(args.exiftool)
     if exe:
         try:
             print(f"exiftool {exiftool_version(exe)}: {exe}")

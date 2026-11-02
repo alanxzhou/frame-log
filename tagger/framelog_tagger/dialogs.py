@@ -33,6 +33,8 @@ if req.get("initial"):
     kw["initialdir"] = req["initial"]
 if req["kind"] == "folder":
     path = filedialog.askdirectory(mustexist=True, **kw)
+elif req["kind"] == "program":
+    path = filedialog.askopenfilename(**kw)
 else:
     kw["filetypes"] = [("Frame Log export", "*.json"), ("All files", "*.*")]
     path = filedialog.askopenfilename(**kw)
@@ -42,8 +44,8 @@ print(json.dumps({"path": path or None}))
 
 
 def pick(kind: str, title: str = "", initial: Optional[str] = None, timeout: float = 600) -> dict:
-    """Open a native picker. Returns {"path": str|None} or {"error": str}."""
-    if kind not in ("folder", "file"):
+    """Open a native picker ("folder", "file" for the JSON export, "program" for any file). Returns {"path": str|None} or {"error": str}."""
+    if kind not in ("folder", "file", "program"):
         return {"error": f"unknown picker kind {kind!r}"}
     req = {"kind": kind, "title": title, "initial": initial if initial and Path(initial).is_dir() else None}
     try:
