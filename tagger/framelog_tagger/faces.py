@@ -261,30 +261,32 @@ def import_tagged(engine, gallery: Gallery, images: Iterable[TaggedImage], exclu
     only = None if include is None else {n.lower() for n in include}
     images = list(images)
     added = unmatched = skipped = 0
-    for i, img in enumerate(images, 1):
-        if gallery.is_done(img.path):
-            skipped += 1
-        else:
-            tagged = [f for f in img.faces if f.name and f.name.lower() not in skip
-                      and (only is None or f.name.lower() in only)]
-            if tagged:
-                try:
-                    _, dets = engine.detect(img.path)
-                except (OSError, ValueError):   # unreadable file: leave it unmarked so a later run tries again
-                    continue
-                for t, di in zip(tagged, match_boxes(tagged, [d.box for d in dets])):
-                    if di is None:
-                        unmatched += 1
-                    else:
-                        gallery.add(t.name, dets[di].emb, img.path, dets[di].box)
-                        added += 1
-            if tagged or only is None:
-                gallery.mark_done(img.path)
-        if progress:
-            progress(i, len(images), added)
-        if i % save_every == 0:
-            gallery.save()
-    gallery.save()
+    try:
+        for i, img in enumerate(images, 1):
+            if gallery.is_done(img.path):
+                skipped += 1
+            else:
+                tagged = [f for f in img.faces if f.name and f.name.lower() not in skip
+                          and (only is None or f.name.lower() in only)]
+                if tagged:
+                    try:
+                        _, dets = engine.detect(img.path)
+                    except (OSError, ValueError):   # unreadable file: leave it unmarked so a later run tries again
+                        continue
+                    for t, di in zip(tagged, match_boxes(tagged, [d.box for d in dets])):
+                        if di is None:
+                            unmatched += 1
+                        else:
+                            gallery.add(t.name, dets[di].emb, img.path, dets[di].box)
+                            added += 1
+                if tagged or only is None:
+                    gallery.mark_done(img.path)
+            if progress:
+                progress(i, len(images), added)
+            if i % save_every == 0:
+                gallery.save()
+    finally:
+        gallery.save()   # stopped part-way (Sync.stop) or not, keep what was learned; the rest is picked up next time
     return {"images": len(images), "skipped": skipped, "added": added, "unmatched": unmatched}
 
 
@@ -293,8 +295,11 @@ def learn_library(engine: Engine, gallery: Gallery, exiftool: str, folders: Sequ
                   progress: Optional[Callable[[int, int, int], None]] = None,
                   pet_engine=None, pet_gallery: Optional[Gallery] = None,
                   pet_progress: Optional[Callable[[int, int, int], None]] = None,
-                  read_progress: Optional[Callable[[int, int], None]] = None) -> dict:
+                  read_progress: Optional[Callable[[int, int], None]] = None,
+                  on_names: Optional[Callable[[list[str]], None]] = None) -> dict:
     """Learn from every photo under `folders` that already has named face regions (Lightroom's). Resumable.
+
+    `on_names` is handed every name tagged in those photos (people and pets) as soon as they've been read.
 
     Names in `pets` aren't people: with a pet engine they are learned into the pet gallery, otherwise left out.
     """
@@ -302,6 +307,8 @@ def learn_library(engine: Engine, gallery: Gallery, exiftool: str, folders: Sequ
         on_read()
     pets = list(pets)
     images = read_regions(exiftool, folders, progress=read_progress)
+    if on_names:
+        on_names(merge(f.name for img in images for f in img.faces if f.name))
     stats = {**import_tagged(engine, gallery, images, exclude=pets, progress=progress), "tagged_images": len(images)}
     stats["pets_added"] = 0
     if pets and pet_engine is not None and pet_gallery is not None:
@@ -337,6 +344,10 @@ def update_settings(gallery: Gallery, settings: dict, folders: Sequence[str], pe
     return removed
 
 
+class Stopped(Exception):
+    """Raised from a progress callback to end a library run early (Sync.stop)."""
+
+
 class Sync:
     """Keeps the galleries in step with your Lightroom folder, in a background thread.
 
@@ -349,10 +360,12 @@ class Sync:
                  pet_engine=None, pet_gallery: Optional[Gallery] = None):
         self.engine, self.gallery, self.exiftool, self.settings = engine, gallery, exiftool, settings
         self.pet_engine, self.pet_gallery = pet_engine, pet_gallery
+        self.on_names: Optional[Callable[[list[str]], None]] = None   # every name tagged in the library, once read
         self._thread: Optional[threading.Thread] = None
         self.status = {"running": False, "phase": "idle", "done": 0, "total": 0, "added": 0, "error": "",
                        "steps": 0, "elapsed": 0.0, "started": "", "new_faces": 0, "photos": 0}
         self._t0 = 0.0
+        self._stop = threading.Event()
         self._samples: deque = deque()   # (time, done) during this phase, for the time-left estimate
 
     def snapshot(self) -> dict:
@@ -370,6 +383,8 @@ class Sync:
         return out
 
     def _update(self, phase: str, done: int, total: int, added: int = 0) -> None:
+        if self._stop.is_set():
+            raise Stopped
         now = time.monotonic()
         if phase != self.status["phase"] or total != self.status["total"]:
             self._samples.clear()
@@ -392,12 +407,23 @@ class Sync:
         pets = self.settings.get("pets") and self.pet_engine is not None and self.pet_gallery is not None
         self._t0 = time.monotonic()
         self._samples.clear()
-        self.status = {"running": True, "phase": "reading", "done": 0, "total": 0, "added": 0, "error": "",
+        self._stop.clear()
+        self.status = {"running": True, "stopping": False, "phase": "reading", "done": 0, "total": 0, "added": 0, "error": "",
                        "steps": 3 if pets else 2, "elapsed": 0.0, "new_faces": 0, "photos": 0,
                        "started": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
         self._thread = threading.Thread(target=self._run, name="faces-sync", daemon=True)
         self._thread.start()
         return True
+
+    def stop(self, timeout: float = 5.0) -> bool:
+        """Ask a run to end after the photo (or batch of files being read) it's on. What it learned so far is kept,
+        and the next run carries on from there. True if it has stopped within `timeout` seconds."""
+        if not self.running:
+            return True
+        self._stop.set()
+        self.status["stopping"] = True
+        self.join(timeout)
+        return not self.running
 
     def join(self, timeout: Optional[float] = None) -> None:
         if self._thread:
@@ -415,12 +441,16 @@ class Sync:
         try:
             stats = learn_library(self.engine, self.gallery, self.exiftool, list(self.settings["library"]),
                                   self.settings.get("pets", []), progress=progress, pet_engine=self.pet_engine,
-                                  pet_gallery=self.pet_gallery, pet_progress=pet_progress, read_progress=read)
+                                  pet_gallery=self.pet_gallery, pet_progress=pet_progress, read_progress=read,
+                                  on_names=self.on_names)
             self.settings["synced"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             config.save_faces_settings(self.settings)
             self.status.update(running=False, phase="done", done=stats["images"], total=stats["images"],
                                added=stats["added"] + stats["pets_added"], new_faces=stats["added"] + stats["pets_added"],
                                photos=stats["tagged_images"], error="", elapsed=round(time.monotonic() - self._t0, 1))
+        except Stopped:
+            self.status.update(running=False, stopping=False, phase="stopped", error="",
+                               elapsed=round(time.monotonic() - self._t0, 1))
         except Exception as e:  # noqa: BLE001  (an unreadable folder, a model that won't load, ...)
-            self.status.update(running=False, phase="error", error=str(e) or e.__class__.__name__,
+            self.status.update(running=False, stopping=False, phase="error", error=str(e) or e.__class__.__name__,
                                elapsed=round(time.monotonic() - self._t0, 1))

@@ -325,3 +325,22 @@ def test_the_pet_names_are_saved_with_the_library(env, tmp_path):
     lib.mkdir()
     j = env["client"].post("/api/faces/library", json={"folders": [str(lib)], "pets": ["Kepler", " kepler ", "Elvis"]}).json()
     assert j["pets"] == ["Kepler", "Elvis"] and config.load_faces_settings()["pets"] == ["Kepler", "Elvis"]
+
+
+def test_stop_ends_a_run_and_unlocks_the_settings(env, tmp_path, monkeypatch):
+    lib = tmp_path / "lightroom"
+    lib.mkdir()
+    gate = threading.Event()
+
+    def read(exe, folders, progress=None):
+        gate.wait(10)
+        progress(0, 10)          # the next progress report notices the stop
+        return []
+    monkeypatch.setattr(faces_mod, "read_regions", read)
+    c = env["client"]
+    assert c.post("/api/faces/library", json={"folders": [str(lib)]}).status_code == 200
+    threading.Timer(0.2, gate.set).start()
+    s = c.post("/api/faces/stop").json()["sync"]
+    assert s["phase"] == "stopped" and not s["running"]
+    assert c.post("/api/faces/library", json={"folders": [str(lib)], "pets": ["Kepler"]}).status_code == 200
+    env["state"].sync.join(10)
