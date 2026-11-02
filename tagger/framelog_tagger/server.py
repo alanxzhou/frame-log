@@ -303,7 +303,7 @@ def faces_payload(state: AppState) -> dict:
             "min_examples": faces_mod.MIN_EXAMPLES, "gallery_file": str(state.gallery.path),
             "library": state.face_settings["library"], "pets": state.face_settings["pets"],
             "synced": state.face_settings["synced"],
-            "sync": ({**state.sync.status, "running": state.sync.running} if state.sync else None)}
+            "sync": ({**state.sync.snapshot(), "running": state.sync.running} if state.sync else None)}
 
 
 def session_payload(state: AppState) -> dict:

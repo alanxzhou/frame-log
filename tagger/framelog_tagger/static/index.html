@@ -91,7 +91,15 @@
   #faceStatus { color: var(--muted); font-size: 12.5px; }
   #faceStatus.err { color: var(--danger); }
   #faceForm .note { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
-  .field .btns { display: flex; gap: 6px; }
+  #faceHint { font-size: 11.5px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
+  #faceProgress { margin-top: 12px; }
+  #faceProgress .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  #faceProgress .bar > div { height: 100%; width: 0; background: var(--accent); border-radius: 3px; transition: width 0.4s ease; }
+  #faceProgress .bar.busy > div { width: 30% !important; animation: faceBusy 1.3s ease-in-out infinite; }
+  @keyframes faceBusy { from { margin-left: -30%; } to { margin-left: 100%; } }
+  @media (prefers-reduced-motion: reduce) { #faceProgress .bar.busy > div { animation: none; width: 100% !important; opacity: 0.4; } }
+  #faceStep { font-size: 12.5px; margin-top: 7px; }
+  #faceDetail { font-size: 12px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
   label[for=fFaceLib] { align-self: start; padding-top: 7px; }
   #faceFolders { grid-column: 2 / 4; display: flex; flex-direction: column; gap: 4px; }
   #faceFolders:empty::before { content: "No folders yet"; font-size: 12.5px; color: var(--muted); }
@@ -434,11 +442,8 @@
       <label for="fFaceLib">tagged photos</label>
       <div id="faceFolders"></div>
       <span></span>
-      <input type="text" id="fFaceLib" placeholder="add a folder of photos with face tags">
-      <span class="btns">
-        <button type="button" data-pick="folder" data-for="fFaceLib">Browse…</button>
-        <button type="button" id="faceAddBtn">Add</button>
-      </span>
+      <input type="text" id="fFaceLib" placeholder="type a folder and press Enter, or Browse">
+      <button type="button" data-pick="folder" data-for="fFaceLib">Browse…</button>
       <div class="hint">Add as many folders as you like; subfolders are included.</div>
     </div>
     <div class="field">
@@ -451,6 +456,12 @@
       <button type="submit" class="primary" id="faceBtn">Save and learn</button>
       <span id="faceStatus"></span>
     </div>
+    <div id="faceProgress" hidden>
+      <div class="bar"><div></div></div>
+      <div id="faceStep"></div>
+      <div id="faceDetail"></div>
+    </div>
+    <div class="hint" id="faceHint">The first time, every photo is read, which can take several minutes for a big library. You can load a roll and keep working while it runs. After that, only new photos are looked at.</div>
   </form>
 
   <form id="renameForm" autocomplete="off">
@@ -1545,25 +1556,64 @@ function ago(iso) {
   if (!(s >= 0)) return "";
   return s < 90 ? "just now" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 129600 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago";
 }
-function syncText() {
+function fmtDur(sec) {
+  sec = Math.max(0, Math.round(sec));
+  if (sec < 60) return sec + " s";
+  if (sec < 3600) { const m = Math.floor(sec / 60), r = sec % 60; return m + " min" + (r && m < 10 ? " " + r + " s" : ""); }
+  const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60); return h + " h" + (m ? " " + m + " min" : "");
+}
+function fmtLeft(eta) {
+  if (eta == null) return "";
+  if (eta < 45) return "less than a minute left";
+  if (eta < 5400) return "about " + Math.max(1, Math.round(eta / 60)) + " min left";
+  return "about " + Math.round(eta / 3600) + " h left";
+}
+const SYNC_STEPS = { reading: [1, "Reading the face tags in your photos"], learning: [2, "Learning the faces of the people tagged"], pets: [3, "Learning the pets tagged"] };
+function libraryText() {   // what's in the gallery now
+  const f = S.faces;
+  const animals = f.pet_names?.length ? ", " + f.pet_names.length + (f.pet_names.length === 1 ? " pet" : " pets") : "";
+  return f.count ? f.count.toLocaleString() + " faces, " + f.people + " people" + animals : "nobody learned yet";
+}
+function syncText() {   // the line beside the button, and the header chip's tooltip
   const f = S.faces, s = f?.sync;
   if (!f?.available) return "";
-  if (s?.running) return s.phase === "reading" ? "reading the face tags in your library…"
-    : (s.phase === "pets" ? "learning pets " : "learning ") + s.done.toLocaleString() + " / " + s.total.toLocaleString() + " photos · " + s.added.toLocaleString() + " faces so far";
-  if (s?.phase === "error") return "couldn't learn from the library: " + s.error;
-  const animals = f.pet_names?.length ? ", " + f.pet_names.length + (f.pet_names.length === 1 ? " pet" : " pets") : "";
-  const have = f.count ? f.count.toLocaleString() + " faces, " + f.people + " people" + animals : "nobody learned yet";
-  return f.library.length ? have + (f.synced ? " · checked " + ago(f.synced) : "") : have;
+  if (s?.running) { const [n, what] = SYNC_STEPS[s.phase] || [1, "Starting"]; return "Step " + n + " of " + s.steps + ": " + what.toLowerCase(); }
+  if (s?.phase === "error") return "Couldn't learn from the library: " + s.error;
+  if (s?.phase === "done") {
+    if (s.new_faces) return "Done in " + fmtDur(s.elapsed) + ": learned " + s.new_faces.toLocaleString() + " new faces. You now have " + libraryText() + ".";
+    if (f.count) return "Up to date (checked in " + fmtDur(s.elapsed) + "): no new faces. You have " + libraryText() + ".";
+    return "Done in " + fmtDur(s.elapsed) + ", but no named faces were found in " + (s.photos ? "those photos" : "these folders") +
+      ". In Lightroom, save the tags into the files first: Metadata → Save Metadata to Files.";
+  }
+  return f.library.length ? libraryText() + (f.synced ? " · last checked " + ago(f.synced) : " · not learned from yet") : libraryText();
 }
 function paintSync() {
   const f = S?.faces, s = f?.sync, chip = $("faceSync"), st = $("faceStatus");
-  st.textContent = syncText(); st.className = s?.phase === "error" && !s.running ? "err" : "";
-  if (s?.running) {
-    chip.textContent = "learning faces" + (s.total ? " " + Math.round(100 * s.done / s.total) + "%" : "…"); chip.title = syncText(); chip.hidden = false;
+  const running = !!s?.running;
+  st.textContent = running ? "" : syncText(); st.className = s?.phase === "error" && !running ? "err" : "";
+  $("faceProgress").hidden = !running;
+  if (running) {
+    const [n, what] = SYNC_STEPS[s.phase] || [1, "Starting"];
+    const counted = s.total > 0, bar = $("faceProgress").querySelector(".bar");
+    bar.classList.toggle("busy", !counted);
+    bar.firstElementChild.style.width = counted ? (100 * s.done / s.total).toFixed(1) + "%" : "";
+    $("faceStep").textContent = "Step " + n + " of " + s.steps + ": " + what + "…";
+    const unit = s.phase === "reading" ? " photos" : " tagged photos";
+    const parts = [];
+    if (counted) parts.push(s.done.toLocaleString() + " of " + s.total.toLocaleString() + unit);
+    else if (s.phase === "reading") parts.push("finding the photos in your folders");
+    if (s.phase !== "reading") parts.push(s.added.toLocaleString() + " faces so far");
+    const left = fmtLeft(s.eta);
+    if (left) parts.push(left);
+    parts.push(fmtDur(s.elapsed) + " so far");
+    $("faceDetail").textContent = parts.join(" · ");
+    chip.textContent = "learning faces · step " + n + "/" + s.steps + (counted ? " · " + Math.round(100 * s.done / s.total) + "%" : "…");
+    chip.title = $("faceStep").textContent + " " + $("faceDetail").textContent; chip.hidden = false;
   } else if (s?.phase === "error") {
     chip.textContent = "face library error"; chip.title = s.error; chip.hidden = false;
   } else chip.hidden = true;
-  $("faceBtn").disabled = !!s?.running;
+  $("faceBtn").disabled = running;
+  $("faceBtn").textContent = running ? "Learning…" : "Save and learn";
 }
 async function pollSync() {
   clearTimeout(syncTimer);
@@ -1609,7 +1659,9 @@ async function saveLibrary(ev) {
   $("faceBtn").disabled = true;
   try {
     S.faces = await api("POST", "/api/faces/library", { folders: faceFolders, pets: list($("fFacePets").value, ",") });
-    renderFaceNames(); paintSync(); pollSync();
+    renderFaceNames(); paintSync();
+    if (S.faces.sync?.running) pollSync();
+    else if (!faceFolders.length) { $("faceStatus").textContent = "Saved. Add a folder of tagged photos to learn from."; }
   } catch (e) {
     $("faceStatus").textContent = e.message; $("faceStatus").className = "err"; $("faceBtn").disabled = false;
   }
@@ -1794,7 +1846,7 @@ async function boot() {
   document.querySelectorAll("[data-pick]").forEach((b) => { b.onclick = () => pickInto(b.dataset.pick, b.dataset.for); });
   $("setupForm").addEventListener("submit", loadRoll);
   $("faceForm").addEventListener("submit", saveLibrary);
-  $("faceAddBtn").onclick = addFaceFolders;
+  $("fFaceLib").addEventListener("change", addFaceFolders);   // a typed path is added when you leave the box too
   $("fFaceLib").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); addFaceFolders(); } });
   $("renameForm").addEventListener("submit", applyRename);
   $("fScans").addEventListener("input", onScansChanged);

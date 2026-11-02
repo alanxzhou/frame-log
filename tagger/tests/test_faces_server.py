@@ -54,7 +54,7 @@ def env(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(server, "write_tags", lambda exe, src, dst, args: calls.append(list(args)))
     existing = []   # what ExifTool would find in a file already; tests append TaggedImage objects
     monkeypatch.setattr(server, "read_regions", lambda exe, paths: list(existing))
-    monkeypatch.setattr(faces_mod, "read_regions", lambda exe, folders: [])   # the library folder holds nothing new
+    monkeypatch.setattr(faces_mod, "read_regions", lambda exe, folders, **kw: [])   # the library folder holds nothing new
     settings = {"library": [], "pets": [], "synced": ""}
     engine = FakeEngine()
     state = AppState(exiftool="exiftool", default_tz="UTC", engine=engine, gallery=gallery,
@@ -226,7 +226,7 @@ def test_cannot_change_the_library_while_it_is_learning(env, tmp_path, monkeypat
     lib = tmp_path / "lightroom"
     lib.mkdir()
     gate = threading.Event()
-    monkeypatch.setattr(faces_mod, "read_regions", lambda exe, folders: gate.wait(10) and [])
+    monkeypatch.setattr(faces_mod, "read_regions", lambda exe, folders, **kw: gate.wait(10) and [])
     c = env["client"]
     assert c.post("/api/faces/library", json={"folders": [str(lib)]}).status_code == 200
     assert c.get("/api/faces/sync").json()["sync"]["running"] is True

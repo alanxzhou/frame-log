@@ -184,7 +184,7 @@ def _library_images():
 def test_sync_learns_in_the_background_and_only_new_photos_next_time(tmp_path, monkeypatch):
     monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
     fps, imgs = _library_images()
-    monkeypatch.setattr(faces, "read_regions", lambda exe, folders: imgs)
+    monkeypatch.setattr(faces, "read_regions", lambda exe, folders, **kw: imgs)
     g = Gallery(tmp_path / "faces.npz")
     engine = FakeEngine(fps)
     settings = {"library": ["D:/lib"], "pets": ["Rex"], "synced": ""}
@@ -203,7 +203,7 @@ def test_sync_learns_in_the_background_and_only_new_photos_next_time(tmp_path, m
 def test_sync_reports_errors_and_missing_pieces(tmp_path, monkeypatch):
     monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
 
-    def boom(exe, folders):
+    def boom(exe, folders, **kw):
         raise RuntimeError("exiftool exploded")
     monkeypatch.setattr(faces, "read_regions", boom)
     s = Sync(FakeEngine({}), Gallery(tmp_path / "f.npz"), "exiftool", {"library": ["D:/lib"], "pets": []})
@@ -238,7 +238,7 @@ def test_learn_library_sends_pets_to_the_pet_gallery_and_people_to_the_people_on
     fps = {"D:/lib/1.jpg": fp("Ana"), "D:/lib/2.jpg": fp("Cy")}
     imgs = [TaggedImage("D:/lib/1.jpg", 1, [FaceBox(0.35, 0.35, 0.3, 0.3, "Ana")]),
             TaggedImage("D:/lib/2.jpg", 1, [FaceBox(0.35, 0.35, 0.3, 0.3, "Rex")])]
-    monkeypatch.setattr(faces, "read_regions", lambda exe, folders: imgs)
+    monkeypatch.setattr(faces, "read_regions", lambda exe, folders, **kw: imgs)
     people, animals = Gallery(tmp_path / "faces.npz"), Gallery(tmp_path / "pets.npz")
     people_engine, pet_engine = FakeEngine(fps), FakePets(fps)
     stats = faces.learn_library(people_engine, people, "exiftool", ["D:/lib"], pets=["Rex"], pet_engine=pet_engine, pet_gallery=animals)
@@ -267,7 +267,7 @@ def test_a_new_pet_is_looked_for_in_photos_already_read_for_another(tmp_path, mo
     monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
     fps = {"D:/lib/1.jpg": fp("Cy")}
     imgs = [TaggedImage("D:/lib/1.jpg", 1, [FaceBox(0.05, 0.35, 0.3, 0.3, "Rex"), FaceBox(0.55, 0.35, 0.3, 0.3, "Tom")])]
-    monkeypatch.setattr(faces, "read_regions", lambda exe, folders: imgs)
+    monkeypatch.setattr(faces, "read_regions", lambda exe, folders, **kw: imgs)
 
     class TwoPets(FakePets):
         def detect(self, path):
@@ -289,10 +289,41 @@ def test_sync_learns_pets_after_people_and_counts_both(tmp_path, monkeypatch):
     fps = {"D:/lib/1.jpg": fp("Ana"), "D:/lib/2.jpg": fp("Cy")}
     imgs = [TaggedImage("D:/lib/1.jpg", 1, [FaceBox(0.35, 0.35, 0.3, 0.3, "Ana")]),
             TaggedImage("D:/lib/2.jpg", 1, [FaceBox(0.35, 0.35, 0.3, 0.3, "Rex")])]
-    monkeypatch.setattr(faces, "read_regions", lambda exe, folders: imgs)
+    monkeypatch.setattr(faces, "read_regions", lambda exe, folders, **kw: imgs)
     animals = Gallery(tmp_path / "pets.npz")
     sync = Sync(FakeEngine(fps), Gallery(tmp_path / "faces.npz"), "exiftool", {"library": ["D:/lib"], "pets": ["Rex"], "synced": ""},
                 pet_engine=FakePets(fps), pet_gallery=animals)
     assert sync.start()
     sync.join(10)
     assert sync.status["phase"] == "done" and sync.status["added"] == 2 and dict(animals.people()) == {"Rex": 1}
+
+
+def test_sync_reports_steps_progress_and_a_time_left(tmp_path, monkeypatch):
+    monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
+    fps, imgs = _library_images()
+    reads = []
+
+    def read(exe, folders, progress=None):
+        for d in (0, 3):
+            progress(d, 3)
+            reads.append(d)
+        return imgs
+    monkeypatch.setattr(faces, "read_regions", read)
+    sync = Sync(FakeEngine(fps), Gallery(tmp_path / "faces.npz"), "exiftool", {"library": ["D:/lib"], "pets": ["Rex"]})
+    assert sync.start() and sync.status["steps"] == 2   # no pet detector: reading, then learning
+    sync.join(10)
+    s = sync.snapshot()
+    assert reads == [0, 3] and s["phase"] == "done" and s["new_faces"] == 2 and s["photos"] == 3 and s["elapsed"] >= 0
+
+    clock = [100.0]
+    monkeypatch.setattr(faces.time, "monotonic", lambda: clock[0])
+    sync.status.update(running=True, phase="idle")
+    sync._t0 = 90.0
+    sync._update("learning", 0, 100)
+    assert sync.snapshot()["eta"] is None                  # no pace yet
+    clock[0] = 110.0
+    sync._update("learning", 20, 100)                      # 20 photos in 10 s
+    s = sync.snapshot()
+    assert s["eta"] == 40.0 and s["elapsed"] == 20.0
+    sync._update("pets", 0, 10)                            # a new step starts the estimate over
+    assert sync.snapshot()["eta"] is None
