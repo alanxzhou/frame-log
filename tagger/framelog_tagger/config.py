@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 from pathlib import Path
 
 # Camera and film are left out on purpose: they change roll to roll, and a stale one would be written silently.
@@ -22,14 +24,27 @@ def faces_settings_path() -> Path:
     return config_path().parent / "faces.json"
 
 
+def _read_settled(p: Path) -> str:
+    """Read a file the background read may be swapping in: on Windows that briefly refuses access, so wait it out."""
+    for _ in range(20):
+        try:
+            return p.read_text(encoding="utf-8")
+        except PermissionError:
+            time.sleep(0.01)
+    return p.read_text(encoding="utf-8")
+
+
 def load_faces_settings() -> dict:
-    """The face-tagging settings kept between runs: where your tagged photos are, and which names are pets."""
-    out = {"library": [], "pets": [], "synced": ""}
+    """The settings kept between runs for your Lightroom library: where its photos are, which names are pets,
+    when faces were last learned and what the last read of its keywords found."""
+    out = {"library": [], "pets": [], "synced": "", "keywords_read": {}}
     try:
-        data = json.loads(faces_settings_path().read_text(encoding="utf-8"))
+        data = json.loads(_read_settled(faces_settings_path()))
         out["library"] = [str(p) for p in data.get("library", []) if str(p).strip()]
         out["pets"] = [str(n) for n in data.get("pets", data.get("exclude", [])) if str(n).strip()]   # "exclude" is what it was called first
         out["synced"] = str(data.get("synced", ""))
+        if isinstance(data.get("keywords_read"), dict):
+            out["keywords_read"] = data["keywords_read"]
     except (OSError, ValueError, AttributeError):
         pass
     return out
@@ -39,8 +54,17 @@ def save_faces_settings(settings: dict) -> None:
     p = faces_settings_path()
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({k: settings[k] for k in ("library", "pets", "synced") if k in settings},
-                                indent=2, ensure_ascii=False), encoding="utf-8")
+        # the background read saves this too, so write it whole and swap it in: a reader never sees half a file
+        tmp = p.with_name(f"{p.name}.{threading.get_ident()}.tmp")
+        tmp.write_text(json.dumps({k: settings[k] for k in ("library", "pets", "synced", "keywords_read") if k in settings},
+                                  indent=2, ensure_ascii=False), encoding="utf-8")
+        for _ in range(20):   # Windows refuses while someone is reading it; that's over in a moment
+            try:
+                os.replace(tmp, p)
+                return
+            except PermissionError:
+                time.sleep(0.01)
+        tmp.unlink(missing_ok=True)
     except OSError:
         pass  # remembering is a convenience, never a failure
 

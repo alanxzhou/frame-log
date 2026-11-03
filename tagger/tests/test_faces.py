@@ -155,9 +155,12 @@ def test_the_gallery_survives_a_background_writer(tmp_path):
 
 def test_settings_round_trip_and_defaults(tmp_path, monkeypatch):
     monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
-    assert config.load_faces_settings() == {"library": [], "pets": [], "synced": ""}
-    config.save_faces_settings({"library": ["D:\\photos"], "pets": ["Kepler"], "synced": "2026-11-01T00:00:00Z", "junk": 1})
-    assert config.load_faces_settings() == {"library": ["D:\\photos"], "pets": ["Kepler"], "synced": "2026-11-01T00:00:00Z"}
+    assert config.load_faces_settings() == {"library": [], "pets": [], "synced": "", "keywords_read": {}}
+    read = {"count": 3, "photos": 7, "at": "2026-11-01T00:00:00Z"}
+    config.save_faces_settings({"library": ["D:\\photos"], "pets": ["Kepler"], "synced": "2026-11-01T00:00:00Z",
+                                "keywords_read": read, "junk": 1})
+    assert config.load_faces_settings() == {"library": ["D:\\photos"], "pets": ["Kepler"], "synced": "2026-11-01T00:00:00Z",
+                                            "keywords_read": read}
     (tmp_path / "faces.json").write_text("not json")
     assert config.load_faces_settings()["library"] == []
 
@@ -393,3 +396,25 @@ def test_the_library_photos_keywords_are_handed_on_too(tmp_path, monkeypatch):
     assert got == [["Ana", "Ben", "Rex", "beach", "Paris"]]   # names first; a keyword spelled like a name is one
     assert sync.status["photos"] == 3 and not g.is_done("D:/lib/5.jpg")   # the keywords-only photo isn't learned from
     assert "D:/lib/5.jpg" not in engine.calls
+
+
+def test_without_the_face_tools_the_library_is_read_for_keywords_only(tmp_path, monkeypatch):
+    monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
+    imgs = [TaggedImage("D:/lib/1.jpg", 1, [FaceBox(0.35, 0.35, 0.3, 0.3, "Ana")], ["beach"]),
+            TaggedImage("D:/lib/2.jpg", 1, [], ["Paris"])]
+
+    def read(exe, folders, progress=None):
+        progress(0, 7)
+        progress(7, 7)
+        return imgs
+    monkeypatch.setattr(faces, "read_regions", read)
+    settings = {"library": ["D:/lib"], "pets": []}
+    sync = Sync(None, None, "exiftool", settings)
+    got = []
+    sync.on_keywords = got.append
+    assert sync.start() and sync.status["steps"] == 1
+    sync.join(10)
+    assert sync.status["phase"] == "done" and got == [["Ana", "beach", "Paris"]]
+    assert sync.status["keywords"] == 3
+    read_ = config.load_faces_settings()["keywords_read"]   # remembered, for the UI to say where suggestions come from
+    assert read_["count"] == 3 and read_["photos"] == 7 and read_["at"]

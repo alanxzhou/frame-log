@@ -12,6 +12,7 @@ import threading
 
 from framelog_tagger import config, faces as faces_mod, server
 from framelog_tagger.faces import Detection, Gallery, Sync
+from framelog_tagger.keywords import Library
 from framelog_tagger.regions import FaceBox, TaggedImage
 from framelog_tagger.server import AppState, create_app
 
@@ -74,6 +75,23 @@ def test_session_reports_whether_faces_are_available(tmp_path, monkeypatch):
     f = c.get("/api/session").json()["faces"]
     assert f["available"] is False and f["reason"] == "install the faces extra"
     assert c.post("/api/load", json={"scans_dir": str(tmp_path)}).status_code == 400   # (no scans there; just warming)
+
+
+def test_the_library_is_read_for_keywords_without_the_face_tools(tmp_path, monkeypatch):
+    monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
+    monkeypatch.setattr(faces_mod, "read_regions", lambda exe, folders, **kw: [TaggedImage("D:/lib/1.jpg", 1, [], ["Paris"])])
+    settings = {"library": [], "pets": [], "synced": ""}
+    lib = Library(tmp_path / "keywords.json")
+    sync = Sync(None, None, "exiftool", settings)
+    sync.on_keywords = lambda kws: lib.add(kws, touch=False)
+    c = TestClient(create_app(AppState(exiftool="exiftool", default_tz="UTC", faces_note="no faces extra", sync=sync,
+                                       face_settings=settings, library=lib)))
+    f = c.post("/api/faces/library", json={"folders": [str(tmp_path)], "pets": []}).json()
+    assert f["available"] is False and f["reads"] and f["library"] == [str(tmp_path)]
+    sync.join(10)
+    f = c.get("/api/faces/sync").json()
+    assert f["sync"]["phase"] == "done" and f["keywords_read"]["count"] == 1
+    assert [k["name"] for k in c.get("/api/session").json()["keywords"]] == ["Paris"]
 
 
 def test_unavailable_detect_is_a_409_with_the_reason(tmp_path, monkeypatch):
