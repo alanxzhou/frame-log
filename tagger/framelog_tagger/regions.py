@@ -46,10 +46,11 @@ class FaceBox:
 
 @dataclass
 class TaggedImage:
-    """An image whose file already carries face regions (from Lightroom, or an earlier Write)."""
+    """An image whose file already carries face regions or keywords (from Lightroom, or an earlier Write)."""
     path: str
     orientation: int
     faces: list[FaceBox] = field(default_factory=list)
+    keywords: list[str] = field(default_factory=list)   # XMP-dc:Subject, what Lightroom lists as its keywords
 
 
 def to_upright(x: float, y: float, w: float, h: float, orientation: Optional[int]) -> tuple[float, float, float, float]:
@@ -67,9 +68,9 @@ def to_upright(x: float, y: float, w: float, h: float, orientation: Optional[int
 
 
 def parse_regions(data: Sequence[dict]) -> list[TaggedImage]:
-    """Turn `exiftool -j -struct -RegionInfo -Orientation#` output into upright face boxes.
+    """Turn `exiftool -j -struct -RegionInfo -Orientation# -XMP-dc:Subject` output into upright face boxes and keywords.
 
-    Only Type=Face regions are kept; images without any are dropped.
+    Only Type=Face regions are kept; images with neither a face nor a keyword are dropped.
     """
     out = []
     for d in data:
@@ -84,8 +85,14 @@ def parse_regions(data: Sequence[dict]) -> list[TaggedImage]:
                 continue
             cx, cy, w, h = to_upright(float(a["X"]), float(a["Y"]), float(a["W"]), float(a["H"]), orientation)
             faces.append(FaceBox(cx - w / 2, cy - h / 2, w, h, str(r.get("Name") or "")))
-        if faces:
-            out.append(TaggedImage(path=d["SourceFile"], orientation=orientation, faces=faces))
+        subject = d.get("Subject")
+        if subject is None:
+            subject = []
+        elif not isinstance(subject, list):   # ExifTool gives a lone keyword as a plain value, maybe a number
+            subject = [subject]
+        kws = [str(k) for k in subject if str(k).strip()]
+        if faces or kws:
+            out.append(TaggedImage(path=d["SourceFile"], orientation=orientation, faces=faces, keywords=kws))
     return out
 
 
@@ -127,7 +134,7 @@ def _chunks(paths: Sequence[str]):
 
 def read_regions(exiftool: str, folders: Sequence[Path | str],
                  progress: Optional[Callable[[int, int], None]] = None) -> list[TaggedImage]:
-    """Every JPEG under `folders` (or given as a file) that has face regions. Slow on a big library (ExifTool reads every file).
+    """Every JPEG under `folders` (or given as a file) that has face regions or keywords. Slow on a big library (ExifTool reads every file).
 
     The files are read a couple of hundred at a time so `progress(done, total)` can say how far along it is.
     """
@@ -137,7 +144,7 @@ def read_regions(exiftool: str, folders: Sequence[Path | str],
     out: list[TaggedImage] = []
     done = 0
     for chunk in _chunks(paths):
-        cmd = [exiftool, "-j", "-struct", "-RegionInfo", "-Orientation#"]
+        cmd = [exiftool, "-j", "-struct", "-RegionInfo", "-Orientation#", "-XMP-dc:Subject"]
         if sys.platform == "win32":
             cmd += ["-charset", "filename=utf8"]
         res = subprocess.run(cmd + chunk, capture_output=True)

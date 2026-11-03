@@ -47,11 +47,11 @@ def test_library_round_trip_and_order(tmp_path):
 
 
 def test_lightroom_face_names_join_the_keyword_library(tmp_path):
-    from framelog_tagger.cli import tag_names_are_keywords
+    from framelog_tagger.cli import library_keywords
     lib = Library(tmp_path / "keywords.json")
     lib.add(["beach"])
-    tag_names_are_keywords(lib, ["Ana", "Kepler"])
-    tag_names_are_keywords(lib, [])
+    library_keywords(lib, ["Ana", "Kepler"])
+    library_keywords(lib, [])
     again = Library(tmp_path / "keywords.json")                   # saved
     names = {it["name"]: it for it in again.to_list()}
     assert set(names) == {"beach", "Ana", "Kepler"}

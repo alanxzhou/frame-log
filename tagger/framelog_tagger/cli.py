@@ -34,10 +34,10 @@ def resolve_exiftool(flag: str | None) -> str | None:
     return (find_exiftool(saved) if saved else None) or find_exiftool()
 
 
-def tag_names_are_keywords(library: Library, names: list[str]) -> None:
-    """Everyone tagged on a face in Lightroom joins the keyword library, so their name is suggested as a keyword."""
-    if names:
-        library.add(names, touch=False)
+def library_keywords(library: Library, kws: list[str]) -> None:
+    """Everyone tagged on a face in Lightroom, and every keyword on those photos, joins the keyword library."""
+    if kws:
+        library.add(kws, touch=False)
         library.save()
 
 
@@ -172,9 +172,9 @@ def main(argv: list[str] | None = None) -> int:
     if engine:
         from .faces import Sync
         sync = Sync(engine, gallery, exe, settings, pet_engine, pet_gallery)
-        sync.on_names = lambda names: tag_names_are_keywords(library, names)
+        sync.on_keywords = lambda kws: library_keywords(library, kws)
         # the names already learned, too, so they're suggested even before (or without) a run
-        tag_names_are_keywords(library, [n for n, _ in gallery.people()] + ([n for n, _ in pet_gallery.people()] if pet_gallery else []))
+        library_keywords(library, [n for n, _ in gallery.people()] + ([n for n, _ in pet_gallery.people()] if pet_gallery else []))
         print(f"face tagging on: {len(gallery)} faces, {len(gallery.people())} people in the gallery"
               + (f"; {len(pet_gallery.people())} pets" if pet_engine else "; no pet detector"))
         if sync.start():

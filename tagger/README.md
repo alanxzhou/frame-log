@@ -129,8 +129,11 @@ the photo's keywords at import.
 - **Several at once**: shift-click a range, ⌘/Ctrl-click to add one, ⌘/Ctrl-A
   for all. The box then shows each keyword as on all of them, or as *2/5* (on
   some): click it to give it to all, × to take it off all.
-- **Suggestions** are the keywords used on this roll, then your library, most
-  recent first. Press **1–9** (with the box not focused) to toggle one on the
+- **Suggestions** follow the selected scans: first who the face gallery thinks
+  is in them (faces you haven't named yet, after **Find faces**), then the
+  keywords on the three scans either side, nearest first, then the rest of this
+  roll's keywords and your library, most recent first. Hover one to see why it's
+  there. Press **1–9** (with the box not focused) to toggle one on the
   selected scans. ⌘/Ctrl-Z undoes keyword changes; Esc clears the selection.
 - Keywords match case-insensitively; the spelling you used first is kept.
 
@@ -142,7 +145,9 @@ keywords with what the strip shows, roll's first.
 The **library** is every keyword you've added or written, stored on this
 computer next to the remembered setup values (`keywords.json` in
 `~/.config/framelog-tagger/`, `%APPDATA%\framelog-tagger\` on Windows).
-**Library…** lists them with counts; removing one only stops suggesting it.
+The keywords on the photos in your face folders (see Faces below) join it too, each time
+those folders are read. **Library…** lists them with counts; removing one only stops suggesting it
+(until the next read of the face folders, if a photo there still has it).
 
 ### Faces
 
