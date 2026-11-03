@@ -566,7 +566,7 @@ let cols = [];         // [{scan: name|null, entry: id|null}]
 let results = {};      // scan name -> {ok, error}
 let clip = null;       // id of the copied card, pasted into an empty slot as a new card
 let kw = {};           // scan name -> its own keywords (the roll's are added to every scan on Write)
-let kwOrder = [];      // keywords used on this roll, in the order first used: suggestions start with these, so 1–9 stay put
+let kwOrder = [];      // keywords used on this roll, in the order first used: suggestions fall back to these
 let sel = new Set();   // selected scan names: the keyword box works on these
 let anchor = null, lead = null;   // shift-click / shift-arrow ranges run anchor..lead
 let kwUndo = [];       // snapshots of kw before each change, newest last
@@ -1180,7 +1180,7 @@ async function pasteCard(col) {
 }
 
 /* ---------- keywords ---------- */
-// Lightroom-style: select scans, type into the box (suggestions come from the library), or press 1–9 for a suggestion.
+// Lightroom-style: select scans, type into the box (suggestions come from faces, neighbours and the library), or press 1–9 for a suggestion.
 const lc = (k) => k.toLowerCase();
 const cleanKw = (k) => k.replace(/,/g, " ").split(/\s+/).filter(Boolean).join(" ");
 function mergeKw(...lists) {   // concatenate, dropping case-insensitive repeats; the first spelling wins
@@ -1257,10 +1257,25 @@ function undoKw() {
   persistKw(); paintKw();
 }
 
-// what to offer: this roll's keywords first (stable), then the library, most recently used first; never the roll-wide ones
+// what to offer, never the roll-wide ones:
+// 1. who the gallery thinks is in the selected scans, for faces not named yet (a named face is written as a keyword anyway)
+// 2. the keywords on the scans either side of the selection, nearest first (a roll comes in runs of one subject)
+// 3. this roll's keywords in the order first used, then the library, most recently used first
+const NEAR = 3;   // how many scans either side count as neighbours
+function faceKw() {
+  return selected().flatMap((n) => (fc[n]?.faces || []).filter((f) => !f.name && !f.low && f.suggestions?.length)
+                                                       .map((f) => f.suggestions[0].name));
+}
+function nearKw() {
+  const order = scanOrder(), at = order.map((n, i) => (sel.has(n) ? i : -1)).filter((i) => i >= 0);
+  if (!at.length) return [];
+  const dist = (i) => Math.min(...at.map((j) => Math.abs(i - j)));
+  return order.map((n, i) => ({ n, d: dist(i) })).filter((x) => x.d > 0 && x.d <= NEAR)
+              .sort((a, b) => a.d - b.d).flatMap((x) => kw[x.n] || []);
+}
 function kwPool() {
   const roll = new Set(S.roll_keywords.map(lc));
-  return mergeKw(kwOrder, S.keywords.map((x) => x.name)).filter((k) => !roll.has(lc(k)));
+  return mergeKw(faceKw(), nearKw(), kwOrder, S.keywords.map((x) => x.name)).filter((k) => !roll.has(lc(k)));
 }
 function suggestions() { return kwPool().slice(0, 9); }
 let menu = { items: [], hi: 0 };
@@ -1350,12 +1365,14 @@ function paintKw() {
   input.placeholder = !n ? "click a scan to keyword it · shift-click a range · ⌘/Ctrl-A for all"
                     : (chips.length ? "add another…" : "add keywords, comma-separated…") + "   ← → next scan · ⌘/Ctrl-Z undo";
   // suggestions, numbered for the 1–9 keys
+  const faces = new Set(faceKw().map(lc)), near = new Set(nearKw().map(lc));
   const sugg = suggestions().map((k, i) => {
     const c = n ? kwCount(k) : 0;
     const b = el("button", "kw" + (c && c === n ? " on" : c ? " some" : ""));
     b.type = "button"; b.disabled = !n;
     b.append(el("span", "key", String(i + 1)), el("span", null, k));
-    b.title = !n ? "select scans first" : c === n ? "on every selected scan: click (or press " + (i + 1) + ") to remove" : "click (or press " + (i + 1) + ") to add to the selected scans";
+    const why = faces.has(lc(k)) ? "a face here looks like " + k + ". " : near.has(lc(k)) ? "on a scan next to this one. " : "";
+    b.title = !n ? "select scans first" : why + (c === n ? "On every selected scan: click (or press " + (i + 1) + ") to remove" : "Click (or press " + (i + 1) + ") to add to the selected scans");
     b.onclick = () => toggleKw(k);
     return b;
   });
@@ -1733,6 +1750,7 @@ function setFaceName(scan, i, name) {
   f.name = name.trim().replace(/\s+/g, " "); f.auto = false;
   (fcNames[scan] = fcNames[scan] || {})[faceKey(f.box)] = f.name;
   persistFaces();
+  paintKw();   // a face named is no longer suggested as a keyword
 }
 function selectFace(i, focus = true) {
   fSel = i; paintFaces(); paintFaceBar();

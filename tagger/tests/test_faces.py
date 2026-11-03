@@ -371,7 +371,25 @@ def test_every_tagged_name_is_handed_on_once_read(tmp_path, monkeypatch):
     monkeypatch.setattr(faces, "read_regions", lambda exe, folders, **kw: imgs)
     sync = Sync(FakeEngine(fps), Gallery(tmp_path / "faces.npz"), "exiftool", {"library": ["D:/lib"], "pets": ["Rex"]})
     got = []
-    sync.on_names = got.append
+    sync.on_keywords = got.append
     sync.start()
     sync.join(10)
     assert got == [["Ana", "Ben", "Rex"]]   # pets too; one spelling per name; unnamed faces left out
+
+
+def test_the_library_photos_keywords_are_handed_on_too(tmp_path, monkeypatch):
+    monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
+    fps, imgs = _library_images()
+    imgs[0].keywords = ["beach", "ben"]
+    imgs.append(TaggedImage("D:/lib/5.jpg", 1, [], ["Paris", "Beach"]))   # no faces, only keywords
+    monkeypatch.setattr(faces, "read_regions", lambda exe, folders, **kw: imgs)
+    g = Gallery(tmp_path / "faces.npz")
+    engine = FakeEngine(fps)
+    sync = Sync(engine, g, "exiftool", {"library": ["D:/lib"], "pets": ["Rex"]})
+    got = []
+    sync.on_keywords = got.append
+    sync.start()
+    sync.join(10)
+    assert got == [["Ana", "Ben", "Rex", "beach", "Paris"]]   # names first; a keyword spelled like a name is one
+    assert sync.status["photos"] == 3 and not g.is_done("D:/lib/5.jpg")   # the keywords-only photo isn't learned from
+    assert "D:/lib/5.jpg" not in engine.calls

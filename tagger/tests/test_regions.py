@@ -59,6 +59,17 @@ def test_parse_regions_converts_to_top_left_upright_boxes():
     assert out[1].orientation == 1 and out[1].faces[0].name == "Ana"
 
 
+def test_parse_regions_keeps_keywords_with_or_without_faces():
+    data = [
+        {"SourceFile": "D:/p/a.jpg", "Subject": ["beach", "Ana"], "RegionInfo": {"RegionList": [
+            {"Type": "Face", "Name": "Ana", "Area": {"X": 0.5, "Y": 0.5, "W": 0.2, "H": 0.2}}]}},
+        {"SourceFile": "D:/p/b.jpg", "Subject": 2019},   # a lone keyword arrives as a plain value
+        {"SourceFile": "D:/p/c.jpg", "Subject": []},
+    ]
+    out = parse_regions(data)
+    assert [(i.path, i.keywords, len(i.faces)) for i in out] == [("D:/p/a.jpg", ["beach", "Ana"], 1), ("D:/p/b.jpg", ["2019"], 0)]
+
+
 def test_match_boxes_by_centre_or_overlap_and_each_detection_once():
     tagged = [FaceBox(0.1, 0.1, 0.2, 0.2, "A"), FaceBox(0.6, 0.6, 0.2, 0.2, "B"), FaceBox(0.4, 0.0, 0.1, 0.1, "C")]
     found = [FaceBox(0.62, 0.62, 0.1, 0.1), FaceBox(0.15, 0.15, 0.1, 0.1)]
@@ -110,7 +121,7 @@ def test_read_regions_runs_exiftool_and_parses(tmp_path, monkeypatch):
     monkeypatch.setattr(regions.subprocess, "run", fake_run)
     out = regions.read_regions("exiftool", [tmp_path])
     assert out[0].faces[0].name == "Ana" and out[0].orientation == 6
-    assert "-RegionInfo" in seen["cmd"] and "-Orientation#" in seen["cmd"] and (tmp_path / "a.jpg").as_posix() in seen["cmd"]
+    assert "-RegionInfo" in seen["cmd"] and "-Orientation#" in seen["cmd"] and "-XMP-dc:Subject" in seen["cmd"] and (tmp_path / "a.jpg").as_posix() in seen["cmd"]
 
 
 def test_list_jpegs_finds_what_exiftool_would(tmp_path):
