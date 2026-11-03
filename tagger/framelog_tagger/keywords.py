@@ -5,7 +5,9 @@ image's keywords. They compare case-insensitively ("beach" and "Beach" are one
 keyword); the first spelling seen wins.
 
 The library is every keyword you've used, kept next to config.json so it
-carries from roll to roll and feeds the suggestions in the UI.
+carries from roll to roll and feeds the suggestions in the UI. Keywords found
+rather than used (on your Lightroom photos, or already in a scan) join it too,
+except ones you've removed: those stay out until you use them yourself.
 """
 
 from __future__ import annotations
@@ -70,6 +72,7 @@ class Library:
     def __init__(self, path: Path | None = None):
         self.path = path or library_path()
         self.items: dict[str, dict] = {}   # lower-case name -> {"name", "used", "count"}
+        self.removed: set[str] = set()     # lower-case names you removed: found again, they stay out
         self._lock = threading.RLock()     # the face library's background run adds names too
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
@@ -78,6 +81,7 @@ class Library:
                 if name:
                     self.items[name.lower()] = {"name": name, "used": str(it.get("used", "")),
                                                 "count": int(it.get("count", 0))}
+            self.removed = {clean(n).lower() for n in data.get("removed", []) if clean(n)}
         except (OSError, ValueError, TypeError, AttributeError):
             pass
 
@@ -88,10 +92,17 @@ class Library:
         return hit["name"] if hit else kw
 
     def add(self, kws: Iterable[str], touch: bool = True, written: int = 0) -> None:
-        """Add keywords; `touch` marks them used now, `written` adds to their scan counts."""
+        """Add keywords; `touch` marks them used now, `written` adds to their scan counts.
+
+        Untouched and unwritten, they were only found somewhere, so one you removed stays removed.
+        Used, it's back.
+        """
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         with self._lock:
             for kw in merge(kws):
+                if not (touch or written) and kw.lower() in self.removed:
+                    continue
+                self.removed.discard(kw.lower())
                 it = self.items.setdefault(kw.lower(), {"name": kw, "used": "", "count": 0})
                 if touch:
                     it["used"] = now
@@ -100,7 +111,9 @@ class Library:
     def remove(self, kws: Iterable[str]) -> None:
         with self._lock:
             for kw in kws:
-                self.items.pop(clean(kw).lower(), None)
+                if clean(kw):
+                    self.items.pop(clean(kw).lower(), None)
+                    self.removed.add(clean(kw).lower())
 
     def to_list(self) -> list[dict]:
         """Most recently used first, then most written, then by name."""
@@ -115,7 +128,7 @@ class Library:
     def _save(self) -> None:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps({"keywords": self.to_list()}, indent=2, ensure_ascii=False),
+            self.path.write_text(json.dumps({"keywords": self.to_list(), "removed": sorted(self.removed)}, indent=2, ensure_ascii=False),
                                  encoding="utf-8")
         except OSError:
             pass   # like config.json: remembering is a convenience, never a failure

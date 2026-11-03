@@ -46,6 +46,20 @@ def test_library_round_trip_and_order(tmp_path):
     assert Library(tmp_path / "missing.json").to_list() == []
 
 
+def test_a_removed_keyword_stays_out_until_you_use_it(tmp_path):
+    path = tmp_path / "keywords.json"
+    lib = Library(path)
+    lib.add(["Paris", "beach"], touch=False)
+    lib.remove(["paris"])
+    lib.save()
+    lib = Library(path)                               # remembered
+    lib.add(["Paris", "dog"], touch=False)            # found again on a Lightroom photo: stays out
+    assert {it["name"] for it in lib.to_list()} == {"beach", "dog"}
+    lib.add(["PARIS"])                                # typed on a scan: back
+    lib.add(["Paris"], touch=False)
+    assert lib.canonical("paris") == "PARIS" and not lib.removed
+
+
 def test_lightroom_face_names_join_the_keyword_library(tmp_path):
     from framelog_tagger.cli import library_keywords
     lib = Library(tmp_path / "keywords.json")

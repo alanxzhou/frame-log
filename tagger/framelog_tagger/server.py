@@ -99,8 +99,8 @@ class AppState:
     engine: Optional["faces_mod.Engine"] = None      # None: the face tools couldn't load (see faces_note)
     gallery: Optional["faces_mod.Gallery"] = None
     faces_note: str = ""
-    sync: Optional["faces_mod.Sync"] = None          # learns from your Lightroom folder in the background
-    face_settings: dict = field(default_factory=lambda: {"library": [], "pets": [], "synced": ""})
+    sync: Optional["faces_mod.Sync"] = None          # reads your Lightroom folders in the background (keywords, then faces)
+    face_settings: dict = field(default_factory=lambda: {"library": [], "pets": [], "synced": "", "keywords_read": {}})
     pet_engine: Optional["pets_mod.PetEngine"] = None   # None: no pet detector, so pets are skipped
     pet_gallery: Optional["faces_mod.Gallery"] = None
 
@@ -291,19 +291,21 @@ def find_in_scan(state: AppState, path):
 
 
 def faces_payload(state: AppState) -> dict:
-    """What the UI needs to offer face tagging: whether it's available, and the names to complete."""
+    """What the UI needs for the Lightroom library (its folders, what the last read found, the run in progress)
+    and to offer face tagging: whether it's available, and the names to complete."""
+    library = {"library": state.face_settings["library"], "pets": state.face_settings["pets"],
+               "synced": state.face_settings["synced"], "keywords_read": state.face_settings.get("keywords_read") or None,
+               "reads": state.sync is not None,
+               "sync": ({**state.sync.snapshot(), "running": state.sync.running} if state.sync else None)}
     if state.engine is None or state.gallery is None:
-        return {"available": False, "reason": state.faces_note, "names": [], "people": 0, "count": 0}
+        return {"available": False, "reason": state.faces_note, "names": [], "people": 0, "count": 0, **library}
     people = state.gallery.people()
     animals = state.pet_gallery.people() if state.pet_gallery is not None else []
     return {"available": True, "reason": "", "names": [n for n, _ in people] + [n for n, _ in animals if n not in dict(people)],
             "people": len(people), "pets_available": state.pet_engine is not None, "pet_names": [n for n, _ in animals],
             "pet_count": len(state.pet_gallery) if state.pet_gallery is not None else 0,
             "count": len(state.gallery), "accept": faces_mod.ACCEPT, "suggest": faces_mod.SUGGEST,
-            "min_examples": faces_mod.MIN_EXAMPLES, "gallery_file": str(state.gallery.path),
-            "library": state.face_settings["library"], "pets": state.face_settings["pets"],
-            "synced": state.face_settings["synced"],
-            "sync": ({**state.sync.snapshot(), "running": state.sync.running} if state.sync else None)}
+            "min_examples": faces_mod.MIN_EXAMPLES, "gallery_file": str(state.gallery.path), **library}
 
 
 def session_payload(state: AppState) -> dict:
@@ -477,16 +479,21 @@ def create_app(state: AppState) -> FastAPI:
 
     @app.post("/api/faces/library")
     def faces_library(req: LibraryRequest):
-        """Set (once; it's remembered) where your Lightroom photos are and which names aren't people, then learn from them."""
-        if state.sync is None or state.gallery is None:
-            raise HTTPException(409, state.faces_note or "the face tools aren't available")
+        """Set (once; it's remembered) where your Lightroom photos are and which names aren't people, then read them:
+        their keywords, then (with the face tools) their faces."""
+        if state.sync is None:
+            raise HTTPException(409, state.faces_note or "your Lightroom photos can't be read")
         if state.sync.running:
-            raise HTTPException(409, "still learning from the library; stop it first to change these")
+            raise HTTPException(409, "still reading the library; stop it first to change these")
         folders = [str(Path(f.strip()).expanduser()) for f in req.folders if f.strip()]
         for f in folders:
             if not Path(f).is_dir():
                 raise HTTPException(400, f"folder not found: {f}")
-        faces_mod.update_settings(state.gallery, state.face_settings, folders, req.pets, state.pet_gallery)
+        if state.gallery is None:   # keywords only: nothing to keep consistent
+            state.face_settings.update(library=folders, pets=merge(req.pets))
+            config.save_faces_settings(state.face_settings)
+        else:
+            faces_mod.update_settings(state.gallery, state.face_settings, folders, req.pets, state.pet_gallery)
         state.sync.start()
         return faces_payload(state)
 

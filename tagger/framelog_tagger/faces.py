@@ -290,17 +290,18 @@ def import_tagged(engine, gallery: Gallery, images: Iterable[TaggedImage], exclu
     return {"images": len(images), "skipped": skipped, "added": added, "unmatched": unmatched}
 
 
-def learn_library(engine: Engine, gallery: Gallery, exiftool: str, folders: Sequence[str], pets: Iterable[str] = (),
+def learn_library(engine: Optional[Engine], gallery: Optional[Gallery], exiftool: str, folders: Sequence[str], pets: Iterable[str] = (),
                   on_read: Optional[Callable[[], None]] = None,
                   progress: Optional[Callable[[int, int, int], None]] = None,
                   pet_engine=None, pet_gallery: Optional[Gallery] = None,
                   pet_progress: Optional[Callable[[int, int, int], None]] = None,
                   read_progress: Optional[Callable[[int, int], None]] = None,
                   on_keywords: Optional[Callable[[list[str]], None]] = None) -> dict:
-    """Learn from every photo under `folders` that already has named face regions (Lightroom's). Resumable.
+    """Read every photo under `folders` (your Lightroom library) for its keywords and named face regions, then
+    learn from the faces. Resumable.
 
     `on_keywords` is handed every name tagged in those photos (people and pets) and every keyword they carry,
-    as soon as they've been read.
+    as soon as they've been read, before any face is learned. With no `engine` that's all it does.
 
     Names in `pets` aren't people: with a pet engine they are learned into the pet gallery, otherwise left out.
     """
@@ -312,6 +313,8 @@ def learn_library(engine: Engine, gallery: Gallery, exiftool: str, folders: Sequ
         on_keywords(merge((f.name for img in images for f in img.faces if f.name),
                           (k for img in images for k in img.keywords)))
     images = [img for img in images if img.faces]   # the rest only had keywords
+    if engine is None or gallery is None:
+        return {"images": 0, "skipped": 0, "added": 0, "unmatched": 0, "tagged_images": len(images), "pets_added": 0}
     stats = {**import_tagged(engine, gallery, images, exclude=pets, progress=progress), "tagged_images": len(images)}
     stats["pets_added"] = 0
     if pets and pet_engine is not None and pet_gallery is not None:
@@ -352,21 +355,22 @@ class Stopped(Exception):
 
 
 class Sync:
-    """Keeps the galleries in step with your Lightroom folder, in a background thread.
+    """Keeps the keyword library and the galleries in step with your Lightroom folders, in a background thread.
 
-    Started on every launch (and when the folder setting changes). Reading the folder's tags takes a minute or
-    two for a big library; after that only photos not seen before are run through the models, so a start with
-    nothing new is quick. `status` is what the UI shows.
+    Started on every launch (and when the folder setting changes). Reading the folders' keywords and face tags
+    takes a minute or two for a big library, and the keywords are handed on (`on_keywords`) as soon as that's
+    done. Then only photos not seen before are run through the face models, so a start with nothing new is quick.
+    Without the face tools (`engine` None) it reads the keywords only. `status` is what the UI shows.
     """
 
-    def __init__(self, engine: Engine, gallery: Gallery, exiftool: Optional[str], settings: dict,
+    def __init__(self, engine: Optional[Engine], gallery: Optional[Gallery], exiftool: Optional[str], settings: dict,
                  pet_engine=None, pet_gallery: Optional[Gallery] = None):
         self.engine, self.gallery, self.exiftool, self.settings = engine, gallery, exiftool, settings
         self.pet_engine, self.pet_gallery = pet_engine, pet_gallery
         self.on_keywords: Optional[Callable[[list[str]], None]] = None   # every name and keyword in the library, once read
         self._thread: Optional[threading.Thread] = None
         self.status = {"running": False, "phase": "idle", "done": 0, "total": 0, "added": 0, "error": "",
-                       "steps": 0, "elapsed": 0.0, "started": "", "new_faces": 0, "photos": 0}
+                       "steps": 0, "elapsed": 0.0, "started": "", "new_faces": 0, "photos": 0, "keywords": None}
         self._t0 = 0.0
         self._stop = threading.Event()
         self._samples: deque = deque()   # (time, done) during this phase, for the time-left estimate
@@ -405,14 +409,15 @@ class Sync:
         if self.running or not self.settings.get("library"):
             return False
         if not self.exiftool:
-            self.status = {**self.status, "phase": "error", "error": "exiftool isn't available, so face tags can't be read"}
+            self.status = {**self.status, "phase": "error", "error": "exiftool isn't available, so your photos can't be read"}
             return False
         pets = self.settings.get("pets") and self.pet_engine is not None and self.pet_gallery is not None
         self._t0 = time.monotonic()
         self._samples.clear()
         self._stop.clear()
         self.status = {"running": True, "stopping": False, "phase": "reading", "done": 0, "total": 0, "added": 0, "error": "",
-                       "steps": 3 if pets else 2, "elapsed": 0.0, "new_faces": 0, "photos": 0,
+                       "steps": 1 if self.engine is None else 3 if pets else 2, "elapsed": 0.0, "new_faces": 0, "photos": 0,
+                       "keywords": None,
                        "started": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
         self._thread = threading.Thread(target=self._run, name="faces-sync", daemon=True)
         self._thread.start()
@@ -441,11 +446,19 @@ class Sync:
 
         def pet_progress(done: int, total: int, added: int) -> None:
             self._update("pets", done, total, added)
+
+        def keywords(kws: list[str]) -> None:   # read: remembered, so the UI can say where the suggestions come from
+            self.status["keywords"] = len(kws)
+            self.settings["keywords_read"] = {"count": len(kws), "photos": self.status["total"],
+                                              "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+            config.save_faces_settings(self.settings)
+            if self.on_keywords:
+                self.on_keywords(kws)
         try:
             stats = learn_library(self.engine, self.gallery, self.exiftool, list(self.settings["library"]),
                                   self.settings.get("pets", []), progress=progress, pet_engine=self.pet_engine,
                                   pet_gallery=self.pet_gallery, pet_progress=pet_progress, read_progress=read,
-                                  on_keywords=self.on_keywords)
+                                  on_keywords=keywords)
             self.settings["synced"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             config.save_faces_settings(self.settings)
             self.status.update(running=False, phase="done", done=stats["images"], total=stats["images"],
