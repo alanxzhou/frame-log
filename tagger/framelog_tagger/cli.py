@@ -169,17 +169,23 @@ def main(argv: list[str] | None = None) -> int:
     settings = config.load_faces_settings()
     library = Library()
     sync = None
-    if engine:
+    try:
         from .faces import Sync
+    except ImportError:   # a broken install: no reading the Lightroom library at all
+        Sync = None
+    if Sync is not None:
+        # keywords are read from the library with or without the face tools; faces only with them
         sync = Sync(engine, gallery, exe, settings, pet_engine, pet_gallery)
         sync.on_keywords = lambda kws: library_keywords(library, kws)
+    if engine:
         # the names already learned, too, so they're suggested even before (or without) a run
         library_keywords(library, [n for n, _ in gallery.people()] + ([n for n, _ in pet_gallery.people()] if pet_gallery else []))
         print(f"face tagging on: {len(gallery)} faces, {len(gallery.people())} people in the gallery"
               + (f"; {len(pet_gallery.people())} pets" if pet_engine else "; no pet detector"))
-        if sync.start():
-            where = ", ".join(settings["library"])
-            print(f"learning in the background from {where} (new photos only, after the first time)")
+    if sync is not None and sync.start():
+        where = ", ".join(settings["library"])
+        print(f"reading your Lightroom library in the background from {where}: keywords, then "
+              + ("faces (new photos only, after the first time)" if engine else "no faces (the face tools didn't load)"))
     state = AppState(exiftool=exe, default_tz=local_tz_name(), remembered=config.load(), engine=engine, library=library,
                      gallery=gallery, faces_note=faces_note, sync=sync, face_settings=settings,
                      pet_engine=pet_engine, pet_gallery=pet_gallery)

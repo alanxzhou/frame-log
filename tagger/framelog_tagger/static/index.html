@@ -93,14 +93,23 @@
   #faceForm .note { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
   #faceForm input:disabled, #faceForm .x:disabled { opacity: .5; cursor: not-allowed; }
   #faceHint { font-size: 11.5px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
-  #faceProgress { margin-top: 12px; }
-  #faceProgress .bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
-  #faceProgress .bar > div { height: 100%; width: 0; background: var(--accent); border-radius: 3px; transition: width 0.4s ease; }
-  #faceProgress .bar.busy > div { width: 30% !important; animation: faceBusy 1.3s ease-in-out infinite; }
+  /* the library's two results, each with its own state and progress */
+  #libParts { display: grid; gap: 8px; margin: 14px 0 0 128px; }
+  .part { border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; }
+  .part .head { display: flex; align-items: baseline; gap: 10px; font-size: 13px; }
+  .part .head b { font-weight: 600; min-width: 92px; }
+  .part .state { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .part.ready .state { color: var(--accent); }
+  .part.busy .state { color: var(--text); }
+  .part.err .state { color: var(--danger); }
+  .part .detail { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.45; font-variant-numeric: tabular-nums; }
+  .part .bar { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; margin-top: 7px; }
+  .part .bar[hidden] { display: none; }
+  .part .bar > div { height: 100%; width: 0; background: var(--accent); border-radius: 2px; transition: width 0.4s ease; }
+  .part .bar.busy > div { width: 30% !important; animation: faceBusy 1.3s ease-in-out infinite; }
+  @media (max-width: 640px) { #libParts { margin-left: 0; } }
   @keyframes faceBusy { from { margin-left: -30%; } to { margin-left: 100%; } }
-  @media (prefers-reduced-motion: reduce) { #faceProgress .bar.busy > div { animation: none; width: 100% !important; opacity: 0.4; } }
-  #faceStep { font-size: 12.5px; margin-top: 7px; }
-  #faceDetail { font-size: 12px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  @media (prefers-reduced-motion: reduce) { .part .bar.busy > div { animation: none; width: 100% !important; opacity: 0.4; } }
   label[for=fFaceLib] { align-self: start; padding-top: 7px; }
   #faceFolders { grid-column: 2 / 4; display: flex; flex-direction: column; gap: 4px; }
   #faceFolders:empty::before { content: "No folders yet"; font-size: 12.5px; color: var(--muted); }
@@ -437,33 +446,32 @@
   </form>
 
   <form id="faceForm" autocomplete="off" hidden>
-    <h2>Faces <span style="color:var(--muted);font-weight:normal;letter-spacing:0;text-transform:none">(set once, remembered on this computer)</span></h2>
-    <div class="intro">Point this at the folder of photos that already have face tags (from Lightroom) and it learns who everyone is from the names on those faces. It checks the folder for new photos every time it starts, so there is nothing to run again. In Lightroom, save the tags into the files first: Metadata → Save Metadata to Files.</div>
+    <h2>Lightroom library <span style="color:var(--muted);font-weight:normal;letter-spacing:0;text-transform:none">(set once, remembered on this computer)</span></h2>
+    <div class="intro">Point this at the photos you've tagged in Lightroom. Every time the tagger starts it reads them for two things: their <b>keywords</b>, which it suggests while you keyword scans, and the <b>faces and pets</b> you've named, so it can recognise them in new scans. In Lightroom, save the tags into the files first: Metadata → Save Metadata to Files.</div>
     <div class="field">
-      <label for="fFaceLib">tagged photos</label>
+      <label for="fFaceLib">photo folders</label>
       <div id="faceFolders"></div>
       <span></span>
       <input type="text" id="fFaceLib" placeholder="type a folder and press Enter, or Browse">
       <button type="button" data-pick="folder" data-for="fFaceLib">Browse…</button>
       <div class="hint">Add as many folders as you like; subfolders are included.</div>
     </div>
-    <div class="field">
+    <div class="field" id="petField">
       <label for="fFacePets">pets</label>
       <input type="text" id="fFacePets" placeholder="names of your pets, e.g. Kepler, Elvis">
       <span></span>
       <div class="hint">Which of the names tagged on your photos are animals, separated by commas. They're learned by a separate pet model, since the face model only knows people.</div>
     </div>
+    <div id="libParts">
+      <div class="part" id="partKw"><div class="head"><b>Keywords</b><span class="state"></span></div><div class="bar" hidden><div></div></div><div class="detail"></div></div>
+      <div class="part" id="partFaces"><div class="head"><b>Faces &amp; pets</b><span class="state"></span></div><div class="bar" hidden><div></div></div><div class="detail"></div></div>
+    </div>
     <div class="actions">
-      <button type="submit" class="primary" id="faceBtn">Save and learn</button>
-      <button type="button" id="faceStop" hidden title="Stop after the photo it's on. What it has learned so far is kept.">Stop</button>
+      <button type="submit" class="primary" id="faceBtn">Save and read</button>
+      <button type="button" id="faceStop" hidden title="Stop after the photo it's on. Keywords already read and faces already learned are kept.">Stop</button>
       <span id="faceStatus"></span>
     </div>
-    <div id="faceProgress" hidden>
-      <div class="bar"><div></div></div>
-      <div id="faceStep"></div>
-      <div id="faceDetail"></div>
-    </div>
-    <div class="hint" id="faceHint">The first time, every photo is read, which can take several minutes for a big library. You can load a roll and keep working while it runs. After that, only new photos are looked at.</div>
+    <div class="hint" id="faceHint"></div>
   </form>
 
   <form id="renameForm" autocomplete="off">
@@ -1403,7 +1411,10 @@ function renderLib() {
     return row;
   });
   $("kwLibList").replaceChildren(...(rows.length ? rows : [el("div", "empty", S.keywords.length ? "no match" : "no keywords yet: add some to a scan")]));
-  $("kwLibPath").textContent = "Kept on this computer in " + S.keywords_file + ". Removing one only stops suggesting it.";
+  const read = S.faces?.keywords_read;
+  $("kwLibPath").textContent = "Kept on this computer in " + S.keywords_file + "." +
+    (read ? " Includes the " + kwReadText(read) + " in your Lightroom library (read " + ago(read.at) + ")." : "") +
+    " Removing one stops suggesting it, even if it's found on a photo again; use it on a scan and it's back.";
 }
 
 function initKeywords() {
@@ -1566,10 +1577,12 @@ function restoreFaces() {
   try { fcNames = JSON.parse(localStorage.getItem(storeKey() + "#faces") || "{}") || {}; } catch (e) { fcNames = {}; }
   renderFaceNames();
 }
-// The Lightroom folder is set once (here, on the setup screen) and kept on this computer; the server learns from it in the
-// background on every start, so the gallery follows what you tag in Lightroom without anything to run.
+// The Lightroom library is set once (here, on the setup screen) and kept on this computer. The server reads it in the
+// background on every start: one pass over the files gives the keywords (in the suggestions as soon as it's done), then
+// the named faces are learned from, new photos only. The two show as separate parts, each with its own progress.
 let syncTimer = null;
-let faceFolders = [];   // the tagged-photo folders as edited on the Faces form, saved with "Save and learn"
+let faceFolders = [];   // the library folders as edited on the form, saved with "Save and read"
+let kwReadFor = "";     // the run whose keywords the page has already fetched
 function ago(iso) {
   const s = (Date.now() - Date.parse(iso)) / 1000;
   if (!(s >= 0)) return "";
@@ -1587,60 +1600,82 @@ function fmtLeft(eta) {
   if (eta < 5400) return "about " + Math.max(1, Math.round(eta / 60)) + " min left";
   return "about " + Math.round(eta / 3600) + " h left";
 }
-const SYNC_STEPS = { reading: [1, "Reading the face tags in your photos"], learning: [2, "Learning the faces of the people tagged"], pets: [3, "Learning the pets tagged"] };
+const plural = (n, one, many) => n.toLocaleString() + " " + (n === 1 ? one : many);
 function libraryText() {   // what's in the gallery now
   const f = S.faces;
-  const animals = f.pet_names?.length ? ", " + f.pet_names.length + (f.pet_names.length === 1 ? " pet" : " pets") : "";
-  return f.count ? f.count.toLocaleString() + " faces, " + f.people + " people" + animals : "nobody learned yet";
+  const animals = f.pet_names?.length ? ", " + plural(f.pet_names.length, "pet", "pets") : "";
+  return f.count ? f.count.toLocaleString() + " faces, " + plural(f.people, "person", "people") + animals : "nobody learned yet";
 }
-function syncText() {   // the line beside the button, and the header chip's tooltip
-  const f = S.faces, s = f?.sync;
-  if (!f?.available) return "";
-  if (s?.running) { const [n, what] = SYNC_STEPS[s.phase] || [1, "Starting"]; return "Step " + n + " of " + s.steps + ": " + what.toLowerCase(); }
-  if (s?.phase === "error") return "Couldn't learn from the library: " + s.error;
-  if (s?.phase === "stopped") return "Stopped after " + fmtDur(s.elapsed) + ". What it learned is kept: Save and learn carries on from where it stopped.";
-  if (s?.phase === "done") {
-    if (s.new_faces) return "Done in " + fmtDur(s.elapsed) + ": learned " + s.new_faces.toLocaleString() + " new faces. You now have " + libraryText() + ".";
-    if (f.count) return "Up to date (checked in " + fmtDur(s.elapsed) + "): no new faces. You have " + libraryText() + ".";
-    return "Done in " + fmtDur(s.elapsed) + ", but no named faces were found in " + (s.photos ? "those photos" : "these folders") +
-      ". In Lightroom, save the tags into the files first: Metadata → Save Metadata to Files.";
+function kwReadText(r) { return plural(r.count, "keyword", "keywords") + " from " + plural(r.photos, "photo", "photos"); }
+function paintPart(id, state, cls, detail, progress) {   // progress: none (no bar), or the run's {done, total} (no total yet: busy)
+  const part = $(id), bar = part.querySelector(".bar");
+  part.className = "part " + cls;
+  part.querySelector(".state").textContent = state;
+  part.querySelector(".detail").textContent = detail;
+  bar.hidden = !progress;
+  if (progress) {
+    const counted = progress.total > 0;
+    bar.classList.toggle("busy", !counted);
+    bar.firstElementChild.style.width = counted ? (100 * progress.done / progress.total).toFixed(1) + "%" : "";
   }
-  return f.library.length ? libraryText() + (f.synced ? " · last checked " + ago(f.synced) : " · not learned from yet") : libraryText();
+}
+function runDetail(s, unit, extra) {   // "320 of 900 tagged photos · 41 new faces · about 6 min left"
+  const parts = [s.total > 0 ? s.done.toLocaleString() + " of " + plural(s.total, unit, unit + "s") : "finding the photos in your folders"];
+  if (extra) parts.push(extra);
+  const left = fmtLeft(s.eta);
+  if (left) parts.push(left);
+  return parts.join(" · ");
+}
+function paintKwPart() {
+  const f = S.faces, s = f.sync, read = f.keywords_read;
+  if (s?.running && s.phase === "reading")
+    return paintPart("partKw", s.stopping ? "Stopping…" : "Reading", "busy", runDetail(s, "photo"), s);
+  if (s?.keywords != null)   // read in this run
+    return paintPart("partKw", "Ready", "ready", kwReadText(read || { count: s.keywords, photos: s.total }) + ", now in your suggestions.");
+  if (s?.phase === "error") return paintPart("partKw", "Error", "err", "Couldn't read the photos: " + s.error);
+  if (read) return paintPart("partKw", "Ready", "ready", kwReadText(read) + " · read " + ago(read.at) + (s?.phase === "stopped" ? " (the read since was stopped)" : ""));
+  return paintPart("partKw", "", "", f.library.length ? "Not read yet." : "Add a folder: its photos' keywords are suggested while you keyword scans.");
+}
+function paintFacesPart() {
+  const f = S.faces, s = f.sync;
+  if (!f.available) return paintPart("partFaces", "Off", "", f.reason || "The face tools aren't installed, so only keywords are read.");
+  if (s?.running && s.phase === "reading") return paintPart("partFaces", "Next", "", "Starts once the photos are read. You have " + libraryText() + ".");
+  if (s?.running) {
+    const pets = s.phase === "pets";
+    return paintPart("partFaces", s.stopping ? "Stopping…" : pets ? "Learning pets" : "Learning faces", "busy",
+                     runDetail(s, "tagged photo", plural(s.added, "new face", "new faces")), s);
+  }
+  if (s?.phase === "error") return paintPart("partFaces", "", "", "You have " + libraryText() + ".");
+  if (s?.phase === "stopped") return paintPart("partFaces", "Stopped", "", "Stopped after " + fmtDur(s.elapsed) + ". You have " + libraryText() + "; Save and read carries on from where it stopped.");
+  if (s?.phase === "done") {
+    if (s.new_faces) return paintPart("partFaces", "Ready", "ready", "Learned " + plural(s.new_faces, "new face", "new faces") + " in " + fmtDur(s.elapsed) + ". You now have " + libraryText() + ".");
+    if (f.count) return paintPart("partFaces", "Ready", "ready", "Up to date: no new faces. You have " + libraryText() + ".");
+    return paintPart("partFaces", "", "", "No named faces in those photos. In Lightroom, save the tags into the files first: Metadata → Save Metadata to Files.");
+  }
+  return paintPart("partFaces", f.count ? "Ready" : "", f.count ? "ready" : "",
+                   "You have " + libraryText() + (f.library.length && f.synced ? " · last checked " + ago(f.synced) : "") + ".");
 }
 function paintSync() {
-  const f = S?.faces, s = f?.sync, chip = $("faceSync"), st = $("faceStatus");
+  const f = S?.faces, s = f?.sync, chip = $("faceSync");
+  if (!f?.reads) { chip.hidden = true; return; }
   const running = !!s?.running;
-  st.textContent = running ? "" : syncText(); st.className = s?.phase === "error" && !running ? "err" : "";
-  $("faceProgress").hidden = !running;
+  paintKwPart(); paintFacesPart();
   if (running) {
-    const [n, what] = SYNC_STEPS[s.phase] || [1, "Starting"];
-    const counted = s.total > 0, bar = $("faceProgress").querySelector(".bar");
-    bar.classList.toggle("busy", !counted);
-    bar.firstElementChild.style.width = counted ? (100 * s.done / s.total).toFixed(1) + "%" : "";
-    $("faceStep").textContent = s.stopping ? "Stopping after the current photo…" : "Step " + n + " of " + s.steps + ": " + what + "…";
-    const unit = s.phase === "reading" ? " photos" : " tagged photos";
-    const parts = [];
-    if (counted) parts.push(s.done.toLocaleString() + " of " + s.total.toLocaleString() + unit);
-    else if (s.phase === "reading") parts.push("finding the photos in your folders");
-    if (s.phase !== "reading") parts.push(s.added.toLocaleString() + " faces so far");
-    const left = fmtLeft(s.eta);
-    if (left) parts.push(left);
-    parts.push(fmtDur(s.elapsed) + " so far");
-    $("faceDetail").textContent = parts.join(" · ");
-    chip.textContent = "learning faces · step " + n + "/" + s.steps + (counted ? " · " + Math.round(100 * s.done / s.total) + "%" : "…");
-    chip.title = $("faceStep").textContent + " " + $("faceDetail").textContent; chip.hidden = false;
+    const pct = s.total > 0 ? " · " + Math.round(100 * s.done / s.total) + "%" : "…";
+    chip.textContent = (s.phase === "reading" ? "reading Lightroom photos" : s.phase === "pets" ? "learning pets" : "learning faces") + pct;
+    chip.title = "Your Lightroom library, read in the background. Change roll shows the details."; chip.hidden = false;
   } else if (s?.phase === "error") {
-    chip.textContent = "face library error"; chip.title = s.error; chip.hidden = false;
+    chip.textContent = "Lightroom library error"; chip.title = s.error; chip.hidden = false;
   } else chip.hidden = true;
   $("faceBtn").disabled = running;
-  $("faceBtn").textContent = running ? "Learning…" : "Save and learn";
+  $("faceBtn").textContent = running ? "Reading…" : "Save and read";
   $("faceStop").hidden = !running;
   $("faceStop").disabled = !!s?.stopping;
   $("faceStop").textContent = s?.stopping ? "Stopping…" : "Stop";
   // the folders and pets can't change under a run: stop it first
   for (const e of [$("fFaceLib"), $("fFacePets"), document.querySelector('[data-for="fFaceLib"]'), ...$("faceFolders").querySelectorAll(".x")]) e.disabled = running;
-  $("faceHint").textContent = running ? "Stop the run to change the folders or pets. Anything learned so far is kept."
-    : "The first time, every photo is read, which can take several minutes for a big library. You can load a roll and keep working while it runs. After that, only new photos are looked at.";
+  $("faceHint").textContent = running ? "You can load a roll and keep working while this runs. Stop it to change the folders or pets; what's done so far is kept."
+    : "The first read of a big library takes several minutes, and learning the faces longer. After that only new photos are learned from, so a start is quick.";
 }
 async function stopSync() {
   $("faceStop").disabled = true; $("faceStop").textContent = "Stopping…";
@@ -1650,25 +1685,35 @@ async function stopSync() {
   renderFaceNames(); paintSync();
   if (S.faces.sync?.running) pollSync();
 }
+async function refreshKeywords() {   // the library read has added to the keyword library
+  S.keywords = (await api("POST", "/api/keywords", { add: [] })).keywords;
+  if (S.loaded) paintKw();
+  if ($("kwLib").open) renderLib();
+}
 async function pollSync() {
   clearTimeout(syncTimer);
   try {
     const was = S.faces?.sync?.running;
     S.faces = await api("GET", "/api/faces/sync");
     renderFaceNames(); paintSync();
-    if (S.faces.sync?.running) { syncTimer = setTimeout(pollSync, 1500); return; }
+    const s = S.faces.sync;
+    if (s?.keywords != null && kwReadFor !== s.started) {   // the read is done: its keywords are in the suggestions now
+      kwReadFor = s.started;
+      await refreshKeywords();
+      if (was) toast(plural(s.keywords, "keyword", "keywords") + " from your Lightroom photos are in the suggestions" + (s.running ? "; faces are still learning" : ""));
+    }
+    if (s?.running) { syncTimer = setTimeout(pollSync, 1500); return; }
     if (!was) return;
-    if (S.faces.sync?.phase === "done") toast("learned " + S.faces.count.toLocaleString() + " faces, " + S.faces.people + " people" +
-      (S.faces.pet_names?.length ? " and " + S.faces.pet_names.length + (S.faces.pet_names.length === 1 ? " pet" : " pets") : "") + " from your library");
-    // the names tagged in Lightroom have joined the keyword library
-    S.keywords = (await api("POST", "/api/keywords", { add: [] })).keywords;
-    if (S.loaded) paintKw();
+    if (s?.phase === "done" && S.faces.available && s.steps > 1) toast("learned " + S.faces.count.toLocaleString() + " faces, " + plural(S.faces.people, "person", "people") +
+      (S.faces.pet_names?.length ? " and " + plural(S.faces.pet_names.length, "pet", "pets") : "") + " from your Lightroom photos");
+    await refreshKeywords();   // a learned name joins the keyword library too
   } catch (e) { syncTimer = setTimeout(pollSync, 4000); }
 }
 function renderFaceSetup() {
   const f = S.faces;
-  $("faceForm").hidden = !f?.available;
-  if (!f?.available) return;
+  $("faceForm").hidden = !f?.reads;
+  if (!f?.reads) return;
+  $("petField").hidden = !f.available;
   faceFolders = [...f.library]; paintFaceFolders();
   $("fFaceLib").value = ""; $("fFacePets").value = f.pets.join(", ");
   paintSync();
@@ -1695,13 +1740,14 @@ function addFaceFolders() {
 async function saveLibrary(ev) {
   ev.preventDefault();
   addFaceFolders();   // a path typed but not yet added still counts
+  $("faceStatus").textContent = ""; $("faceStatus").className = "";
   const list = (s, sep) => s.split(sep).map((x) => x.trim()).filter(Boolean);
   $("faceBtn").disabled = true;
   try {
     S.faces = await api("POST", "/api/faces/library", { folders: faceFolders, pets: list($("fFacePets").value, ",") });
     renderFaceNames(); paintSync();
     if (S.faces.sync?.running) pollSync();
-    else if (!faceFolders.length) { $("faceStatus").textContent = "Saved. Add a folder of tagged photos to learn from."; }
+    else if (!faceFolders.length) { $("faceStatus").textContent = "Saved. Add a folder of your Lightroom photos to read."; }
   } catch (e) {
     $("faceStatus").textContent = e.message; $("faceStatus").className = "err"; $("faceBtn").disabled = false;
   }
@@ -1736,8 +1782,8 @@ async function findFaces() {
     const f = S.faces;
     toast(all.length + " faces in " + names.length + " scans, " + all.filter((x) => x.name).length + " already named" +
           (note ? ". " + note
-           : f.sync?.running ? ". Still learning from your library, so names will improve as it goes"
-           : !f.library.length && !f.people ? ". Nobody is learned yet: set the folder of tagged photos under Change roll → Faces" : ""), !!note);
+           : f.sync?.running ? ". Still learning from your Lightroom library, so names will improve as it goes"
+           : !f.library.length && !f.people ? ". Nobody is learned yet: add your Lightroom photos under Change roll → Lightroom library" : ""), !!note);
   } catch (e) {
     toast("finding faces failed: " + e.message, true);
   } finally {

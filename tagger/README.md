@@ -145,9 +145,27 @@ keywords with what the strip shows, roll's first.
 The **library** is every keyword you've added or written, stored on this
 computer next to the remembered setup values (`keywords.json` in
 `~/.config/framelog-tagger/`, `%APPDATA%\framelog-tagger\` on Windows).
-The keywords on the photos in your face folders (see Faces below) join it too, each time
-those folders are read. **Library…** lists them with counts; removing one only stops suggesting it
-(until the next read of the face folders, if a photo there still has it).
+The keywords on your Lightroom photos join it too (see below). **Library…** lists them with
+counts. Removing one stops suggesting it, even if it turns up on a photo again; use it on a scan
+and it's back.
+
+### Your Lightroom library
+
+On the setup screen, under **Lightroom library**, give the folders of photos you've tagged in Lightroom
+(subfolders are included) and click **Save and read**. The folders are remembered on this computer
+(`faces.json`, next to `keywords.json`), and every time the tagger starts it reads them again in the
+background, so it follows what you tag in Lightroom with nothing to run. One pass over the files gives two
+things, shown as two parts with their own progress:
+
+- **Keywords**: every keyword on those photos, and every name tagged on a face, joins the keyword library and
+  is suggested while you keyword scans. They're ready as soon as the files have been read (a minute or two
+  for a big library), long before the faces are learned. The part says how many came from how many photos.
+- **Faces & pets**: the named faces are learned from, so they can be recognised in new scans (see below). This
+  takes longer the first time; after that only new photos are learned from.
+
+You can load a roll and keep working while it runs; a note in the header shows its progress. Lightroom has to
+have saved the tags into the files first (select all, Metadata → Save Metadata to Files, or Ctrl/⌘-S).
+Keywords are read even if the face tools didn't load.
 
 ### Faces
 
@@ -157,13 +175,9 @@ network turns each into a fingerprint, and a name is suggested by comparing it w
 already named. Every name you confirm makes the next suggestion better. How well it works, and how
 that was measured: [docs/face-tagging-experiments.md](docs/face-tagging-experiments.md).
 
-**Teach it who people are, once.** On the setup screen, under **Faces**, give the folder of photos that already
-have face tags (everything inside is searched) and, under **pets**, which of the tagged names are animals.
-Click **Save and learn**. Both are remembered on this computer (`faces.json`, next to
-`keywords.json`), and from then on the tagger checks the folder for new photos in the background every time it
-starts, so the gallery follows what you tag in Lightroom with nothing to run. A header note shows its progress;
-you can carry on working, and names improve as it goes. Lightroom has to have saved the tags into the files
-first (select all, Metadata → Save Metadata to Files, or Ctrl/⌘-S).
+**Teach it who people are, once.** Set up your [Lightroom library](#your-lightroom-library) and, under
+**pets**, say which of the tagged names are animals. It learns from every named face there, and names
+improve as it goes.
 
 It reads each file's face regions with ExifTool, finds the face under every named box and keeps its
 fingerprint. About 0.4 s per photo on a CPU, so a first pass over ten thousand photos is an hour or so; after
