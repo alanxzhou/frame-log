@@ -350,6 +350,16 @@
   #zoom .fbox.sel { box-shadow: 0 0 0 2px var(--text), 0 0 12px rgba(0,0,0,.6); opacity: 1; }
   #zoom .fbox .label { position: absolute; left: -2px; bottom: 100%; margin-bottom: 3px; font-size: 11px; font-weight: 600; line-height: 1.4; background: rgba(0,0,0,.72); color: var(--text); padding: 1px 7px; border-radius: 7px; white-space: nowrap; }
   #zoom.still .fbox, #zoom.panning .fbox { transition: none; }
+  /* the selected box moves with a drag and resizes from its corners; Draw a box turns a drag on the picture into a new box */
+  #zoom .fbox.sel { cursor: move; }
+  #zoom .fbox .h { position: absolute; width: 10px; height: 10px; background: var(--text); border-radius: 2px; box-shadow: 0 0 0 1px rgba(0,0,0,.6); }
+  #zoom .fbox .h.nw { left: -6px; top: -6px; cursor: nwse-resize; }
+  #zoom .fbox .h.ne { right: -6px; top: -6px; cursor: nesw-resize; }
+  #zoom .fbox .h.sw { left: -6px; bottom: -6px; cursor: nesw-resize; }
+  #zoom .fbox .h.se { right: -6px; bottom: -6px; cursor: nwse-resize; }
+  #zoom.drawing img { cursor: crosshair; }
+  #zoom.drawing .fbox { pointer-events: none; }
+  #zoom .facebar button.on { box-shadow: inset 0 0 0 1px var(--accent); }
   #zoom .facebar { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; min-height: 30px; font-size: 12px; color: var(--muted); }
   #zoom .facebar input { width: 170px; background: var(--input); color: var(--text); border: 0; border-radius: 9px; padding: 6px 10px; font: inherit; box-shadow: inset 0 1px 3px rgba(0,0,0,.5), 0 0 0 1px var(--line); }
   #zoom .facebar input:focus { outline: 0; box-shadow: inset 0 1px 3px rgba(0,0,0,.5), 0 0 0 1px var(--accent); }
@@ -578,8 +588,9 @@ let kwOrder = [];      // keywords used on this roll, in the order first used: s
 let sel = new Set();   // selected scan names: the keyword box works on these
 let anchor = null, lead = null;   // shift-click / shift-arrow ranges run anchor..lead
 let kwUndo = [];       // snapshots of kw before each change, newest last
-let fc = {};           // scan name -> {width, height, faces: [{id, box, low, suggestions, name, auto}]}, filled by Find faces
-let fcNames = {};      // scan name -> {box key: name}: the names you chose ("" = cleared), kept for this roll across reloads
+let fc = {};           // scan name -> {width, height, faces: [{id, key, box, low, suggestions, name, auto, gone, drawn}]}, filled by Find faces
+let fcNames = {};      // scan name -> {box key: name}: the names you chose ("" = cleared, null = not a face), kept for this roll across reloads
+let fcBoxes = {};      // scan name -> {box key: [x, y, w, h]}: boxes you moved (keyed by where the detector put them) or drew (keys "d...")
 let fSel = -1;         // the face selected in the zoom panel
 
 async function api(method, url, body) {
@@ -791,7 +802,7 @@ function pairs() {
              .map((c) => {
                const p = { scan: c.scan, entry: c.entry, keywords: kw[c.scan] || [] };
                // only scans whose faces were looked at: for the rest, Write leaves any regions in the file alone
-               if (fc[c.scan]) p.faces = fc[c.scan].faces.map((f) => ({ id: f.id, box: f.box, name: f.name }));
+               if (fc[c.scan]) p.faces = fc[c.scan].faces.filter((f) => !f.gone).map((f) => ({ id: f.id, box: f.box, name: f.name }));
                return p;
              });
 }
@@ -938,7 +949,7 @@ function render() {
       if (s.tagged) sc.append(el("span", "pill warn badge", "tagged"));
       const fd = fc[s.name];
       if (fd) {
-        const named = fd.faces.filter((f) => f.name).length, n = fd.faces.length;
+        const live = liveFaces(fd), named = live.filter((f) => f.name).length, n = live.length;
         const fb = el("span", "pill fbadge" + (!n ? " none" : named < n ? " warn" : ""), !n ? "no faces" : named + "/" + n + (n === 1 ? " face" : " faces"));
         fb.title = !n ? "no faces found" : named + " of " + n + " faces named. Double-click the scan to review them.";
         sc.append(fb);
@@ -1271,7 +1282,7 @@ function undoKw() {
 // 3. this roll's keywords in the order first used, then the library, most recently used first
 const NEAR = 3;   // how many scans either side count as neighbours
 function faceKw() {
-  return selected().flatMap((n) => (fc[n]?.faces || []).filter((f) => !f.name && !f.low && f.suggestions?.length)
+  return selected().flatMap((n) => (fc[n]?.faces || []).filter((f) => !f.gone && !f.name && !f.low && f.suggestions?.length)
                                                        .map((f) => f.suggestions[0].name));
 }
 function nearKw() {
@@ -1531,6 +1542,7 @@ function initZoom() {
   img.addEventListener("load", () => { if (d.open) layoutZoom(); });
   img.addEventListener("pointerdown", (ev) => {
     if (ev.button !== 0) return;
+    if (zm?.drawing && fc[zm.name]) { dragged = true; drawBox(ev); return; }
     ev.preventDefault();
     const start = { x: ev.clientX, y: ev.clientY, zx: zm.x, zy: zm.y };
     let moved = false;
@@ -1558,10 +1570,12 @@ function initZoom() {
   d.addEventListener("pointerdown", () => { dragged = false; });
   d.addEventListener("click", (ev) => {
     if (dragged) { dragged = false; return; }
-    if (ev.target.closest(".facebar, .fbox")) return;   // naming a face isn't a click outside the picture
+    // naming a face isn't a click outside the picture; nor is a button the face bar has just repainted away
+    if (!ev.target.isConnected || ev.target.closest(".facebar, .fbox")) return;
     if (ev.target !== img) d.close();
   });
-  d.addEventListener("close", () => { fSel = -1; zm = null; if (S && S.loaded) render(); });   // the cards show how many faces are named
+  d.addEventListener("cancel", (ev) => { if (zm?.drawing) { ev.preventDefault(); setDrawing(false); } });
+  d.addEventListener("close", () => { d.classList.remove("drawing"); fSel = -1; zm = null; if (S && S.loaded) render(); });   // the cards show how many faces are named
   addEventListener("resize", () => { if (d.open) layoutZoom(); });
 }
 
@@ -1571,10 +1585,16 @@ function initZoom() {
 // because the server keeps nothing between runs and detection is repeatable. Write sends the names; the server stores
 // them as face regions and keywords, and every confirmed face teaches the gallery.
 const faceKey = (b) => b[0].toFixed(3) + "," + b[1].toFixed(3);
-function persistFaces() { try { localStorage.setItem(storeKey() + "#faces", JSON.stringify(fcNames)); } catch (e) {} }
+function persistFaces() {
+  try {
+    localStorage.setItem(storeKey() + "#faces", JSON.stringify(fcNames));
+    localStorage.setItem(storeKey() + "#boxes", JSON.stringify(fcBoxes));
+  } catch (e) {}
+}
 function restoreFaces() {
   fc = {}; fSel = -1;
   try { fcNames = JSON.parse(localStorage.getItem(storeKey() + "#faces") || "{}") || {}; } catch (e) { fcNames = {}; }
+  try { fcBoxes = JSON.parse(localStorage.getItem(storeKey() + "#boxes") || "{}") || {}; } catch (e) { fcBoxes = {}; }
   renderFaceNames();
 }
 // The Lightroom library is set once (here, on the setup screen) and kept on this computer. The server reads it in the
@@ -1757,11 +1777,14 @@ function renderFaceNames() {
 }
 async function detectScan(name) {
   const j = await api("POST", "/api/faces/detect/" + encodeURIComponent(name));
-  const saved = fcNames[name] || {};
+  const saved = fcNames[name] || {}, boxes = fcBoxes[name] || {};
   for (const f of j.faces) {
-    const k = faceKey(f.box);
-    if (k in saved) { f.name = saved[k]; f.auto = false; } else f.auto = !!f.name;
+    const k = f.key = faceKey(f.box);   // where the detector put it: names and moves are remembered by this
+    if (boxes[k]) f.box = boxes[k];
+    if (saved[k] === null) { f.gone = true; f.name = ""; f.auto = false; }
+    else if (k in saved) { f.name = saved[k]; f.auto = false; } else f.auto = !!f.name;
   }
+  for (const [k, box] of Object.entries(boxes)) if (k[0] === "d") j.faces.push(drawnFace(k, box, saved[k]));
   fc[name] = j;
   return j;
 }
@@ -1778,7 +1801,7 @@ async function findFaces() {
       btn.textContent = "Finding faces " + (i + 1) + "/" + names.length;
       note = (await detectScan(names[i])).note || note;
     }
-    const all = Object.values(fc).flatMap((d) => d.faces);
+    const all = Object.values(fc).flatMap(liveFaces);
     const f = S.faces;
     toast(all.length + " faces in " + names.length + " scans, " + all.filter((x) => x.name).length + " already named" +
           (note ? ". " + note
@@ -1794,9 +1817,101 @@ async function findFaces() {
 function setFaceName(scan, i, name) {
   const f = fc[scan].faces[i];
   f.name = name.trim().replace(/\s+/g, " "); f.auto = false;
-  (fcNames[scan] = fcNames[scan] || {})[faceKey(f.box)] = f.name;
+  (fcNames[scan] = fcNames[scan] || {})[f.key] = f.name;
   persistFaces();
   paintKw();   // a face named is no longer suggested as a keyword
+}
+// A box the detector got wrong (a fold of denim, a lamp) is removed rather than deleted: it stays in the list so the
+// others keep the ids the server knows them by, it's hidden and left out of Write, and the removal is remembered.
+const liveFaces = (d) => d.faces.filter((f) => !f.gone);
+function removeFace(scan, i, gone = true) {
+  const f = fc[scan].faces[i];
+  f.gone = gone; f.name = ""; f.auto = false;
+  (fcNames[scan] = fcNames[scan] || {})[f.key] = gone ? null : "";
+  persistFaces();
+  paintKw();
+}
+// the next face still showing after i, else the one before it, else none
+function nextFace(data, i) {
+  const n = data.faces.length;
+  for (let j = i + 1; j < n; j++) if (!data.faces[j].gone) return j;
+  for (let j = i; j >= 0; j--) if (!data.faces[j].gone) return j;
+  return -1;
+}
+// A box you draw has no detection behind it: it's written as a region with its name, but the gallery has nothing to
+// suggest for it or learn from. Moving a detected box keeps its detection (and what Write learns from it).
+function drawnFace(key, box, name) {
+  return { id: null, kind: "face", key, box, low: false, suggestions: [], name: name || "", auto: false, gone: name === null, drawn: true };
+}
+function setFaceBox(scan, f, box) {
+  f.box = box.map((v) => +v.toFixed(4));
+  (fcBoxes[scan] = fcBoxes[scan] || {})[f.key] = f.box;
+  persistFaces();
+}
+// where a pointer is on the picture, as fractions of it, held inside the picture
+function picPoint(ev) {
+  const r = $("zoom").querySelector(".frame").getBoundingClientRect(), c = (v) => Math.min(1, Math.max(0, v));
+  return [c((ev.clientX - r.left - zm.x) / zm.dw), c((ev.clientY - r.top - zm.y) / zm.dh)];
+}
+function setDrawing(on) {
+  if (!zm) return;
+  zm.drawing = on;
+  $("zoom").classList.toggle("drawing", on);
+  paintFaceBar();
+}
+// a drag on the selected box moves it; a drag on one of its corners resizes it, the opposite corner staying put
+function dragBox(ev, i, corner) {
+  ev.preventDefault();
+  const scan = zm.name, f = fc[scan].faces[i], b = ev.currentTarget, d = $("zoom");
+  const [x0, y0, w0, h0] = f.box, [px, py] = picPoint(ev), MIN = 0.01;
+  let moved = false;
+  b.setPointerCapture(ev.pointerId);
+  const move = (e) => {
+    const [qx, qy] = picPoint(e), dx = qx - px, dy = qy - py;
+    if (!moved && Math.hypot(dx * zm.dw, dy * zm.dh) < 3) return;
+    moved = true; d.classList.add("panning");
+    let x1 = x0, y1 = y0, x2 = x0 + w0, y2 = y0 + h0;
+    if (!corner) {
+      x1 = Math.min(1 - w0, Math.max(0, x0 + dx)); y1 = Math.min(1 - h0, Math.max(0, y0 + dy));
+      x2 = x1 + w0; y2 = y1 + h0;
+    } else {
+      if (corner.includes("w")) x1 = Math.min(qx, x2 - MIN); else x2 = Math.max(qx, x1 + MIN);
+      if (corner.includes("n")) y1 = Math.min(qy, y2 - MIN); else y2 = Math.max(qy, y1 + MIN);
+    }
+    f.box = [x1, y1, x2 - x1, y2 - y1];
+    placeFaces();
+  };
+  const up = () => {
+    b.removeEventListener("pointermove", move); b.removeEventListener("pointerup", up); b.removeEventListener("pointercancel", up);
+    d.classList.remove("panning");
+    if (moved) { setFaceBox(scan, f, f.box); b.dataset.dragged = "1"; }
+  };
+  b.addEventListener("pointermove", move); b.addEventListener("pointerup", up); b.addEventListener("pointercancel", up);
+}
+// with Draw a box on, a drag on the picture makes a new box, then it's selected for naming
+function drawBox(ev) {
+  ev.preventDefault();
+  const img = ev.currentTarget, d = $("zoom"), layer = d.querySelector(".faces"), scan = zm.name, [px, py] = picPoint(ev);
+  const ghost = el("div", "fbox sel");
+  layer.append(ghost);
+  let box = null;
+  img.setPointerCapture(ev.pointerId);
+  const move = (e) => {
+    const [qx, qy] = picPoint(e);
+    box = [Math.min(px, qx), Math.min(py, qy), Math.abs(qx - px), Math.abs(qy - py)];
+    Object.assign(ghost.style, { left: zm.x + box[0] * zm.dw + "px", top: zm.y + box[1] * zm.dh + "px", width: box[2] * zm.dw + "px", height: box[3] * zm.dh + "px" });
+  };
+  const up = () => {
+    img.removeEventListener("pointermove", move); img.removeEventListener("pointerup", up); img.removeEventListener("pointercancel", up);
+    ghost.remove();
+    zm.drawing = false; d.classList.remove("drawing");
+    if (!box || box[2] * zm.dw < 8 || box[3] * zm.dh < 8) { paintFaceBar(); return; }   // a click, not a box
+    const data = fc[scan], f = drawnFace("d" + Date.now().toString(36), box, "");
+    data.faces.push(f);
+    setFaceBox(scan, f, box);
+    selectFace(data.faces.length - 1);
+  };
+  img.addEventListener("pointermove", move); img.addEventListener("pointerup", up); img.addEventListener("pointercancel", up);
 }
 function selectFace(i, focus = true) {
   fSel = i; paintFaces(); paintFaceBar();
@@ -1807,11 +1922,21 @@ function paintFaces() {
   layer.replaceChildren();
   if (!data) return;
   data.faces.forEach((f, i) => {
+    if (f.gone) return;
     const b = el("div", "fbox" + (f.name ? " named" + (f.auto ? " auto" : "") : "") + (f.low ? " low" : "") + (i === fSel ? " sel" : ""));
     if (f.name) b.append(el("span", "label", f.name + (f.auto ? " ?" : "")));
+    b.dataset.i = i;
     b.style.display = "none";   // until placeFaces knows where the picture is
-    b.addEventListener("click", (ev) => { ev.stopPropagation(); selectFace(i); });
-    b.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+    if (i === fSel) for (const c of ["nw", "ne", "sw", "se"]) { const h = el("div", "h " + c); h.dataset.corner = c; b.append(h); }
+    b.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      if (b.dataset.dragged) { delete b.dataset.dragged; return; }   // the end of a move or resize
+      selectFace(i);
+    });
+    b.addEventListener("pointerdown", (ev) => {
+      ev.stopPropagation();
+      if (ev.button === 0 && i === fSel) dragBox(ev, i, ev.target.dataset.corner);
+    });
     layer.append(b);
   });
   placeFaces();
@@ -1819,8 +1944,8 @@ function paintFaces() {
 function placeFaces() {
   const data = zm && fc[zm.name];
   if (!data || !zm.dw) return;
-  [...$("zoom").querySelector(".faces").children].forEach((b, i) => {
-    const [x, y, w, h] = data.faces[i].box;
+  [...$("zoom").querySelector(".faces").children].forEach((b) => {
+    const [x, y, w, h] = data.faces[+b.dataset.i].box;
     Object.assign(b.style, { display: "", left: zm.x + x * zm.dw + "px", top: zm.y + y * zm.dh + "px", width: w * zm.dw + "px", height: h * zm.dh + "px" });
   });
 }
@@ -1839,16 +1964,21 @@ function paintFaceBar() {
     bar.append(b);
     return;
   }
-  const scan = zm.name;
-  if (!data.faces.length) { bar.append(el("span", null, "no faces found")); return; }
-  if (fSel < 0 || fSel >= data.faces.length) { bar.append(el("span", null, data.faces.length + (data.faces.length === 1 ? " face" : " faces") + " found: click one to name it")); return; }
-  const i = fSel, f = data.faces[i];
-  bar.append(el("span", null, (f.kind === "pet" ? "pet " : "face ") + (i + 1) + " of " + data.faces.length + (f.low ? " · unsure it's " + (f.kind === "pet" ? "a pet" : "a face") : "")));
+  const scan = zm.name, live = liveFaces(data), removed = data.faces.length - live.length;
+  if (fSel < 0 || fSel >= data.faces.length || data.faces[fSel].gone) {
+    bar.append(el("span", null, zm.drawing ? "drag over the picture to draw a box (Esc to stop)"
+      : !live.length ? "no faces found" : live.length + (live.length === 1 ? " face" : " faces") + " found: click one to name it"));
+    drawButton(bar);
+    bringBack(bar, scan, data, removed);
+    return;
+  }
+  const i = fSel, f = data.faces[i], what = f.kind === "pet" ? "a pet" : "a face";
+  bar.append(el("span", null, (f.kind === "pet" ? "pet " : "face ") + (live.indexOf(f) + 1) + " of " + live.length + (f.low ? " · unsure it's " + what : "")));
   for (const s of f.suggestions) {
     const b = el("button", "kw" + (s.name === f.name ? " on" : ""), s.name);
     b.append(el("span", "pct", Math.round(s.score * 100)));
     b.title = "how closely this face matches " + s.name + "'s faces on file (about 40+ is a likely match)";
-    b.onclick = () => { setFaceName(scan, i, s.name); selectFace(Math.min(i + 1, data.faces.length - 1)); };
+    b.onclick = () => { setFaceName(scan, i, s.name); selectFace(nextFace(data, i)); };
     bar.append(b);
   }
   const inp = el("input"); inp.setAttribute("list", "faceNames"); inp.placeholder = "who is this?"; inp.value = f.name;
@@ -1857,13 +1987,13 @@ function paintFaceBar() {
     ev.stopPropagation();
     if (ev.key === "Enter") {          // confirm and move on to the next face
       setFaceName(scan, i, inp.value);
-      selectFace(i + 1 < data.faces.length ? i + 1 : i);
+      selectFace(nextFace(data, i));
     }
   });
   bar.append(inp);
   if (f.auto) {
     const ok = el("button", null, "Confirm " + f.name);
-    ok.onclick = () => { setFaceName(scan, i, f.name); selectFace(i + 1 < data.faces.length ? i + 1 : i); };
+    ok.onclick = () => { setFaceName(scan, i, f.name); selectFace(nextFace(data, i)); };
     bar.append(ok);
   }
   if (f.name) {
@@ -1871,6 +2001,25 @@ function paintFaceBar() {
     no.onclick = () => { setFaceName(scan, i, ""); selectFace(i, false); };
     bar.append(no);
   }
+  const rm = el("button", null, "Not " + what);
+  rm.title = "remove this box: it isn't " + what + ". It won't be written or suggested, and stays removed for this roll";
+  rm.onclick = () => { removeFace(scan, i); const j = nextFace(data, i); selectFace(j, j >= 0); };
+  bar.append(rm);
+  drawButton(bar);
+  bringBack(bar, scan, data, removed);
+}
+function drawButton(bar) {
+  const b = el("button", zm.drawing ? "on" : null, zm.drawing ? "Stop drawing" : "Draw a box");
+  b.title = "drag over the picture to mark a face the scan missed. Select a box to move it, or drag its corners to resize it";
+  b.onclick = () => { if (!zm.drawing) { fSel = -1; paintFaces(); } setDrawing(!zm.drawing); };
+  bar.append(b);
+}
+function bringBack(bar, scan, data, removed) {
+  if (!removed) return;
+  const b = el("button", null, "Bring back " + removed + " removed");
+  b.title = "show the boxes you marked as not a face or pet again";
+  b.onclick = () => { data.faces.forEach((f, j) => { if (f.gone) removeFace(scan, j, false); }); selectFace(fSel, false); };
+  bar.append(b);
 }
 
 /* ---------- preview + toast ---------- */
