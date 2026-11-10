@@ -83,6 +83,10 @@ and so on). Fix the exceptions:
 - **Auto-pair** resets to positional order.
 - Click a **frame number** to see exactly which ExifTool tags will be written.
 
+A scan left in a slot with no card is still written, just without the card's
+tags (see below). Its connector stays amber and the stats count it as a scan
+without log, since that's often a sign of a mispairing.
+
 ### Editing and adding cards
 
 When there's no export, or the export is missing frames, make the cards here:
@@ -102,9 +106,11 @@ each changed field in the editor and a *Revert to original* button), or
 running tagger only. The export file is never changed, and **Change roll** or
 restarting the tagger drops them.
 
-Without an export, a scan in a slot with no card still gets the roll-wide tags.
+A scan in a slot with no card, with or without an export, still gets the
+roll-wide tags and its own keywords and named faces, but no date, GPS or gear
+tags.
 
-**Write** writes the tags into each paired scan in place. Fill in *write to*
+**Write** writes the tags into every scan in place. Fill in *write to*
 on the setup screen to leave the originals alone and write tagged copies into
 that folder instead.
 Pairing state is remembered in the browser so a reload doesn't lose your work.
@@ -140,7 +146,8 @@ the photo's keywords at import.
 Each scan's keywords are remembered in the browser along with the pairing.
 Keywords already in the files (an earlier Write, another app) are read at
 **Load roll**, so re-writing a roll keeps them. Write replaces a scan's
-keywords with what the strip shows, roll's first.
+keywords with what the strip shows, roll's first, on every scan, including one
+with no log card.
 
 The **library** is every keyword you've added or written, stored on this
 computer next to the remembered setup values (`keywords.json` in
@@ -213,7 +220,7 @@ better as you tag more of them. Very small heads (under about 40 px) are often m
 detector: [docs/pet-tagging-experiments.md](docs/pet-tagging-experiments.md).
 
 **Write** stores every named face as a face region (`XMP-mwg-rs:RegionInfo`) and as a keyword
-(`XMP-dc:Subject`). Lightroom wants both: the region puts the name on the face, and the keyword makes it
+(`XMP-dc:Subject`), on a scan with no log card too. Lightroom wants both: the region puts the name on the face, and the keyword makes it
 searchable. Things to know:
 
 - Regions already in the file are kept. Write changes only the boxes of faces you named: a box you name

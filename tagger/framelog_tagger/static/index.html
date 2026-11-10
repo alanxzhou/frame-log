@@ -797,8 +797,10 @@ function swap(row, i, j) {
   const t = cols[i][row]; cols[i][row] = cols[j][row]; cols[j][row] = t;
   normalize(); render();
 }
+// Every scan is written: one with a card gets that card's tags, one without (entry null) still gets
+// the roll-wide tags and its own keywords and faces, so they aren't silently dropped.
 function pairs() {
-  return cols.filter((c) => c.scan != null && (c.entry != null || noLog()))
+  return cols.filter((c) => c.scan != null)
              .map((c) => {
                const p = { scan: c.scan, entry: c.entry, keywords: kw[c.scan] || [] };
                // only scans whose faces were looked at: for the rest, Write leaves any regions in the file alone
@@ -962,10 +964,13 @@ function render() {
     dragify(sc, "scan", i);
     col.append(shiftBar("scan", i), sc);
 
-    // connector: without a log, a scan on its own still gets the roll-wide tags
+    // connector: without a log, a scan on its own is the norm; with one, a scan with no card is
+    // still written (roll-wide tags only) but stays amber, as it often means a mispairing
     const both = c.scan != null && (c.entry != null || noLog());
     const one = !both && (c.scan != null || c.entry != null);
     const link = el("div", "link" + (both ? " paired" : one ? " half" : ""));
+    if (c.scan != null) link.title = c.entry != null ? "written with this card's tags" : NO_CARD;
+    else if (c.entry != null) link.title = "no scan: this card isn't written";
     link.append(el("div", "dot"));
     col.append(link);
 
@@ -993,7 +998,9 @@ function render() {
       ec.append(gps, cardFoot(e));
       ec.ondblclick = () => openEditor(e.id);
     } else {
-      ec.append(el("span", null, noLog() ? "roll-wide tags only" : "no log entry"));
+      const none = el("span", null, noLog() ? "roll-wide tags only" : c.scan != null ? "no log entry · roll-wide tags only" : "no log entry");
+      if (c.scan != null) none.title = NO_CARD;
+      ec.append(none);
       const make = el("div", "make");
       const add = el("button", null, "New"); add.title = "make a card for this slot from scratch";
       add.onclick = () => openEditor(null, i);
@@ -1012,21 +1019,24 @@ function render() {
   persist();
   paintKw();
 }
+const NO_CARD = "no card: Write gives this scan the roll-wide tags and its keywords and faces, but no date, GPS or gear";
 function renderStats() {
   const p = pairs().length;
+  const scansUn = noLog() ? 0 : cols.filter((c) => c.scan != null && c.entry == null).length;
   $("write").disabled = !S.exiftool || p === 0;
-  $("write").title = S.exiftool ? "Write metadata into " + p + " scan(s)" : "exiftool not found; set its location on the first screen (Change roll)";
+  $("write").title = !S.exiftool ? "exiftool not found; set its location on the first screen (Change roll)"
+    : "Write metadata into " + p + " scan(s)" + (scansUn ? ": " + (p - scansUn) + " with their log card, " + scansUn + " with roll-wide tags, keywords and faces only" : "");
   const edited = S.entries.filter((e) => e.status === "edited").length;
   const added = S.entries.filter((e) => e.status === "added").length;
   const changes = (edited ? " · " + edited + " edited" : "") + (added ? " · " + added + " added" : "");
   const entriesUn = cols.filter((c) => c.entry != null && c.scan == null).length;
   const unpaired = entriesUn ? ' · <span class="warn">' + entriesUn + " card" + (entriesUn > 1 ? "s" : "") + " without scan</span>" : "";
   if (noLog()) { $("stats").innerHTML = "<b>" + p + "</b> scans" + (S.entries.length ? "" : " · roll-wide tags only") + changes + unpaired; return; }
-  const scansUn = cols.filter((c) => c.scan != null && c.entry == null).length;
   const fallback = S.entries.filter((e) => e.local && e.zone_source === "fallback").length;
   $("stats").innerHTML =
-    "<b>" + p + "</b> paired" + changes +
-    (scansUn ? ' · <span class="warn">' + scansUn + " scan" + (scansUn > 1 ? "s" : "") + " without log</span>" : "") +
+    "<b>" + (p - scansUn) + "</b> paired" + changes +
+    (scansUn ? ' · <span class="warn" title="' + NO_CARD + '">' + scansUn + " scan" + (scansUn > 1 ? "s" : "") +
+               " without log (roll-wide tags only)</span>" : "") +
     (entriesUn ? ' · <span class="warn">' + entriesUn + " log entr" + (entriesUn > 1 ? "ies" : "y") + " without scan</span>" : "") +
     (fallback ? ' · <span class="warn" title="these frames were logged before the phone recorded its zone">' + fallback + " frame" + (fallback > 1 ? "s" : "") + " on fallback zone " + S.tz + "</span>" : "");
 }
@@ -2051,7 +2061,11 @@ async function write() {
   const unreviewed = named.filter((f) => fc[f.scan]?.faces[f.id]?.auto).length;
   const faceNote = named.length ? "\n\n" + named.length + " named face(s) are written as face regions and keywords" +
     (unreviewed ? ", " + unreviewed + " of them suggested by the gallery and not yet confirmed (dashed in the zoom view)" : "") + "." : "";
-  if (!confirm("Write metadata for " + ps.length + " frame(s)?\n\nDestination: " + dest + rollKw + faceNote)) return;
+  const lone = noLog() ? 0 : ps.filter((p) => p.entry == null).length;
+  const loneNote = !lone ? "" : "\n\n" + (lone === 1 ? "1 of them has no log card: it gets the roll-wide tags and its"
+                                                     : lone + " of them have no log card: they get the roll-wide tags and their") +
+    " keywords and faces, but no date, GPS or gear.";
+  if (!confirm("Write metadata for " + ps.length + " scan(s)?\n\nDestination: " + dest + rollKw + loneNote + faceNote)) return;
   $("write").disabled = true; $("write").textContent = "Writing…";
   try {
     const r = await fetch("/api/write", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pairs: ps }) });
