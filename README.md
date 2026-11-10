@@ -33,12 +33,14 @@ updates activate once the old version is fully closed).
 
 - **Rolls.** Switch rolls from the dropdown, start a new one with **+ Roll**,
   or rename the current one with **Rename**.
-- **Logging a frame.** Tap the shutter button. It captures the time
-  immediately and the GPS fix as soon as it arrives — the timestamp is the
-  moment you pressed, not the moment the fix landed, so a slow fix doesn't
-  skew your times. The phone's current time zone is saved with the frame, so
-  travel rolls tag correctly later. If GPS fails (deep canyon, building), the
-  frame is still saved with the time and blank coordinates.
+- **Logging a frame.** Tap the shutter button. The frame is saved right away
+  with the time of the press, and its GPS fix is filled in when it arrives
+  (the row shows "acquiring fix…" until then), so a slow fix doesn't skew
+  your times, pocketing the phone mid-fix doesn't lose the frame, and you can
+  log the next frame without waiting. The phone's current time zone is saved
+  with the frame, so travel rolls tag correctly later. If GPS fails (deep
+  canyon, building), the frame keeps the time and blank coordinates; a fix
+  never overwrites coordinates you typed in by hand.
 - **Shot details** (lens/aperture/shutter/frame #/notes) are optional and
   apply to the next frame you log. Lens/aperture/shutter are sticky across
   frames; frame # and notes clear after each log. Frame # auto-increments

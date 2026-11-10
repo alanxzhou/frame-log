@@ -280,6 +280,32 @@ def test_keywords_roll_wide_per_scan_and_library(env):
     assert "old" not in {k["name"] for k in lib}
 
 
+def test_scan_without_a_card_is_written_when_a_log_is_loaded(env, monkeypatch):
+    # A scan in a column with no card still gets the roll-wide tags, its keywords and its named faces;
+    # only the card's date, GPS and gear are missing.
+    c = env["client"]
+    written = {}
+    monkeypatch.setattr(server, "write_tags", lambda exe, src, dst, args: written.__setitem__(src.name, args))
+    monkeypatch.setattr(server, "read_regions", lambda exe, paths: [])   # no regions in the file yet
+    assert _load(env, make="Nikon", camera="FE", film="Portra 400", iso=400).status_code == 200
+    r = c.post("/api/write", json={"pairs": [
+        {"scan": "1.jpg", "entry": 0, "keywords": ["beach"]},
+        {"scan": "10.jpg", "entry": None, "keywords": ["dog"], "faces": [{"box": [0.1, 0.1, 0.2, 0.3], "name": "Alice"}]},
+    ]})
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["written"] == 2
+    lone = next(res for res in j["results"] if res["scan"] == "10.jpg")
+    assert lone["ok"] and lone["entry"] is None and lone["faces"] == 1
+    args = written["10.jpg"]
+    assert {"-Make=Nikon", "-Model=FE", "-ISO=400", "-UserComment=roll: Test roll | film: Portra 400"} <= set(args)
+    assert [a for a in args if a.startswith("-XMP-dc:Subject=")] == [
+        "-XMP-dc:Subject=Nikon FE", "-XMP-dc:Subject=Portra 400", "-XMP-dc:Subject=dog", "-XMP-dc:Subject=Alice"]
+    assert not any(a.startswith(("-DateTimeOriginal", "-GPS", "-LensModel", "-ImageDescription")) for a in args)
+    # the paired scan still gets its card's tags
+    assert "-DateTimeOriginal=2026:08:30 23:05:12" in written["1.jpg"] and "-GPSLatitude=40.5" in written["1.jpg"]
+
+
 def test_keywords_cleared_only_when_the_scan_had_some(env):
     c = env["client"]
     _load(env)   # no camera or film: no roll keywords

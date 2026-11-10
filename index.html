@@ -317,34 +317,103 @@ $("newRoll").addEventListener("click", () => {
 });
 
 /* ---------- the core: log a frame ---------- */
+// The frame is saved at the press and the fix is filled in when it lands, so a
+// page suspended mid-fix (phone pocketed) still keeps the frame. Pending
+// entries are tracked by object: nothing replaces entry objects (edits mutate,
+// drag reorders the same objects), so a reference survives reorders and roll
+// switches, and a deleted entry simply isn't found again.
+const awaitingFix = new WeakSet();
+let fixesPending = 0;
+
+function pendingNote() {
+  return fixesPending ? " · " + fixesPending + " fix" + (fixesPending === 1 ? "" : "es") + " pending" : "";
+}
+function showGpsStatus(text, ok) {
+  gpsStatus.textContent = fixesPending ? "GPS acquiring…" : text;
+  gpsStatus.classList.toggle("ok", !fixesPending && ok);
+}
+
 shutter.addEventListener("click", () => {
-  const pressedAt = new Date(); // capture the moment of the press, not the fix
-  shutter.disabled = true;
-  gpsStatus.textContent = "GPS acquiring…";
-  gpsStatus.classList.remove("ok");
-  fixReadout.textContent = "acquiring fix…";
+  const entry = addEntry(new Date()); // the moment of the press, not the fix
+  if (!navigator.geolocation) {
+    showGpsStatus("GPS unavailable", false);
+    fixReadout.innerHTML = '<span class="bad">frame ' + entry.frame +
+      " · no GPS on this device — time logged, coords blank</span>";
+    return;
+  }
+  awaitingFix.add(entry);
+  fixesPending++;
+  showGpsStatus("", false);
+  fixReadout.textContent = "frame " + entry.frame + " logged · acquiring fix…" +
+    (fixesPending > 1 ? pendingNote() : "");
+  refreshCoords(entry); // "no coordinates" -> "acquiring fix…" on the new row
 
   navigator.geolocation.getCurrentPosition(
     (pos) => {
-      addEntry(pressedAt, pos.coords);
-      gpsStatus.textContent = "GPS fixed";
-      gpsStatus.classList.add("ok");
+      fixesPending--;
+      awaitingFix.delete(entry);
+      const applied = applyFix(entry, pos.coords);
+      showGpsStatus("GPS fixed", true);
       const acc = Math.round(pos.coords.accuracy);
-      fixReadout.innerHTML =
-        'logged · accuracy <span class="' + (acc <= 15 ? "good" : "bad") + '">±' + acc + " m</span>";
-      shutter.disabled = false;
+      fixReadout.innerHTML = "frame " + entry.frame + " · " +
+        (applied
+          ? 'accuracy <span class="' + (acc <= 15 ? "good" : "bad") + '">±' + acc + " m</span>"
+          : "fix not applied (frame deleted or coords entered by hand)") + pendingNote();
     },
     (err) => {
-      // Still record the timestamp so the frame isn't lost.
-      addEntry(pressedAt, null);
-      gpsStatus.textContent = "GPS failed";
-      fixReadout.innerHTML = '<span class="bad">no fix (' + err.message +
-        ") — time logged, coords blank</span>";
-      shutter.disabled = false;
+      fixesPending--;
+      awaitingFix.delete(entry);
+      refreshCoords(entry); // "acquiring fix…" -> "no coordinates"
+      showGpsStatus("GPS failed", false);
+      fixReadout.innerHTML = '<span class="bad">frame ' + entry.frame + ": no fix (" + escapeHtml(err.message || "error") +
+        ") — time logged, coords blank</span>" + pendingNote();
     },
     { enableHighAccuracy: true, timeout: 30000, maximumAge: 5000 }
   );
 });
+
+function rollOf(entry) {
+  return Object.values(state.rolls).find((r) => r.entries.includes(entry)) || null;
+}
+
+// Fill in a late fix. Returns false when it was dropped: the entry was deleted,
+// or the user has typed coordinates into it (saved, or still in an open form).
+function applyFix(entry, coords) {
+  const r = rollOf(entry);
+  if (!r || entry.lat != null) return false;
+  const form = editFormOf(entry);
+  if (form) {
+    const lat = form.querySelector(".eLat"), lon = form.querySelector(".eLon");
+    if (lat.value.trim() || lon.value.trim()) return false;
+    // Put the fix into the open form rather than re-rendering it, which would
+    // drop unsaved edits; Save then keeps it.
+    lat.value = coords.latitude; lon.value = coords.longitude;
+  }
+  entry.lat = coords.latitude;
+  entry.lon = coords.longitude;
+  entry.acc = Math.round(coords.accuracy);
+  entry.alt = coords.altitude != null ? Math.round(coords.altitude) : null;
+  save();
+  refreshCoords(entry);
+  return true;
+}
+
+// The <li> showing entry, if it's on screen. Looked up by index rather than
+// re-rendering, so an open edit form or a drag in progress is left alone.
+function rowOf(entry) {
+  const r = roll();
+  const idx = r.entries.indexOf(entry);
+  return idx < 0 ? null : $("entries").querySelector('li[data-idx="' + idx + '"]');
+}
+function editFormOf(entry) {
+  const li = rowOf(entry);
+  return li && li.classList.contains("editing") ? li : null;
+}
+function refreshCoords(entry) {
+  const li = rowOf(entry);
+  const span = li && li.querySelector(".coords");
+  if (span) span.textContent = coordsText(entry);
+}
 
 function deviceZone() {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) { return ""; }
@@ -366,18 +435,20 @@ function apertureNumber(aperture) {
   return m ? m[1] : "";
 }
 
-function addEntry(when, coords) {
+// Saves a new entry without coordinates; the shutter handler fills them in later.
+function addEntry(when) {
   const r = roll();
-  const manualFrame = $("mFrame").value.trim();
+  // A typo'd frame # would store NaN, which exports as null and makes the tagger reject the roll.
+  const manualFrame = parseInt($("mFrame").value.trim(), 10);
   const entry = {
-    frame: manualFrame ? parseInt(manualFrame, 10) : nextFrameDefault(r),
+    frame: Number.isFinite(manualFrame) ? manualFrame : nextFrameDefault(r),
     iso: when.toISOString(),
     local: when.toLocaleString(),
     tz: deviceZone(), // IANA zone the phone was in; lets the tagger write correct local times on travel rolls
-    lat: coords ? coords.latitude : null,
-    lon: coords ? coords.longitude : null,
-    acc: coords ? Math.round(coords.accuracy) : null,
-    alt: coords && coords.altitude != null ? Math.round(coords.altitude) : null,
+    lat: null,
+    lon: null,
+    acc: null,
+    alt: null,
     lens: $("mLens").value.trim(),
     aperture: formatAperture($("mAperture").value),
     shutterSpeed: $("mShutter").value.trim(),
@@ -385,7 +456,17 @@ function addEntry(when, coords) {
   };
   r.entries.push(entry);
   $("mFrame").value = ""; $("mNotes").value = ""; // sticky: lens/aperture/shutter persist
-  save(); renderRolls(); renderEntries();
+  save(); renderRolls();
+  // An open edit form would lose its unsaved changes to a re-render; the new
+  // row shows up when that form is saved or cancelled.
+  if (editingIndex === null) renderEntries();
+  else $("frameCount").textContent = r.entries.length + " frames";
+  return entry;
+}
+
+function coordsText(en) {
+  if (en.lat != null) return en.lat.toFixed(6) + ", " + en.lon.toFixed(6) + (en.acc != null ? " · ±" + en.acc + "m" : "");
+  return awaitingFix.has(en) ? "acquiring fix…" : "no coordinates";
 }
 
 /* ---------- render entries ---------- */
@@ -411,10 +492,7 @@ function renderEntries() {
         '<button class="grip" aria-label="Drag to reorder">≡</button>' +
         '<span class="frame-no">' + en.frame + '</span>' +
         '<span class="when">' + en.local + "</span>" +
-        '<span class="coords">' +
-          (en.lat != null
-            ? en.lat.toFixed(6) + ", " + en.lon.toFixed(6) + " · ±" + en.acc + "m"
-            : "no coordinates") + "</span>" +
+        '<span class="coords">' + coordsText(en) + "</span>" +
         (gear ? '<div class="note">' + escapeHtml(gear) + "</div>" : "") +
         (en.notes ? '<div class="note">' + escapeHtml(en.notes) + "</div>" : "") +
         '<div class="actions">' +
