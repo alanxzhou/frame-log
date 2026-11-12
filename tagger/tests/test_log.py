@@ -67,6 +67,18 @@ def test_rejects_unknown_schema(tmp_path: Path):
         read_log(_write(tmp_path, {**EXPORT, "schema": 3}))
 
 
+def test_out_of_range_or_non_finite_coords_load_as_no_gps(tmp_path: Path):
+    base = {"iso": "2026-08-30T14:05:12Z"}
+    entries = [{**base, "frame": 1, "lat": 500, "lon": 10},
+               {**base, "frame": 2, "lat": 10, "lon": -181},
+               {**base, "frame": 3, "lat": "NaN", "lon": 10},
+               {**base, "frame": 4, "lat": 10, "lon": float("inf")},
+               {**base, "frame": 5, "lat": -90, "lon": 180}]
+    roll = read_log(_write(tmp_path, {**EXPORT, "entries": entries}))
+    assert [(e.lat, e.lon) for e in roll.entries[:4]] == [(None, None)] * 4
+    assert (roll.entries[4].lat, roll.entries[4].lon) == (-90, 180)   # the limits themselves are fine
+
+
 def test_rejects_invalid_json_and_bad_entries(tmp_path: Path):
     p = tmp_path / "bad.json"
     p.write_text("{not json", encoding="utf-8")

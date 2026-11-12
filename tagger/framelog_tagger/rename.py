@@ -124,17 +124,36 @@ def apply_rename(plan: RenamePlan) -> Path:
     """Rename the files, then the folder. Returns the folder's new path.
 
     Goes through temporary names so swapping orders (re-running with reverse
-    flipped) can't collide with itself.
+    flipped) can't collide with itself. If any step fails (e.g. a scan open in
+    another program on Windows), the renames done so far are undone so no file
+    is left under a hidden temp name, and the error is re-raised.
     """
     moves = [(o, n) for o, n in plan.items if o != n]
     tag = uuid.uuid4().hex[:8]
-    temps = []
-    for i, (old, new) in enumerate(moves):
-        tmp = f".framelog-rename-{tag}-{i}{Path(old).suffix}"
-        (plan.src_dir / old).rename(plan.src_dir / tmp)
-        temps.append((tmp, new))
-    for tmp, new in temps:
-        (plan.src_dir / tmp).rename(plan.src_dir / new)
-    if plan.dst_dir != plan.src_dir:
-        plan.src_dir.rename(plan.dst_dir)
+    done: list[tuple[str, str]] = []    # (from, to) for each file rename that happened, in order
+    try:
+        temps = []
+        for i, (old, new) in enumerate(moves):
+            tmp = f".framelog-rename-{tag}-{i}{Path(old).suffix}"
+            (plan.src_dir / old).rename(plan.src_dir / tmp)
+            done.append((old, tmp))
+            temps.append((tmp, new))
+        for tmp, new in temps:
+            (plan.src_dir / tmp).rename(plan.src_dir / new)
+            done.append((tmp, new))
+        if plan.dst_dir != plan.src_dir:
+            plan.src_dir.rename(plan.dst_dir)
+    except OSError:
+        _undo(plan.src_dir, done)
+        raise
     return plan.dst_dir
+
+
+def _undo(directory: Path, done: list[tuple[str, str]]) -> None:
+    """Reverse the renames in done, newest first. Best effort: one that fails
+    is skipped so the rest still go back, and the original error is what's reported."""
+    for src, dst in reversed(done):
+        try:
+            (directory / dst).rename(directory / src)
+        except OSError:
+            pass

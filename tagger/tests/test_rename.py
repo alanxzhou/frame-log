@@ -71,6 +71,25 @@ def test_apply_then_reverse_in_place(lab):
     assert (new / "roll-02.jpg").read_bytes() == LAB[1].encode()
 
 
+@pytest.mark.parametrize("fail_at", [2, 5, 7])   # a temp move, a final-name move, the folder
+def test_failed_rename_puts_everything_back(lab, monkeypatch, fail_at):
+    before = {p.name: p.read_bytes() for p in lab.iterdir()}
+    real_rename, calls = Path.rename, []
+
+    def flaky(self, target):
+        calls.append(self)
+        if len(calls) == fail_at:
+            raise PermissionError("file is open in another program")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", flaky)
+    with pytest.raises(PermissionError):
+        apply_rename(plan_rename(lab, "roll"))
+    monkeypatch.undo()
+    assert lab.is_dir()
+    assert {p.name: p.read_bytes() for p in lab.iterdir()} == before
+
+
 def test_rerename_fixes_a_typo_and_keeps_frame_numbers(lab):
     new = apply_rename(plan_rename(lab, "tokyo-fm2-protra400"))
     (new / "tokyo-fm2-protra400-02.jpg").unlink()           # a blank, deleted after renaming

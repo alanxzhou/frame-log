@@ -26,10 +26,21 @@ class ScanInfo:
     tagged: bool  # already has DateTimeOriginal, i.e. probably tagged before
     keywords: list[str] = field(default_factory=list)  # XMP-dc:Subject already in the file
     orientation: int = 1  # EXIF Orientation; width/height are the stored pixels, so 5-8 means the picture is turned
+    # The file's st_mtime_ns. The UI puts it in image URLs, so a different picture under
+    # the same name (another folder, a re-rename, an edit) isn't shown from the browser's cache.
+    version: int = 0
 
     def to_dict(self) -> dict:
         return {"name": self.name, "width": self.width, "height": self.height, "tagged": self.tagged,
-                "keywords": self.keywords, "orientation": self.orientation}
+                "keywords": self.keywords, "orientation": self.orientation, "v": self.version}
+
+
+def file_version(path: Path) -> int:
+    """The file's st_mtime_ns, or 0 if it can't be read (the image endpoints will say why)."""
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return 0
 
 
 def natural_key(name: str):
@@ -60,7 +71,7 @@ def list_scans(directory: Path | str) -> list[ScanInfo]:
             keywords = []
             orientation = 1
         out.append(ScanInfo(name=p.name, path=p, width=w, height=h, tagged=tagged, keywords=keywords,
-                            orientation=orientation))
+                            orientation=orientation, version=file_version(p)))
     return out
 
 

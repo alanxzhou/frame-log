@@ -5,7 +5,7 @@ buildJson in ../index.html):
 
     {
       "app": "framelog",
-      "schema": 1,
+      "schema": 2,             # 1 (exports from before "tz") is still accepted
       "exported": "<ISO-8601 UTC>",
       "roll": "<roll name>",
       "entries": [ { frame, iso, local, tz, lat, lon, acc, alt,
@@ -21,6 +21,7 @@ are numbers or null, aperture is "f/2.8", shutterSpeed is free text like
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone
@@ -92,6 +93,21 @@ def _float(v: Any) -> Optional[float]:
         return None
 
 
+def _coords(lat: Any, lon: Any) -> tuple[Optional[float], Optional[float]]:
+    """A lat/lon pair, or (None, None) when either is missing, non-finite or out of range.
+
+    A bad pair loads as "no GPS" rather than failing the whole roll: one
+    mistyped frame shouldn't stop the rest from being tagged, and writing an
+    impossible position into EXIF would be worse than writing none.
+    """
+    la, lo = _float(lat), _float(lon)
+    if la is None or lo is None or not (math.isfinite(la) and math.isfinite(lo)):
+        return None, None
+    if abs(la) > 90 or abs(lo) > 180:
+        return None, None
+    return la, lo
+
+
 def _str(v: Any) -> str:
     return "" if v is None else str(v).strip()
 
@@ -129,12 +145,13 @@ def entry_from_dict(d: dict, where: str = "") -> LogEntry:
         datetime.fromisoformat(iso.replace("Z", "+00:00"))
     except ValueError:
         raise LogFormatError(f"{where}: bad or missing timestamp {iso!r}")
+    lat, lon = _coords(d.get("lat"), d.get("lon"))
     return LogEntry(
         frame=frame,
         iso=iso,
         tz=_str(d.get("tz")),
-        lat=_float(d.get("lat")),
-        lon=_float(d.get("lon")),
+        lat=lat,
+        lon=lon,
         acc=_float(d.get("acc")),
         alt=_float(d.get("alt")),
         lens=_str(d.get("lens")),

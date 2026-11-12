@@ -70,6 +70,13 @@
     padding: 10px 12px; font-family: var(--mono); font-size: 13px; cursor: pointer;
   }
 
+  /* ---- shown while the log can't be written to storage ---- */
+  .save-warning {
+    border: 1px solid var(--danger); border-radius: 6px; color: var(--danger);
+    padding: 9px 12px; margin-bottom: 14px;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;
+  }
+
   /* ---- the shutter button: signature element ---- */
   .shutter-wrap { display: flex; flex-direction: column; align-items: center; margin: 6px 0 10px; }
   #shutter {
@@ -225,6 +232,12 @@
   <select id="rollSelect" aria-label="Current roll"></select>
   <button id="renameRoll" title="Rename current roll" aria-label="Rename current roll">Rename</button>
   <button id="newRoll" title="Start a new roll">+ Roll</button>
+  <button id="deleteRoll" title="Delete current roll" aria-label="Delete current roll">✕</button>
+</div>
+
+<div class="save-warning" id="saveWarning" role="alert" hidden>
+  Couldn't save the log on this phone (storage full or blocked). Frames logged
+  now are only in this open page — export now.
 </div>
 
 <div class="shutter-wrap">
@@ -271,7 +284,14 @@ function loadState() {
   const id = newId();
   return { currentRoll: id, rolls: { [id]: { name: "Roll 1", entries: [] } } };
 }
-function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
+// Never throws: a failed write (quota full, private mode) must not stop the
+// caller, e.g. the shutter handler still has a fix to request. The frame is
+// then only in memory, so say so until a later save gets through.
+function save() {
+  let ok = true;
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { ok = false; }
+  $("saveWarning").hidden = ok;
+}
 function newId() { return "r" + Date.now().toString(36); }
 function roll() { return state.rolls[state.currentRoll]; }
 
@@ -308,10 +328,29 @@ $("renameRoll").addEventListener("click", () => {
 $("newRoll").addEventListener("click", () => {
   const name = prompt("Roll name (e.g. 2026-06 Portra 400 #3):",
                       "Roll " + (Object.keys(state.rolls).length + 1));
-  if (!name) return;
+  if (name === null) return;          // cancelled
+  const trimmed = name.trim();
+  if (!trimmed) return;               // refuse blank names
   const id = newId();
-  state.rolls[id] = { name, entries: [] };
+  state.rolls[id] = { name: trimmed, entries: [] };
   state.currentRoll = id;
+  editingIndex = null;
+  save(); renderRolls(); renderEntries();
+});
+$("deleteRoll").addEventListener("click", () => {
+  const r = roll();
+  if (!confirm('Delete roll "' + r.name + '" and its ' + frameCountText(r.entries.length) +
+               "? This can't be undone.")) return;
+  // A fix still pending for one of its frames is dropped by applyFix (rollOf finds no roll).
+  delete state.rolls[state.currentRoll];
+  const ids = Object.keys(state.rolls);
+  if (ids.length) {
+    state.currentRoll = ids[ids.length - 1];
+  } else {                            // always keep a current roll to log into
+    const id = newId();
+    state.rolls[id] = { name: "Roll 1", entries: [] };
+    state.currentRoll = id;
+  }
   editingIndex = null;
   save(); renderRolls(); renderEntries();
 });
@@ -460,7 +499,7 @@ function addEntry(when) {
   // An open edit form would lose its unsaved changes to a re-render; the new
   // row shows up when that form is saved or cancelled.
   if (editingIndex === null) renderEntries();
-  else $("frameCount").textContent = r.entries.length + " frames";
+  else $("frameCount").textContent = frameCountText(r.entries.length);
   return entry;
 }
 
@@ -470,10 +509,12 @@ function coordsText(en) {
 }
 
 /* ---------- render entries ---------- */
+function frameCountText(n) { return n + " frame" + (n === 1 ? "" : "s"); }
+
 function renderEntries() {
   const r = roll();
   $("rollTitle").textContent = r.name;
-  $("frameCount").textContent = r.entries.length + " frame" + (r.entries.length === 1 ? "" : "s");
+  $("frameCount").textContent = frameCountText(r.entries.length);
   $("mFrame").placeholder = "auto (" + nextFrameDefault(r) + ")";
   const ul = $("entries");
   ul.innerHTML = "";
@@ -626,6 +667,9 @@ function wireEditForm(li, r, idx) {
     if (lat !== null && (!Number.isFinite(lat) || !Number.isFinite(lon))) {
       alert("Latitude/longitude must be numbers."); return;
     }
+    if (lat !== null && (Math.abs(lat) > 90 || Math.abs(lon) > 180)) {
+      alert("Latitude must be between -90 and 90, longitude between -180 and 180."); return;
+    }
     const d = new Date(timeVal);
     if (isNaN(d.getTime())) { alert("Invalid time."); return; }
 
@@ -663,8 +707,8 @@ function buildGpx(r) {
     const name = "Frame " + e.frame;
     const desc = [e.lens, e.aperture, e.shutterSpeed, e.notes].filter(Boolean).join(" | ");
     return '  <wpt lat="' + e.lat + '" lon="' + e.lon + '">\n' +
+           (e.alt != null ? "    <ele>" + e.alt + "</ele>\n" : "") + // GPX 1.1 order: ele, time, name, desc
            "    <time>" + e.iso + "</time>\n" +
-           (e.alt != null ? "    <ele>" + e.alt + "</ele>\n" : "") +
            "    <name>" + escapeHtml(name) + "</name>\n" +
            (desc ? "    <desc>" + escapeHtml(desc) + "</desc>\n" : "") +
            "  </wpt>";
@@ -797,6 +841,8 @@ function makeZip(files) {
 /* ---------- init ---------- */
 renderRolls();
 renderEntries();
+// Ask the browser not to evict the log (iOS can clear web-app storage); best effort.
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
 /* ---------- PWA: register service worker for offline use ---------- */
 if ("serviceWorker" in navigator) {

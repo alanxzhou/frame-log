@@ -1,6 +1,7 @@
 """API tests. ExifTool is replaced with a stub script so these run anywhere."""
 
 import json
+import os
 import stat
 import sys
 from pathlib import Path
@@ -64,6 +65,32 @@ def _load(env, **extra):
 def test_natural_sort():
     assert sorted(["10.jpg", "2.jpg", "1.jpg", "img_9.jpg", "img_10.jpg"], key=natural_key) == \
         ["1.jpg", "2.jpg", "10.jpg", "img_9.jpg", "img_10.jpg"]
+
+
+def test_foreign_host_is_refused(env):
+    # DNS rebinding: a web page's own domain resolving to 127.0.0.1
+    r = env["client"].get("/api/session", headers={"Host": "evil.example"})
+    assert r.status_code == 400
+    assert env["client"].get("/api/session", headers={"Host": "127.0.0.1:8765"}).status_code == 200
+
+
+def test_foreign_origin_on_a_post_is_refused(env):
+    c = env["client"]
+    _load(env)
+    for origin in ["https://evil.example", "http://localhost.evil.example", "null", "https://127.0.0.1:8765"]:
+        assert c.post("/api/unload", headers={"Origin": origin}).status_code == 403, origin
+    assert c.get("/api/session").json()["loaded"] is True
+
+
+def test_local_origin_and_no_origin_work(env):
+    c = env["client"]
+    _load(env)
+    assert c.post("/api/unload", headers={"Origin": "http://127.0.0.1:8765"}).status_code == 200
+    _load(env)
+    assert c.post("/api/unload", headers={"Origin": "http://localhost:9000"}).status_code == 200
+    _load(env)
+    assert c.post("/api/unload").status_code == 200
+    assert c.get("/api/session").json()["loaded"] is False
 
 
 def test_unloaded_session_and_409s(env):
@@ -165,6 +192,22 @@ def test_write_defaults_to_in_place(env):
     j = env["client"].post("/api/write", json={"pairs": [{"scan": "1.jpg", "entry": 0}]}).json()
     assert j["written"] == 1 and Path(j["results"][0]["path"]) == env["scans"] / "1.jpg"
     assert not (env["scans"] / "tagged").exists()
+
+
+def test_scan_version_follows_the_file(env):
+    # The UI puts "v" in thumbnail URLs, so a rewritten file must get a new one.
+    c, scan = env["client"], env["scans"] / "1.jpg"
+    v1 = {sc["name"]: sc["v"] for sc in _load(env).json()["scans"]}["1.jpg"]
+    assert v1 == scan.stat().st_mtime_ns
+    Image.new("RGB", (64, 40), (0, 0, 200)).save(scan)
+    os.utime(scan, ns=(v1 + 10**9, v1 + 10**9))   # don't rely on the clock having ticked
+    v2 = {sc["name"]: sc["v"] for sc in _load(env).json()["scans"]}["1.jpg"]
+    assert v2 == v1 + 10**9
+    # An in-place write reports the file's version afterwards (the stub leaves the file alone, so touch it).
+    os.utime(scan, ns=(v2 + 10**9, v2 + 10**9))
+    j = c.post("/api/write", json={"pairs": [{"scan": "1.jpg", "entry": 0}]}).json()
+    assert j["results"][0]["v"] == v2 + 10**9
+    assert {sc["name"]: sc["v"] for sc in c.get("/api/session").json()["scans"]}["1.jpg"] == v2 + 10**9
 
 
 def test_write_validates_input(env):

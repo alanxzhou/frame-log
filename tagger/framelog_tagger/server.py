@@ -24,10 +24,12 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, Response
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, PlainTextResponse, Response
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel
 
 from . import config
@@ -37,7 +39,7 @@ from .keywords import Library, clean, merge, roll_keywords
 from .log import LogEntry, LogFormatError, read_log
 from .regions import FaceBox, iou as regions_iou, merge_regions, read_regions, region_args
 from .rename import apply_rename, detect_name, plan_rename
-from .scans import ScanInfo, ThumbnailCache, list_scans
+from .scans import ScanInfo, ThumbnailCache, file_version, list_scans
 
 try:   # a broken install (numpy or onnxruntime missing) leaves the rest of the tagger working
     from . import faces as faces_mod
@@ -46,6 +48,18 @@ except ImportError:
     faces_mod = pets_mod = None
 
 STATIC = Path(__file__).parent / "static"
+LOCAL_HOSTS = ["127.0.0.1", "localhost"]
+STATE_CHANGING = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def is_local_origin(origin: str) -> bool:
+    """An http origin on this machine, any port: the tagger's own page."""
+    try:
+        parts = urlsplit(origin)
+        parts.port   # raises on a malformed port
+    except ValueError:
+        return False
+    return parts.scheme == "http" and parts.hostname in LOCAL_HOSTS
 
 
 @dataclass
@@ -347,6 +361,20 @@ def session_payload(state: AppState) -> dict:
 
 def create_app(state: AppState) -> FastAPI:
     app = FastAPI(title="Frame Log tagger")
+    # Only answer to local names, so a web page can't reach the API by
+    # pointing its own domain at 127.0.0.1 (DNS rebinding). "testserver" is
+    # the host FastAPI's TestClient sends.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=LOCAL_HOSTS + ["testserver"])
+
+    @app.middleware("http")
+    async def refuse_foreign_origins(request: Request, call_next):
+        # A page on any website can send a body-less POST (e.g. /api/unload) to
+        # 127.0.0.1 without a CORS preflight; the browser marks it with that
+        # site's Origin. No Origin at all (curl, the tests) is let through.
+        origin = request.headers.get("origin")
+        if request.method in STATE_CHANGING and origin is not None and not is_local_origin(origin):
+            return PlainTextResponse("cross-origin request refused", status_code=403)
+        return await call_next(request)
 
     def need_session() -> Session:
         if state.session is None:
@@ -434,7 +462,7 @@ def create_app(state: AppState) -> FastAPI:
         try:
             new_dir = apply_rename(plan)
         except OSError as e:
-            raise HTTPException(500, f"rename failed partway: {e}")
+            raise HTTPException(500, f"rename failed; the files were put back under their original names: {e}")
         if state.remembered.get("scans_dir") and Path(state.remembered["scans_dir"]).expanduser() == plan.src_dir:
             state.remembered["scans_dir"] = str(new_dir)
             config.save(state.remembered)
@@ -634,7 +662,9 @@ def create_app(state: AppState) -> FastAPI:
                 written = merge(s.ctx.keywords, kws)
                 if s.in_place:   # copies start from the original each time, so only then has the file changed
                     scan.keywords = written
+                    scan.version = file_version(scan.path)   # keeps the UI's image URLs in step with the file
                 return ({"scan": scan.name, "entry": idx, "ok": True, "path": str(dst), "keywords": written,
+                         "v": scan.version,
                          "faces": len(named) if face_args else 0, "note": note},
                         [(n, d, str(scan.path)) for n, d in learn])
             except (ExifToolError, OSError) as e:
