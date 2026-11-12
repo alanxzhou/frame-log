@@ -39,7 +39,7 @@ from .keywords import Library, clean, merge, roll_keywords
 from .log import LogEntry, LogFormatError, read_log
 from .regions import FaceBox, iou as regions_iou, merge_regions, read_regions, region_args
 from .rename import apply_rename, detect_name, plan_rename
-from .scans import ScanInfo, ThumbnailCache, list_scans
+from .scans import ScanInfo, ThumbnailCache, file_version, list_scans
 
 try:   # a broken install (numpy or onnxruntime missing) leaves the rest of the tagger working
     from . import faces as faces_mod
@@ -662,7 +662,9 @@ def create_app(state: AppState) -> FastAPI:
                 written = merge(s.ctx.keywords, kws)
                 if s.in_place:   # copies start from the original each time, so only then has the file changed
                     scan.keywords = written
+                    scan.version = file_version(scan.path)   # keeps the UI's image URLs in step with the file
                 return ({"scan": scan.name, "entry": idx, "ok": True, "path": str(dst), "keywords": written,
+                         "v": scan.version,
                          "faces": len(named) if face_args else 0, "note": note},
                         [(n, d, str(scan.path)) for n, d in learn])
             except (ExifToolError, OSError) as e:

@@ -1,6 +1,7 @@
 """API tests. ExifTool is replaced with a stub script so these run anywhere."""
 
 import json
+import os
 import stat
 import sys
 from pathlib import Path
@@ -191,6 +192,22 @@ def test_write_defaults_to_in_place(env):
     j = env["client"].post("/api/write", json={"pairs": [{"scan": "1.jpg", "entry": 0}]}).json()
     assert j["written"] == 1 and Path(j["results"][0]["path"]) == env["scans"] / "1.jpg"
     assert not (env["scans"] / "tagged").exists()
+
+
+def test_scan_version_follows_the_file(env):
+    # The UI puts "v" in thumbnail URLs, so a rewritten file must get a new one.
+    c, scan = env["client"], env["scans"] / "1.jpg"
+    v1 = {sc["name"]: sc["v"] for sc in _load(env).json()["scans"]}["1.jpg"]
+    assert v1 == scan.stat().st_mtime_ns
+    Image.new("RGB", (64, 40), (0, 0, 200)).save(scan)
+    os.utime(scan, ns=(v1 + 10**9, v1 + 10**9))   # don't rely on the clock having ticked
+    v2 = {sc["name"]: sc["v"] for sc in _load(env).json()["scans"]}["1.jpg"]
+    assert v2 == v1 + 10**9
+    # An in-place write reports the file's version afterwards (the stub leaves the file alone, so touch it).
+    os.utime(scan, ns=(v2 + 10**9, v2 + 10**9))
+    j = c.post("/api/write", json={"pairs": [{"scan": "1.jpg", "entry": 0}]}).json()
+    assert j["results"][0]["v"] == v2 + 10**9
+    assert {sc["name"]: sc["v"] for sc in c.get("/api/session").json()["scans"]}["1.jpg"] == v2 + 10**9
 
 
 def test_write_validates_input(env):

@@ -942,7 +942,7 @@ function render() {
     if (c.scan != null) {
       const s = scanByName[c.scan];
       const img = document.createElement("img");
-      img.src = "/api/thumb/" + encodeURIComponent(s.name); img.loading = "lazy"; img.alt = s.name;
+      img.src = imageUrl("thumb", s.name); img.loading = "lazy"; img.alt = s.name;
       const kws = el("div", "kws");
       sc.append(img, el("div", "name", s.name), kws);
       sc.dataset.scan = s.name;
@@ -1495,22 +1495,29 @@ function initKeywords() {
   $("kwLibClose").onclick = () => $("kwLib").close();
 }
 
+// Thumbnails are cached by the browser for an hour; the file's version in the URL
+// makes a different picture under the same name (another folder, a re-rename) a new URL.
+function imageUrl(kind, name) {
+  const s = S.scans.find((x) => x.name === name);
+  return "/api/" + kind + "/" + encodeURIComponent(name) + "?v=" + (s ? s.v : 0);
+}
+
 /* ---------- zoom ---------- */
 // The panel shows the whole scan. A click on the picture shows it at 100% around that point and
 // a drag pans; another click fits it again. A click outside the picture closes the panel.
 let zm = null;   // { name, w, h: the scan's own pixels once loaded, at100, x, y: picture's place in the frame }
 function openZoom(name) {
-  const d = $("zoom"), img = d.querySelector("img"), q = encodeURIComponent(name);
+  const d = $("zoom"), img = d.querySelector("img");
   zm = { name, w: 0, h: 0, at100: false, x: 0, y: 0 };
   // thumbnail first (already loaded), then the large copy, then the scan itself for 100%
-  img.src = "/api/thumb/" + q; img.alt = name;
+  img.src = imageUrl("thumb", name); img.alt = name;
   const view = new Image(), full = new Image();
   view.onload = () => { if (zm?.name === name && !zm.w) img.src = view.src; };
   full.onload = () => {
     if (zm?.name !== name) return;
     zm.w = full.naturalWidth; zm.h = full.naturalHeight; img.src = full.src; layoutZoom();
   };
-  view.src = "/api/view/" + q; full.src = "/api/full/" + q;
+  view.src = imageUrl("view", name); full.src = "/api/full/" + encodeURIComponent(name);
   d.querySelector(".name").textContent = name;
   d.classList.add("still");
   d.showModal();
@@ -2072,7 +2079,11 @@ async function write() {
     const j = await r.json();
     if (!r.ok) throw new Error(j.detail || r.statusText);
     results = {};
-    for (const res of j.results) results[res.scan] = res;
+    for (const res of j.results) {
+      results[res.scan] = res;
+      const s = S.scans.find((x) => x.name === res.scan);
+      if (s && res.v != null) s.v = res.v;   // an in-place write changed the file, so its thumbnail URL changes too
+    }
     S.keywords = j.keywords;
     S.faces = j.faces; renderFaceNames();
     const failed = j.results.length - j.written;
