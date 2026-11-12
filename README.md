@@ -32,7 +32,9 @@ updates activate once the old version is fully closed).
 ## Using it
 
 - **Rolls.** Switch rolls from the dropdown, start a new one with **+ Roll**,
-  or rename the current one with **Rename**.
+  rename the current one with **Rename**, or delete it (and all its frames)
+  with **✕** after a confirmation. Deleting the last roll leaves a fresh,
+  empty "Roll 1".
 - **Logging a frame.** Tap the shutter button. The frame is saved right away
   with the time of the press, and its GPS fix is filled in when it arrives
   (the row shows "acquiring fix…" until then), so a slow fix doesn't skew
@@ -51,7 +53,10 @@ updates activate once the old version is fully closed).
 - **Reordering frames.** Drag an entry by the ≡ handle on its left to move
   it, e.g. to slot a forgotten frame 5 in between 4 and 6 after logging it
   with a manual frame #. Only the order changes; frame numbers stay as you
-  entered them. The handle hides while a frame is open for editing.
+  entered them. The handle hides while a frame is open for editing. The
+  tagger orders frames by frame number, so the dragged order only decides
+  between frames that share a number: if a frame is out of place, fix its
+  frame number.
 - **Exporting.** Export JSON (everything, including gear fields; this is
   what the tagger reads), GPX (for third-party geotagging tools that align
   waypoints to photos), or both at once as a ZIP.
