@@ -66,6 +66,32 @@ def test_natural_sort():
         ["1.jpg", "2.jpg", "10.jpg", "img_9.jpg", "img_10.jpg"]
 
 
+def test_foreign_host_is_refused(env):
+    # DNS rebinding: a web page's own domain resolving to 127.0.0.1
+    r = env["client"].get("/api/session", headers={"Host": "evil.example"})
+    assert r.status_code == 400
+    assert env["client"].get("/api/session", headers={"Host": "127.0.0.1:8765"}).status_code == 200
+
+
+def test_foreign_origin_on_a_post_is_refused(env):
+    c = env["client"]
+    _load(env)
+    for origin in ["https://evil.example", "http://localhost.evil.example", "null", "https://127.0.0.1:8765"]:
+        assert c.post("/api/unload", headers={"Origin": origin}).status_code == 403, origin
+    assert c.get("/api/session").json()["loaded"] is True
+
+
+def test_local_origin_and_no_origin_work(env):
+    c = env["client"]
+    _load(env)
+    assert c.post("/api/unload", headers={"Origin": "http://127.0.0.1:8765"}).status_code == 200
+    _load(env)
+    assert c.post("/api/unload", headers={"Origin": "http://localhost:9000"}).status_code == 200
+    _load(env)
+    assert c.post("/api/unload").status_code == 200
+    assert c.get("/api/session").json()["loaded"] is False
+
+
 def test_unloaded_session_and_409s(env):
     c = env["client"]
     j = c.get("/api/session").json()
