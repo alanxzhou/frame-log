@@ -8,6 +8,7 @@ buildJson in ../index.html):
       "schema": 2,             # 1 (exports from before "tz") is still accepted
       "exported": "<ISO-8601 UTC>",
       "roll": "<roll name>",
+      "rollId": "<the phone's id for the roll>",   # newer exports only; not needed here
       "entries": [ { frame, iso, local, tz, lat, lon, acc, alt,
                      lens, aperture, shutterSpeed, notes }, ... ]
     }
