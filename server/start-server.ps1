@@ -18,7 +18,7 @@ function Write-Log($text) { "$(Get-Date -Format s) $text" | Out-File -Append -En
 while ($true) {
     if ((Test-Path $log) -and (Get-Item $log).Length -gt 10MB) { Move-Item -Force $log "$log.old" }
     Write-Log "starting server"
-    & uv run --frozen framelog-sync 2>&1 | ForEach-Object { "$_" } | Out-File -Append -Encoding utf8 $log
+    & uv run --frozen python -m framelog_sync.cli 2>&1 | ForEach-Object { "$_" } | Out-File -Append -Encoding utf8 $log
     Write-Log "server stopped (exit code $LASTEXITCODE); restarting in 30 seconds"
     Start-Sleep -Seconds 30
 }

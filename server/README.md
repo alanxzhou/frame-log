@@ -45,7 +45,7 @@ Requires [uv](https://docs.astral.sh/uv/); it fetches Python 3.11+ if needed.
 cd server
 uv sync
 copy .env.example .env      # then edit .env: at least SYNC_PASSWORD
-uv run framelog-sync
+uv run python -m framelog_sync.cli
 ```
 
 Generate the password with `uv run python -c "import secrets; print(secrets.token_urlsafe(24))"`.
@@ -129,8 +129,8 @@ get there. Nothing is ever deleted from the bucket.
 Commands (from `server/`):
 
 ```
-uv run framelog-sync s3-verify    # put, get, list and delete a test object under the prefix
-uv run framelog-sync s3-catchup   # upload everything the bucket lacks, now
+uv run python -m framelog_sync.cli s3-verify    # put, get, list and delete a test object under the prefix
+uv run python -m framelog_sync.cli s3-catchup   # upload everything the bucket lacks, now
 ```
 
 ### AWS setup
@@ -189,8 +189,8 @@ uv run framelog-sync s3-catchup   # upload everything the bucket lacks, now
    Or keep the keys out of `.env`: put them in `%USERPROFILE%\.aws\credentials` under a profile
    (`aws configure --profile framelog-backup` if you have the AWS CLI) and set
    `AWS_PROFILE=framelog-backup`. The scheduled task runs as you, so it reads the same file.
-6. **Check**: `uv run framelog-sync s3-verify` should print `OK`. Then restart the server (or run
-   `uv run framelog-sync s3-catchup`) to upload what's already on disk. The app's **Sync** panel
+6. **Check**: `uv run python -m framelog_sync.cli s3-verify` should print `OK`. Then restart the server (or run
+   `uv run python -m framelog_sync.cli s3-catchup`) to upload what's already on disk. The app's **Sync** panel
    shows `S3 backup ok` after the next sync.
 
 ## Layout
