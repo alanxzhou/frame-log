@@ -9,30 +9,12 @@ Status: `todo`, `in progress`, `done`, `won't do`. Update the status and the not
 
 | # | Item | Status |
 |---|------|--------|
-| 4b | Default cell size ~170 px so a 36-scan roll fits 7 across at 1366 wide (the scrollbar takes the 7th column at 180) | todo |
-| 1b | "Who's this?": add a "nobody I know" action so unnamed strangers stop counting; tune the grouping thresholds (`faces.GROUP = 0.40`, `pets.GROUP = 0.65` are guesses) on real photos | todo |
-| 2b | Auto Find faces loads (and on first run downloads) the face model on every Load roll; check that's acceptable on a fresh install. Stop isn't remembered across a reload | todo |
-| 12 | Manually test with a real mouse: Ctrl + wheel resize, drag-to-swap, Shift/Ctrl-click, the Auto-pair menu, a click just outside a face box (agents only sent some of these from JavaScript) | todo |
-| 7a | Clear the log export on Change roll, or warn when the export's roll name doesn't match the scans folder | todo |
-| 7b | Move Rename next to the scans folder; pre-fill the roll name from the export | todo |
-| 7c | One roll name: UserComment uses the export's name while the folder uses the rename | todo |
-| 7d | Find a `.json` export next to the scans folder automatically | todo |
-| 8a | Keyword menu: drop keywords the whole selection already has (roll keywords); rank prefix matches first | todo |
-| 8b | Suggest keywords from card notes | todo |
-| 9a | New card: default time halfway between neighbours; offer "same place as #N" for GPS | todo |
-| 9b | Edit a range of cards at once (lens change mid-roll) | todo |
-| 9c | Ctrl+Enter saves the card editor from the notes field | todo |
-| 11 | Tests leak into the real config: `%APPDATA%\framelog-tagger\faces.json` held a pytest temp path. Suspect: the background library read in `test_the_pet_names_are_saved_with_the_library` outlives the monkeypatched config path. Unverified (the 2026-11-20 polish pass ran pytest with `FRAMELOG_TAGGER_CONFIG` pointed at a scratch folder to stay clear of it) | todo |
-| 13 | Face names come back as the scan's own keywords. After an in-place Write, a reload of a roll whose keywords were never edited in the browser reads the keywords from the files, and those now include the face names Write added, guesses too. They show as plain keywords (not green), so clearing a wrong guess later leaves the name on the scan. Fix: leave out names that match a face region in the file, or always persist the keyword state after Write | todo |
-| 14 | After Write the grid doesn't show "tagged" on the scans it just wrote until a reload (the page's `S.scans[].tagged` isn't updated from the results) | todo |
-| 15 | Undo (10c) covers keywords, swap/shift/reverse/Auto-pair and New/Paste cards. Not covered: deleting or editing a card, naming or removing faces | todo |
-| 16 | Frame-number pairing falls back to "in order" for a lab that numbered the roll last frame first; detect a reversed constant (frame = k − N) too | todo |
-| 17 | At 1100 px wide the header status is cut short (the roll tags Make/Camera/Film mostly hidden; full text in tooltips). Consider moving the roll tags to the keyword panel's "every scan" area, which already shows them | todo |
-| 18 | The Auto-pair menu, Rename and Change roll still use the native `confirm()`; with undo for pairing, Auto-pair's could go | todo |
+| 12 | Manually test with a real mouse: Ctrl + wheel resize, drag-to-swap, Shift/Ctrl-click, the Auto-pair menu, a click just outside a face box (agents only sent some of these from JavaScript) | todo (needs a person) |
+| 1c | Tune the Who's this? grouping thresholds (`faces.GROUP = 0.40`, `pets.GROUP = 0.65` are guesses) on real photos | todo (needs real photos) |
 
 ## Done
 
-All on branch `tagger-ux` (not pushed, not merged to main). 181 tests pass.
+All on branch `tagger-ux`. 196 tests pass.
 
 | # | Item | Notes |
 |---|------|-------|
@@ -49,6 +31,19 @@ All on branch `tagger-ux` (not pushed, not merged to main). 181 tests pass.
 | 10d | "tagged" badge is neutral | Grey light, with a tooltip saying what it means; amber stays for problems |
 | 10e | Lens apart from exposure | Lens truncates on the left, aperture · shutter sits at the right in mono |
 | 10f | New roll starts at the top | `showStrip` resets the grid's scroll (it survived `hidden` before); `render()` still keeps the place |
+| 13 | Face names in the file are faces, not keywords | Load reads each file's region names (`xmp_region_names`) and keeps them out of the scan's own keywords; they show green. Find faces matches the file's regions to detections (named, confirmed, *named in the file*); a named region with no detection is its own box. Write rewrites a region you cleared (unnamed box) or removed, and keeps every name left on a region in the keywords |
+| 14 | "tagged" right after Write | Write's result carries `tagged` and `region_names`; only an in-place write marks the scan tagged |
+| 11 | Tests can't write the real config | `tests/conftest.py` points `FRAMELOG_TAGGER_CONFIG` at a scratch folder for the whole run; the faces fixture waits for its library read. Confirmed: a run with no override left the real `faces.json` untouched |
+| 16 | Lab numbered last frame first | `by_frame(..., direction)`: counting down is used when it matches more; often both match equally, so Auto-pair offers "By frame number, counting down" |
+| 18 | No native confirm() | `ask()` in-app dialog for Rename, Change roll, Delete card; Auto-pair doesn't ask (Ctrl/⌘-Z undoes it) |
+| 7a–7d | Setup screen | `POST /api/setup/look`: export found in or next to the scans folder (one is filled in, several listed); last roll's export cleared when the scans folder changes; Rename sits under the scans folder, opens for a folder not renamed, roll name pre-filled from the export; UserComment's roll name is the renamed folder's first |
+| 8a, 8b | Keyword menu | Roll keywords out of the menu; prefix, then word-start, then substring; "add new" first when nothing starts with what you typed. Card notes feed suggestions (a short note whole, capitalised words of a longer one) |
+| 9a–9c | Card editor | New card: time halfway between neighbours; "same place as #N" for a card with no GPS. Several selected scans: the pencil edits all their cards (shared fields shown, differing ones "varies"). Ctrl/⌘-Enter saves |
+| 15 | Undo covers cards and faces | Card edits (one or several), revert, delete (re-made on undo), naming/removing/"nobody I know" faces; a Who's this? group is one step |
+| 4b | 170 px default cells | 7 across at 1366 px |
+| 1b | Nobody I know | Who's this? action for people and drawn groups: faces stay unnamed, stop counting (badge, Who's this?, Write summary); remembered per roll |
+| 2b | No automatic model download; Stop stays stopped | `faces.Engine.model_ready()`; without the model the header says the first Find faces downloads it. Stop is remembered per roll until Find faces |
+| 17 | Roll tags out of the header | Make/Camera/Film/ISO shown with the roll keywords in the keyword bar ("every scan"), with what isn't set |
 
 ## How to test
 
