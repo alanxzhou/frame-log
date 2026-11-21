@@ -46,7 +46,14 @@ phone. Optionally fill in camera, film and ISO, and click **Load roll**. The
 folders and the fallback zone are remembered for next time; camera and film
 start blank on every roll.
 
-Without an export the strip shows only the scans, and **Write** gives every
+The roll opens as a contact sheet, like Lightroom's Grid view: a grid of cells
+that wraps to the window's width and scrolls down. Each cell is a scan (its
+whole picture, fitted in the cell) with its log card under it in short form:
+frame #, time, zone, gear, note, GPS and where the card came from. Change the
+thumbnail size with the slider in the header, or Ctrl + scroll wheel over the
+grid (⌘ + wheel, or a pinch, on a Mac); the size is remembered on this computer.
+
+Without an export the cells show only the scans, and **Write** gives every
 scan the roll-wide tags (camera, make, ISO, roll and film).
 
 ### Renaming the lab's folder
@@ -76,25 +83,32 @@ before loading. A loaded roll keeps its paths, so **Change roll** first.
 Scans and log entries start paired positionally (first scan to first frame,
 and so on). Fix the exceptions:
 
-- **Drag** a scan or a log card onto another cell in the same row to swap them.
-- **▶ / ◀** shift that card and everything after it right or left. This is
-  the one-click fix for "I forgot to log a frame" and "the lab skipped a blank".
+- **Drag** a scan onto another cell to swap the two scans, or a log card onto
+  another cell to swap the two cards.
+- **▶ / ◀** shift a scan or a card and everything after it one cell on or
+  back. They show when you point at a cell: on the picture for the scan, at
+  the foot of the card for the card. This is the one-click fix for "I forgot
+  to log a frame" and "the lab skipped a blank".
 - **Reverse scans** for a roll that was scanned tail-first.
 - **Auto-pair** resets to positional order.
 - Click a **frame number** to see exactly which ExifTool tags will be written.
 
 A scan left in a slot with no card is still written, just without the card's
-tags (see below). Its connector stays amber and the stats count it as a scan
-without log, since that's often a sign of a mispairing.
+tags (see below). Its light (next to the cell number) and the picture's
+outline are amber, and the stats count it as a scan without log, since that's
+often a sign of a mispairing. A green light means the scan is written with its
+card.
 
 ### Editing and adding cards
 
 When there's no export, or the export is missing frames, make the cards here:
 
-- **New** in an empty slot makes a card from scratch. The frame number, zone,
-  time and gear start from the card before it, as on the phone.
-- The **copy** key on a card, then **Paste** in an empty slot, adds a duplicate
-  to adjust. **▶** opens an empty slot where you need one.
+- **New** in a cell with no card makes a card from scratch. The frame number,
+  zone, time and gear start from the card before it, as on the phone. With an
+  export, a cell with no card has a *no card* row with New and Paste; without
+  one, they show on the picture when you point at it.
+- The **copy** key on a card, then **Paste** in a cell with no card, adds a
+  duplicate to adjust. **▶** opens an empty cell where you need one.
 - The **pencil** key (or a double-click) edits any card: frame #, time (local,
   in the card's zone), zone, coordinates, lens, aperture, shutter and notes.
   Leave the time blank to leave a scan's date tags alone.
@@ -130,8 +144,10 @@ the photo's keywords at import.
   They show at the right of the keyword panel.
 - **Per scan**: click a scan and start typing. Enter (or Tab) takes the
   highlighted suggestion; a comma adds exactly what you typed, so
-  `beach, Mom, ` adds two. With the box empty, ← / → move to the next scan so
-  you can keep going, and Backspace removes the scan's last keyword.
+  `beach, Mom, ` adds two. With the box empty, ← / → move to the next scan and
+  ↑ / ↓ to the one above or below, so you can keep going (the arrows do the
+  same with the box not focused, and Enter goes back to the box). Backspace
+  removes the scan's last keyword.
 - **Several at once**: shift-click a range, ⌘/Ctrl-click to add one, ⌘/Ctrl-A
   for all. The box then shows each keyword as on all of them, or as *2/5* (on
   some): click it to give it to all, × to take it off all.
@@ -146,7 +162,7 @@ the photo's keywords at import.
 Each scan's keywords are remembered in the browser along with the pairing.
 Keywords already in the files (an earlier Write, another app) are read at
 **Load roll**, so re-writing a roll keeps them. Write replaces a scan's
-keywords with what the strip shows, roll's first, on every scan, including one
+keywords with what the grid shows, roll's first, on every scan, including one
 with no log card.
 
 The **library** is every keyword you've added or written, stored on this
@@ -199,7 +215,7 @@ remembers the folder and the names, so with no arguments it repeats the last one
 photo again (a name changed in Lightroom after it was learned isn't picked up otherwise).
 `framelog-tagger faces people` lists who's in the galleries; `faces forget NAME` removes someone.
 
-**Use it.** On the strip, **Find faces** looks at every scan (about half a second each; the first one
+**Use it.** On the grid, **Find faces** looks at every scan (about half a second each; the first one
 loads the model). Each card shows how many faces are named. Double-click a scan to review:
 
 - Boxes: **green** = named, **dashed green** = suggested by the gallery but not yet confirmed,
