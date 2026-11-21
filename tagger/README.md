@@ -143,6 +143,16 @@ tags.
 **Write** writes the tags into every scan in place. Fill in *write to*
 on the setup screen to leave the originals alone and write tagged copies into
 that folder instead.
+
+Before it writes, Write shows a summary: where it writes (in place or copies),
+the keywords every scan gets, and what may want a look first, each with a link
+that goes there: names the gallery guessed that nobody confirmed, faces with no
+name and boxes the detector doubts (the scan numbers open that face; *Who's
+this?* opens them all), scans without a log card (the number selects the
+cell), and scans not looked at for faces yet. **Write anyway** writes;
+**Review first** opens Who's this? when faces need a look, else just closes.
+Enter means Write only when nothing needs a look. It writes the scans as they
+were when the summary opened.
 Pairing state is remembered in the browser so a reload doesn't lose your work.
 
 Do this **before** importing the scans into Lightroom. Lightroom reads file

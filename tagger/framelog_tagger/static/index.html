@@ -467,6 +467,24 @@
   .wgroup .wact input:focus { outline: 0; box-shadow: inset 0 1px 3px rgba(0,0,0,.5), 0 0 0 1px var(--accent); }
   .wgroup .wact .pct { font-family: var(--mono); font-size: 9.5px; opacity: .6; margin-left: 6px; }
   .wgroup .wact .hint { font-size: 11px; color: var(--muted); }
+  /* Write's summary: where it writes, what every scan gets, and what may want a look first (each with links there) */
+  #writeDlg { margin: auto; width: min(560px, calc(100vw - 32px)); background: var(--panel); color: var(--text); border: 0; border-radius: 18px; padding: 20px 22px; box-shadow: 0 0 0 1px var(--line), 0 20px 50px rgba(0,0,0,.6); }
+  #writeDlg::backdrop { background: rgba(0,0,0,.55); }
+  #writeDlg h2 { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+  #writeDlg h3 { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--warn); margin: 16px 0 8px; }
+  #writeFacts { display: grid; gap: 5px; font-size: 12.5px; }
+  #writeFacts > div { display: grid; grid-template-columns: 84px 1fr; gap: 10px; }
+  #writeFacts b { font-size: 9.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding-top: 2px; }
+  #writeFacts.inplace > div:first-child span { color: var(--warn); }
+  #writeNeeds { list-style: none; display: grid; gap: 8px; max-height: 45vh; overflow: auto; }
+  #writeNeeds li { font-size: 12.5px; line-height: 1.45; padding: 8px 10px; border-radius: 10px; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); }
+  #writeNeeds .what { display: block; }
+  #writeNeeds .scans { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+  button.link { background: transparent; box-shadow: inset 0 0 0 1px var(--line); font-family: var(--mono); font-size: 10.5px; font-weight: 500; padding: 1px 7px; color: var(--text); }
+  button.link:hover { background: var(--raised); filter: none; }
+  button.link.go { font-family: var(--sans); font-size: 11.5px; font-weight: 600; margin: 5px 0 0 8px; padding: 2px 10px; }
+  #writeDlg .actions { gap: 8px; }
+  #writeDlg .actions .spacer { flex: 1; }
   /* Auto-pair's two ways: by frame number, in order */
   #pairMenu {
     position: fixed; z-index: 8; width: 290px; padding: 5px; background: var(--raised); border-radius: 12px;
@@ -684,6 +702,13 @@
 <datalist id="whoNames"></datalist>
 
 <div id="pairMenu" role="menu" hidden></div>
+<dialog id="writeDlg" aria-labelledby="writeTitle">
+  <h2 id="writeTitle">Write</h2>
+  <div id="writeFacts"></div>
+  <h3 id="writeNeedsHead">May want a look first</h3>
+  <ul id="writeNeeds"></ul>
+  <div class="actions"><span class="spacer"></span><button type="button" id="writeReview">Review first</button><button type="button" class="primary" id="writeGo">Write anyway</button></div>
+</dialog>
 <div id="toast"></div>
 <div id="preview"><h3><span id="previewTitle"></span><span id="previewClose">✕</span></h3><pre id="previewBody"></pre></div>
 
@@ -2571,20 +2596,83 @@ function toast(msg, isErr) {
 }
 
 /* ---------- write ---------- */
-async function write() {
+// Write first shows what it's about to do, and what may want a look first, each with a link that goes there. The scans
+// and faces it writes are taken when it opens, so a face found meanwhile can't make the write differ from the summary.
+let writeSnap = null;   // the pairs the open dialog will write
+function write() {
   const ps = pairs();
   if (!ps.length) return;
-  const dest = S.in_place ? "IN PLACE (the original scan files will be modified)" : S.out_dir;
-  const rollKw = S.roll_keywords.length ? "\nEvery scan also gets the keywords " + S.roll_keywords.join(", ") + "." : "";
-  const named = ps.flatMap((p) => (p.faces || []).filter((f) => f.name).map((f) => ({ ...f, scan: p.scan })));
-  const unreviewed = named.filter((f) => fc[f.scan]?.faces[f.id]?.auto).length;
-  const faceNote = named.length ? "\n\n" + named.length + " named face(s) are written as face regions and keywords" +
-    (unreviewed ? ", " + unreviewed + " of them suggested by the gallery and not yet confirmed (dashed in the zoom view)" : "") + "." : "";
-  const lone = noLog() ? 0 : ps.filter((p) => p.entry == null).length;
-  const loneNote = !lone ? "" : "\n\n" + (lone === 1 ? "1 of them has no log card: it gets the roll-wide tags and its"
-                                                     : lone + " of them have no log card: they get the roll-wide tags and their") +
-    " keywords and faces, but no date, GPS or gear.";
-  if (!confirm("Write metadata for " + ps.length + " scan(s)?\n\nDestination: " + dest + rollKw + loneNote + faceNote)) return;
+  writeSnap = ps;
+  const order = scanOrder(), num = (scan) => String(order.indexOf(scan) + 1).padStart(2, "0");
+  // faces needing a look: guesses nobody confirmed, faces with no name, boxes the detector doubts
+  const found = ps.flatMap((p) => (fc[p.scan]?.faces || []).map((f, i) => ({ scan: p.scan, f, i })).filter((x) => !x.f.gone));
+  const guessed = found.filter((x) => x.f.name && x.f.auto);
+  const unnamed = found.filter((x) => !x.f.name && !x.f.low);
+  const doubtful = found.filter((x) => !x.f.name && x.f.low);
+  const lone = noLog() ? [] : ps.filter((p) => p.entry == null).map((p) => p.scan);
+  const notLooked = S.faces?.available ? ps.filter((p) => !p.faces).length : 0;
+
+  const list = $("writeNeeds");
+  list.replaceChildren();
+  const scanLinks = (items, open, what) => {   // one link per scan, in grid order
+    const box = el("span", "scans");
+    const seen = [...new Set(items.map((x) => x.scan ?? x))].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    for (const scan of seen) {
+      const a = el("button", "link", num(scan));
+      a.type = "button"; a.title = what + " " + scan;
+      a.onclick = () => { $("writeDlg").close(); open(scan); };
+      box.append(a);
+    }
+    return box;
+  };
+  const openFace = (pool) => (scan) => { openZoom(scan); const x = pool.find((y) => y.scan === scan); if (x) selectFace(x.i, false); };
+  const need = (text, links, action) => {
+    const li = el("li");
+    li.append(el("span", "what", text));
+    if (links) li.append(links);
+    if (action) {
+      const b = el("button", "link go", action[0]); b.type = "button";
+      b.onclick = () => { $("writeDlg").close(); action[1](); };
+      li.append(b);
+    }
+    list.append(li);
+  };
+  const toWho = ["Who's this? →", openWho];
+  if (guessed.length) need(plural(guessed.length, "name", "names") + " the gallery guessed and nobody confirmed (" +
+    [...new Set(guessed.map((x) => x.f.name))].join(", ") + "): written, but the gallery won't learn from them",
+    scanLinks(guessed, openFace(guessed), "open the guess in"), toWho);
+  if (unnamed.length) need(plural(unnamed.length, "face", "faces") + " with no name: not written",
+    scanLinks(unnamed, openFace(unnamed), "name it in"), toWho);
+  if (doubtful.length) need(plural(doubtful.length, "box", "boxes") + " the detector isn't sure " + (doubtful.length === 1 ? "is a face" : "are faces") +
+    ": not written unless you name " + (doubtful.length === 1 ? "it" : "them"),
+    scanLinks(doubtful, openFace(doubtful), "look at it in"), toWho);
+  if (lone.length) need(plural(lone.length, "scan", "scans") + " without a log card: roll-wide tags, keywords and faces only, no date, GPS or gear",
+    scanLinks(lone, (scan) => goTo(scan), "go to"));
+  if (notLooked) need(plural(notLooked, "scan", "scans") + " not looked at for faces yet" + (finder ? " (still finding faces)" : "") +
+    ": the face regions in " + (notLooked === 1 ? "it are" : "them are") + " left as they are");
+  const faceNeeds = guessed.length + unnamed.length + doubtful.length > 0;
+  const attention = list.children.length > 0;
+  list.hidden = !attention;
+  $("writeNeedsHead").hidden = !attention;
+
+  $("writeTitle").textContent = "Write " + plural(ps.length, "scan", "scans") + "?";
+  const named = found.filter((x) => x.f.name).length;
+  const facts = [
+    ["to", S.in_place ? "the original scans, in place: the files are changed" : "tagged copies in " + S.out_dir + " (the originals are left alone)"],
+    ["every scan", S.roll_keywords.length ? "gets the keywords " + S.roll_keywords.join(", ") : "no roll-wide keywords (set camera and film under Change roll)"],
+  ];
+  if (named) facts.push(["faces", plural(named, "named face", "named faces") + " written as face regions and keywords"]);
+  $("writeFacts").replaceChildren(...facts.map(([k, v]) => { const row = el("div"); row.append(el("b", null, k), el("span", null, v)); return row; }));
+  $("writeFacts").classList.toggle("inplace", S.in_place);
+
+  $("writeGo").textContent = attention ? "Write anyway" : "Write";
+  $("writeReview").textContent = attention ? "Review first" : "Cancel";
+  $("writeReview").onclick = () => { $("writeDlg").close(); if (faceNeeds) openWho(); };
+  $("writeReview").title = faceNeeds ? "open Who's this? to name or confirm the faces first" : "close without writing";
+  $("writeDlg").showModal();
+  (attention ? $("writeReview") : $("writeGo")).focus();   // Enter writes only when nothing needs a look
+}
+async function doWrite(ps) {
   $("write").disabled = true; $("write").textContent = "Writing…";
   try {
     const r = await fetch("/api/write", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pairs: ps }) });
@@ -2662,6 +2750,8 @@ async function boot() {
   });
   $("reverse").onclick = reverseScans;
   $("write").onclick = write;
+  $("writeGo").onclick = () => { const ps = writeSnap; $("writeDlg").close(); if (ps) doWrite(ps); };
+  $("writeDlg").addEventListener("close", () => { writeSnap = null; });
   $("findFaces").onclick = () => findFaces(false);
   $("faceRun").lastElementChild.onclick = () => { if (finder) { finder.stop = true; paintFinder(); } };
   $("whoBtn").onclick = openWho;
