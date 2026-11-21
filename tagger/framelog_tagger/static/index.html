@@ -40,15 +40,27 @@
     display: flex; flex-direction: column; overflow: hidden;
   }
   header {
-    display: flex; align-items: center; gap: 12px 18px; flex-wrap: wrap; position: relative; z-index: 1;
-    padding: 10px 16px; background: var(--panel); box-shadow: 0 1px 0 var(--line);
+    display: flex; align-items: center; gap: 16px; flex-wrap: nowrap; position: relative; z-index: 1;
+    flex: none; height: 56px; padding: 0 16px; background: var(--panel); box-shadow: 0 1px 0 var(--line);
   }
+  header h1 { flex: none; }
+  /* the status: two lines that truncate (each item's tooltip has the full text); it gets the room the keys leave */
+  #status { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+  #status .line { display: flex; align-items: baseline; gap: 0 14px; min-width: 0; height: 17px; line-height: 17px; white-space: nowrap; overflow: hidden; }
+  #status .line > * { flex: none; }
+  #status .line > :last-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* the keys: one row that never wraps, and nothing in it changes width, so each key stays where it is */
+  #actions { flex: none; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  #actions button { padding: 7px 13px; }
+  #whoBtn { min-width: 132px; font-variant-numeric: tabular-nums; }   /* room for "Who's this? (99)" */
+  #write { min-width: 84px; }                                          /* and for "Writing…" */
+  @media (max-width: 1240px) { header h1 span { display: none; } #actions { gap: 6px; } #actions button { padding: 7px 11px; } #actions #cellSize { width: 72px; } }
   header h1 { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; white-space: nowrap; }
   header h1::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
   header h1 span { font-weight: 500; color: var(--muted); }
   header .roll { font-weight: 600; }
   header .meta { color: var(--muted); font-size: 12px; }
-  header .tags { display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; font-size: 12px; cursor: help; }
+  header .tags { display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: nowrap; font-size: 12px; cursor: help; }
   header .tags b { font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: .04em; color: var(--muted); margin-right: 5px; }
   header .tags .unset { color: var(--muted); opacity: .6; }
   header .spacer { flex: 1; }
@@ -423,7 +435,7 @@
   /* face names on a scan's keyword line: Write adds them as keywords, but they come from the faces */
   .kws .fkw { color: var(--ok); }
   .kws .fkw.auto { font-style: italic; opacity: .8; }
-  #faceRun button { font-size: 11px; padding: 2px 9px; margin-left: 6px; }
+  #faceRun button { font-size: 11px; padding: 0 9px; margin-left: 6px; line-height: 15px; }
 
   /* "Who's this?": every face on the roll still to name, grouped by who they look like */
   #who { margin: auto; width: min(980px, calc(100vw - 32px)); max-height: calc(100vh - 48px); background: var(--panel); color: var(--text); border: 0; border-radius: 18px; padding: 0; box-shadow: 0 0 0 1px var(--line), 0 20px 50px rgba(0,0,0,.6); }
@@ -460,24 +472,33 @@
 <body>
 <header>
   <h1>Frame Log <span>tagger</span></h1>
-  <span class="roll" id="roll"></span>
-  <span class="meta" id="meta"></span>
-  <span class="meta" id="faceSync" hidden></span>
-  <span class="meta" id="faceRun" hidden><span></span><button type="button" title="Stop finding faces. Scans already looked at keep their faces; Find faces carries on with the rest.">Stop</button></span>
-  <span class="tags" id="tags" hidden title="Written into every scan's metadata on Write. Set them on the setup screen (Change roll)."></span>
-  <span class="spacer"></span>
+  <!-- status: two fixed lines that truncate, so nothing here can push the keys around -->
+  <div id="status">
+    <div class="line">
+      <span class="roll" id="roll"></span>
+      <span class="meta" id="meta"></span>
+      <span class="tags" id="tags" hidden title="Written into every scan's metadata on Write. Set them on the setup screen (Change roll)."></span>
+    </div>
+    <div class="line">
+      <span class="meta" id="faceRun" hidden><span></span><button type="button" title="Stop finding faces. Scans already looked at keep their faces; Find faces carries on with the rest.">Stop</button></span>
+      <span class="meta" id="faceSync" hidden></span>
+      <span class="stats" id="stats"></span>
+    </div>
+  </div>
+  <!-- actions: one row that never wraps; every key keeps its place while the status changes -->
+  <div id="actions">
   <label id="sizeCtl" title="Thumbnail size. Ctrl (⌘ on a Mac) + scroll wheel over the scans, or pinch, does the same">
     <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="4.4" height="4.4" rx="1"/><rect x="6.6" y="1" width="4.4" height="4.4" rx="1"/><rect x="1" y="6.6" width="4.4" height="4.4" rx="1"/><rect x="6.6" y="6.6" width="4.4" height="4.4" rx="1"/></svg>
     <input type="range" id="cellSize" min="130" max="520" step="1" aria-label="thumbnail size">
     <svg class="big" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1.6"/></svg>
   </label>
-  <span class="stats" id="stats"></span>
   <button id="changeRoll" hidden title="Back to the setup screen">Change roll</button>
   <button id="autoPair" hidden title="Reset to positional pairing: 1st scan ↔ 1st frame, and so on">Auto-pair</button>
   <button id="reverse" hidden title="Reverse the scan order (roll scanned tail-first)">Reverse scans</button>
   <button id="findFaces" hidden title="Find the faces in every scan and suggest who they are. Double-click a scan to review and name them.">Find faces</button>
   <button id="whoBtn" hidden title="Name every face on the roll that has no name yet, or a name the gallery guessed, grouped by who they look like">Who's this?</button>
   <button id="write" class="primary" hidden title="Write metadata into every paired scan">Write</button>
+  </div>
 </header>
 
 <div id="setup" hidden>
@@ -1062,7 +1083,7 @@ function render() {
   const scanByName = Object.fromEntries(S.scans.map((s) => [s.name, s]));
   const entryById = Object.fromEntries(S.entries.map((e) => [e.id, e]));
   if (clip != null && !(clip in entryById)) clip = null;
-  $("autoPair").hidden = !S.entries.length;
+  $("autoPair").disabled = !S.entries.length;   // disabled, not hidden: a key appearing would move the others
   $("meta").textContent = S.scans.length + " scans · " + (noLog() && !S.entries.length ? "no log" : S.entries.length + " frames") + (S.exiftool ? "" : " · exiftool missing");
   strip.style.setProperty("--ar", rollShape());
 
@@ -1164,14 +1185,18 @@ function renderStats() {
   const changes = (edited ? " · " + edited + " edited" : "") + (added ? " · " + added + " added" : "");
   const entriesUn = cols.filter((c) => c.entry != null && c.scan == null).length;
   const unpaired = entriesUn ? ' · <span class="warn">' + entriesUn + " card" + (entriesUn > 1 ? "s" : "") + " without scan</span>" : "";
-  if (noLog()) { $("stats").innerHTML = "<b>" + p + "</b> scans" + (S.entries.length ? "" : " · roll-wide tags only") + changes + unpaired; return; }
+  if (noLog()) { setStats("<b>" + p + "</b> scans" + (S.entries.length ? "" : " · roll-wide tags only") + changes + unpaired); return; }
   const fallback = S.entries.filter((e) => e.local && e.zone_source === "fallback").length;
-  $("stats").innerHTML =
+  setStats(
     "<b>" + (p - scansUn) + "</b> paired" + changes +
     (scansUn ? ' · <span class="warn" title="' + NO_CARD + '">' + scansUn + " scan" + (scansUn > 1 ? "s" : "") +
                " without log (roll-wide tags only)</span>" : "") +
     (entriesUn ? ' · <span class="warn">' + entriesUn + " log entr" + (entriesUn > 1 ? "ies" : "y") + " without scan</span>" : "") +
-    (fallback ? ' · <span class="warn" title="these frames were logged before the phone recorded its zone">' + fallback + " frame" + (fallback > 1 ? "s" : "") + " on fallback zone " + S.tz + "</span>" : "");
+    (fallback ? ' · <span class="warn" title="these frames were logged before the phone recorded its zone">' + fallback + " frame" + (fallback > 1 ? "s" : "") + " on fallback zone " + S.tz + "</span>" : ""));
+}
+function setStats(html) {   // the line truncates in a narrow window: its tooltip has it all
+  const st = $("stats");
+  st.innerHTML = html; st.title = st.textContent;
 }
 
 /* ---------- cards: edit, copy/paste, new ---------- */
@@ -2090,10 +2115,11 @@ function paintWho() {
   const b = $("whoBtn");
   if (!S?.loaded || !S.faces?.available || $("setup").hidden === false) { b.hidden = true; return; }
   const n = pendingFaces().length;
-  b.hidden = !Object.keys(fc).length;   // once faces have been looked for
+  b.hidden = false;   // shown (disabled) before any faces are found too, so it doesn't appear later and move the keys
   b.textContent = "Who's this?" + (n ? " (" + n + ")" : "");
   b.disabled = !n;
   b.title = n ? "Name the " + plural(n, "face", "faces") + " on this roll with no name yet, or only the gallery's guess, grouped by who they look like"
+              : !Object.keys(fc).length ? "Once faces are found, this names the ones with no name yet, grouped by who they look like"
               : "Every face found on this roll has a name";
 }
 let who = null;   // {groups: [{type: "auto" | "people" | "drawn" | "low", name, kind, members: [{scan, key}]}], off: Set, cur}
