@@ -207,11 +207,48 @@ class LoadRequest(BaseModel):
     iso: Optional[int] = None
 
 
+class LookRequest(BaseModel):
+    scans_dir: str = ""
+    log_path: str = ""
+
+
 class RenameRequest(BaseModel):
     scans_dir: str
     name: str = ""
     reverse: bool = False
     rename_folder: bool = True
+
+
+def export_info(path: Path) -> Optional[dict]:
+    """What the setup screen shows about a Frame Log export: its roll, how many frames, when they were shot. None if
+    the file isn't one (other JSON lying around)."""
+    try:
+        log = read_log(path)
+    except (LogFormatError, OSError, UnicodeDecodeError):
+        return None
+    times = [e.iso for e in log.entries if e.iso]
+    return {"path": str(path), "roll": log.name, "frames": len(log.entries), "exported": log.exported,
+            "first": min(times) if times else "", "last": max(times) if times else ""}
+
+
+def find_exports(scans_dir: Path) -> list[dict]:
+    """Frame Log exports next to a scans folder: in it, or in the folder that holds it (where a roll's scans folder and
+    its export usually end up side by side). Newest export first."""
+    found, seen = [], set()
+    for d in (scans_dir, scans_dir.parent):
+        try:
+            files = sorted(p for p in d.iterdir() if p.is_file() and p.suffix.lower() == ".json")
+        except OSError:
+            continue
+        for p in files[:50]:   # a folder of hundreds of JSON files isn't a roll's folder
+            if p in seen:
+                continue
+            seen.add(p)
+            info = export_info(p)
+            if info:
+                found.append(info)
+    found.sort(key=lambda x: x["exported"], reverse=True)
+    return found
 
 
 def build_session(req: LoadRequest, default_tz: str) -> Session:
@@ -236,7 +273,10 @@ def build_session(req: LoadRequest, default_tz: str) -> Session:
         raise ValueError(f"no JPEGs in {scans_dir}")
     out_dir = Path(req.out_dir).expanduser() if req.out_dir.strip() else scans_dir
     in_place = out_dir.resolve() == scans_dir.resolve()
-    ctx = TagContext(tz=tz, roll=req.roll.strip() or (log.name if log else scans_dir.name),
+    # the roll's name, as UserComment records it: the name you renamed the folder to (the last one you chose), else
+    # the one in the export, else the folder's
+    roll_name = req.roll.strip() or detect_name(scans_dir) or (log.name if log else scans_dir.name)
+    ctx = TagContext(tz=tz, roll=roll_name,
                      camera=req.camera.strip(), make=req.make.strip(), film=req.film.strip(), iso=req.iso,
                      keywords=roll_keywords(req.make, req.camera, req.film))
     entries = dict(enumerate(log.entries)) if log else {}
@@ -573,6 +613,20 @@ def create_app(state: AppState) -> FastAPI:
     @app.post("/api/rename/preview")
     def rename_preview(req: RenameRequest):
         return rename_plan(req).to_dict()
+
+    @app.post("/api/setup/look")
+    def setup_look(req: LookRequest):
+        """What the setup screen can tell about the folders you've given: the name a renamed scans folder carries, the
+        Frame Log exports next to it, and what's in the export you picked."""
+        out = {"renamed": None, "exports": [], "log": None}
+        scans_dir = Path(req.scans_dir).expanduser() if req.scans_dir.strip() else None
+        if scans_dir and scans_dir.is_dir():
+            out["renamed"] = detect_name(scans_dir)
+            out["exports"] = find_exports(scans_dir)
+        if req.log_path.strip():
+            p = Path(req.log_path).expanduser()
+            out["log"] = export_info(p) if p.is_file() else None
+        return out
 
     @app.post("/api/rename/detect")
     def rename_detect(req: RenameRequest):

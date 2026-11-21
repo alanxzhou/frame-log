@@ -384,3 +384,31 @@ def test_set_exiftool_validates_remembers_and_clears(env, monkeypatch):
     monkeypatch.setattr(server, "find_exiftool", lambda explicit=None: None)
     j = c.post("/api/exiftool", json={"path": ""}).json()
     assert j["exiftool"] is None and j["exiftool_saved"] == "" and state.exiftool is None
+
+
+def test_setup_finds_the_export_next_to_the_scans_folder(env):
+    (env["tmp"] / "notes.json").write_text('{"not": "an export"}', encoding="utf-8")
+    j = env["client"].post("/api/setup/look", json={"scans_dir": str(env["scans"])}).json()
+    assert [x["path"] for x in j["exports"]] == [str(env["log"])]
+    x = j["exports"][0]
+    assert x["roll"] == "Test roll" and x["frames"] == 2 and x["first"] == "2026-08-30T14:05:12Z"
+    assert j["renamed"] is None and j["log"] is None
+
+
+def test_setup_describes_the_export_you_picked(env):
+    j = env["client"].post("/api/setup/look", json={"scans_dir": "", "log_path": str(env["log"])}).json()
+    assert j["log"]["roll"] == "Test roll" and j["exports"] == []
+    bad = env["tmp"] / "bad.json"
+    bad.write_text("[]", encoding="utf-8")
+    assert env["client"].post("/api/setup/look", json={"log_path": str(bad)}).json()["log"] is None
+
+
+def test_a_renamed_folder_names_the_roll(env):
+    folder = env["tmp"] / "2026-10 Lisbon"
+    folder.mkdir()
+    for i in (1, 2):
+        Image.new("RGB", (64, 40)).save(folder / f"2026-10 Lisbon-{i:02d}.jpg")
+    assert env["client"].post("/api/setup/look", json={"scans_dir": str(folder)}).json()["renamed"] == "2026-10 Lisbon"
+    s = env["client"].post("/api/load", json={"scans_dir": str(folder), "log_path": str(env["log"])}).json()
+    assert s["roll"] == "2026-10 Lisbon"   # the name you renamed it to, not the export's "Test roll"
+    assert _load(env).json()["roll"] == "Test roll"   # a folder not renamed here: the export's

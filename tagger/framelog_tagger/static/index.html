@@ -102,8 +102,18 @@
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
   .actions { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
   #setupError { color: var(--danger); font-size: 12.5px; }
-  #renameForm, #faceForm { margin-top: 18px !important; }
-  #renameForm .intro, #faceForm .intro { font-size: 12.5px; line-height: 1.5; color: var(--muted); margin-bottom: 12px; }
+  #faceForm { margin-top: 18px !important; }
+  #renameBox .intro, #faceForm .intro { font-size: 12.5px; line-height: 1.5; color: var(--muted); margin-bottom: 12px; }
+  #renameBox { margin: -2px 0 12px 128px; padding: 8px 12px; border-radius: 10px; background: var(--input); box-shadow: inset 0 0 0 1px var(--line); }
+  #renameBox[open] { padding-bottom: 14px; }
+  #renameBox summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
+  #renameBox summary b { color: var(--text); font-weight: 600; margin-right: 4px; }
+  #renameBox[open] summary { margin-bottom: 10px; }
+  #renameBox .field { grid-template-columns: 90px 1fr auto; }
+  #renameBox .field.check { grid-template-columns: 90px 1fr; }
+  #logHint button.link { margin: 3px 6px 0 0; font-family: var(--sans); font-size: 11.5px; }
+  #logHint .note { color: var(--accent); }
+  @media (max-width: 640px) { #renameBox { margin-left: 0; } }
   button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
   #renameError { color: var(--danger); font-size: 12.5px; }
   #faceStatus { color: var(--muted); font-size: 12.5px; }
@@ -561,10 +571,30 @@
       <input type="text" id="fScans" placeholder="folder of JPEGs from the lab" required>
       <button type="button" data-pick="folder" data-for="fScans">Browse…</button>
     </div>
+    <details id="renameBox">
+      <summary><b>Rename scans</b> <span id="renameState">the lab's folder to the roll name, before loading</span></summary>
+      <div class="intro">Renames the scans folder to the roll name and each image to <i>name</i>-01, -02, … in place. Check the preview first. A folder renamed before shows its current name here to correct, and keeps its frame numbers.</div>
+      <div class="field">
+        <label for="rName">roll name</label>
+        <input type="text" id="rName" form="renameForm">
+        <button type="button" id="rReverse" aria-pressed="false" title="The lab numbered the roll last frame first: give the highest-numbered scan -01">Reverse numbering</button>
+        <div class="hint" id="rNameHint"></div>
+      </div>
+      <div class="field check">
+        <label></label>
+        <label class="inline"><input type="checkbox" id="rFolder" form="renameForm" checked> rename the folder too</label>
+      </div>
+      <div class="actions">
+        <button type="submit" class="primary" id="renameBtn" form="renameForm" disabled>Rename</button>
+        <span id="renameError"></span>
+      </div>
+      <div id="renamePreview" hidden></div>
+    </details>
     <div class="field">
       <label for="fLog">log export</label>
       <input type="text" id="fLog" placeholder="optional: the roll's .json from the phone">
       <button type="button" data-pick="file" data-for="fLog">Browse…</button>
+      <div class="hint" id="logHint"></div>
     </div>
     <div class="field">
       <label for="fOut">write to</label>
@@ -624,24 +654,8 @@
     <div class="hint" id="faceHint"></div>
   </form>
 
-  <form id="renameForm" autocomplete="off">
-    <h2>Rename scans <span style="color:var(--muted);font-weight:normal;letter-spacing:0;text-transform:none">(optional, before loading)</span></h2>
-    <div class="intro">Renames the scans folder above to the roll name and each image to <i>name</i>-01, -02, … in place. Check the preview first. A folder renamed before shows its current name here to correct, and keeps its frame numbers.</div>
-    <div class="field">
-      <label for="rName">roll name</label>
-      <input type="text" id="rName">
-      <button type="button" id="rReverse" aria-pressed="false" title="The lab numbered the roll last frame first: give the highest-numbered scan -01">Reverse numbering</button>
-    </div>
-    <div class="field check">
-      <label></label>
-      <label class="inline"><input type="checkbox" id="rFolder" checked> rename the folder too</label>
-    </div>
-    <div class="actions">
-      <button type="submit" class="primary" id="renameBtn" disabled>Rename</button>
-      <span id="renameError"></span>
-    </div>
-    <div id="renamePreview" hidden></div>
-  </form>
+  <!-- the Rename controls sit under the scans folder (they belong to this form through form="renameForm") -->
+  <form id="renameForm" autocomplete="off" hidden></form>
 </div>
 
 <div id="strip" hidden></div>
@@ -760,6 +774,7 @@ const REMEMBERED = { scans_dir: "fScans", log_path: "fLog", out_dir: "fOut", tz:
 function showSetup() {
   const r = S.remembered || {};
   for (const [key, id] of Object.entries(REMEMBERED)) $(id).value = r[key] ?? "";
+  lastRoll = r.scans_dir ? { scans: r.scans_dir, log: r.log_path || "" } : null;
   if (!$("fTz").value) $("fTz").value = S.default_tz || "";
   renderExif();
   renderFaceSetup();
@@ -832,7 +847,7 @@ async function pickInto(kind, inputId) {
       body: JSON.stringify({ kind, title: kind === "folder" ? "Choose folder" : kind === "program" ? "Choose exiftool" : "Choose the roll's JSON export", initial }) });
     const j = await r.json();
     if (j.error) { toast(j.error + " — you can type the path instead", true); return; }
-    if (j.path) { $(inputId).value = j.path; if (inputId === "fScans") onScansChanged(); if (inputId === "fExif") setExif(); if (inputId === "fFaceLib") addFaceFolders(); }
+    if (j.path) { $(inputId).value = j.path; if (inputId === "fScans" || inputId === "fLog") onScansChanged(); if (inputId === "fExif") setExif(); if (inputId === "fFaceLib") addFaceFolders(); }
   } finally {
     btns.forEach((b) => { b.disabled = false; });
   }
@@ -883,17 +898,65 @@ async function previewRename() {
   $("renamePreview").replaceChildren(table); $("renamePreview").hidden = false;
   $("renameBtn").disabled = j.dst_dir === j.src_dir && j.items.every((it) => it.old === it.new);
 }
-let detected = "";     // name read off an already-renamed folder; replaced when the folder changes, unless you typed over it
-async function detectName() {
-  const scans_dir = $("fScans").value.trim();
-  if (!scans_dir) return;
-  const r = await fetch("/api/rename/detect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scans_dir }) });
-  const name = (await r.json()).name || "";
+// The setup screen looks at the folders you give it (POST /api/setup/look):
+// - the roll name for Rename: the name a renamed folder carries, else the one in the export, unless you typed your own;
+// - the log export: one found next to the scans folder is filled in for you, and the export of the roll you loaded
+//   last isn't carried over to a different scans folder (that would pair this roll's scans with last roll's log).
+let detected = "";     // the roll name filled in for you; replaced when the folders change, unless you typed over it
+let lastRoll = null;   // {scans, log} of the roll loaded last (the remembered values): its export belongs to its scans
+let lookReq = 0;
+const samePath = (a, b) => a.trim().replace(/[\\/]+$/, "").toLowerCase() === b.trim().replace(/[\\/]+$/, "").toLowerCase();
+const fileName = (p) => p.split(/[\\/]/).filter(Boolean).pop() || p;
+function exportText(x) {
+  const day = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "";
+  const span = x.first ? " · " + day(x.first) + (day(x.last) !== day(x.first) ? " – " + day(x.last) : "") : "";
+  return "“" + x.roll + "”, " + x.frames + (x.frames === 1 ? " frame" : " frames") + span;
+}
+async function lookAtFolders() {
+  const my = ++lookReq, scans = $("fScans").value.trim();
+  let log = $("fLog").value.trim();
+  const j = await api("POST", "/api/setup/look", { scans_dir: scans, log_path: log });
+  if (my !== lookReq) return;
+  const hint = $("logHint");
+  hint.replaceChildren();
+  const stale = lastRoll && lastRoll.log && log && scans && !samePath(scans, lastRoll.scans) && samePath(log, lastRoll.log);
+  let info = j.log;
+  if (!log || stale) {
+    // last roll's export can sit next to this folder too (both in one parent): it's never this roll's
+    const xs = j.exports.filter((x) => !(lastRoll?.log && samePath(x.path, lastRoll.log) && !samePath(scans, lastRoll.scans)));
+    if (xs.length === 1) {
+      $("fLog").value = xs[0].path; info = xs[0];
+      hint.append(el("span", "note", "Found next to the scans: "), exportText(xs[0]) + (stale ? ". It replaces " + fileName(log) + ", the last roll's export." : "."));
+    } else if (xs.length > 1) {
+      if (stale) $("fLog").value = "";
+      info = null;
+      hint.append((stale ? fileName(log) + " was the last roll's export, so it's cleared. " : "") + "Found " + xs.length + " exports next to the scans:");
+      hint.append(el("br"));
+      for (const x of xs) {
+        const b = el("button", "link", exportText(x)); b.type = "button"; b.title = x.path;
+        b.onclick = () => { $("fLog").value = x.path; lookAtFolders().catch(() => {}); };
+        hint.append(b);
+      }
+    } else if (stale) {
+      $("fLog").value = ""; info = null;
+      hint.append(fileName(log) + " was the last roll's export, so it's cleared. Browse for this roll's, or leave it empty for roll-wide tags only.");
+    }
+  } else if (info) {
+    hint.append(exportText(info));
+  } else {
+    hint.append("Not a Frame Log export (or not found)");
+  }
+  // the roll name for Rename: the folder's own if renamed before, else the export's
+  const name = j.renamed || info?.roll || "";
   if (!$("rName").value || $("rName").value === detected) $("rName").value = name;
   detected = name;
+  $("rNameHint").textContent = j.renamed ? "the name this folder was renamed to" : info?.roll && $("rName").value === info.roll ? "the roll's name in the export" : "";
+  $("renameState").textContent = j.renamed ? "already named “" + j.renamed + "”: open to correct it" : "the lab's folder to the roll name, before loading";
+  // open it for a folder that isn't renamed yet (the step to do first), closed for one that is
+  if (scans) $("renameBox").open = !j.renamed;
 }
 let renameTimer = null;
-function onScansChanged() { clearTimeout(renameTimer); renameTimer = setTimeout(() => detectName().then(previewRename).catch((e) => { $("renameError").textContent = e.message; }), 250); }
+function onScansChanged() { clearTimeout(renameTimer); renameTimer = setTimeout(() => lookAtFolders().then(previewRename).catch((e) => { $("renameError").textContent = e.message; }), 250); }
 function schedulePreview() { clearTimeout(renameTimer); renameTimer = setTimeout(() => previewRename().catch((e) => { $("renameError").textContent = e.message; }), 250); }
 async function applyRename(ev) {
   ev.preventDefault();
@@ -2798,6 +2861,7 @@ async function boot() {
   $("fFaceLib").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); addFaceFolders(); } });
   $("renameForm").addEventListener("submit", applyRename);
   $("fScans").addEventListener("input", onScansChanged);
+  $("fLog").addEventListener("change", onScansChanged);   // a typed or picked export: say what's in it, offer its roll name
   $("rName").addEventListener("input", schedulePreview);
   $("rFolder").addEventListener("change", schedulePreview);
   $("rReverse").onclick = () => {

@@ -46,6 +46,19 @@ phone. Optionally fill in camera, film and ISO, and click **Load roll**. The
 folders and the fallback zone are remembered for next time; camera and film
 start blank on every roll.
 
+The setup screen looks at the folders as you fill them in:
+
+- **The export is found for you** when it sits in the scans folder or next to
+  it (in the folder that holds it). Under the field it says which roll it is,
+  how many frames and when they were shot. If there are several, pick one from
+  the list.
+- **Last roll's export isn't carried over.** Point the scans folder at a
+  different roll and the export remembered from the last one is cleared (or
+  replaced by the one found next to the new folder), so this roll's scans are
+  never paired with last roll's log.
+- **One roll name.** UserComment records the roll's name: the name you renamed
+  the folder to here, else the one in the export, else the folder's.
+
 The roll opens as a contact sheet, like Lightroom's Grid view: a grid of cells
 that wraps to the window's width and scrolls down. Each cell is a scan (its
 whole picture, fitted in the cell) with its log card under it in short form:
@@ -65,9 +78,11 @@ scan the roll-wide tags (camera, make, ISO, roll and film).
 
 ### Renaming the lab's folder
 
-Labs deliver something like `12345678/123456780001.jpg`. The **Rename scans**
-panel under the setup form turns the scans folder into `<roll name>/` and its
-images into `<roll name>-01.jpg`, `-02`, … in natural-sort order, in place.
+Labs deliver something like `12345678/123456780001.jpg`. **Rename scans**,
+right under the scans folder, turns it into `<roll name>/` and its images into
+`<roll name>-01.jpg`, `-02`, … in natural-sort order, in place. It opens by
+itself for a folder that isn't renamed yet, with the roll's name from the
+export filled in.
 
 - **Reverse numbering** gives the lab's last scan `-01`, for labs that number
   a roll last frame first. Applying it again to an already-renamed folder
