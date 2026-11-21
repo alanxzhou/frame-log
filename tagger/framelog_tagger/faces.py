@@ -80,10 +80,19 @@ class Engine:
         self._app = None
         self._lock = threading.Lock()
 
+    MODEL = "buffalo_l"
+
+    @classmethod
+    def model_ready(cls) -> bool:
+        """Whether the face model is on this computer already. Without it the first detection downloads it (about
+        0.6 GB, so it needs the internet and takes a while), which the tagger shouldn't start on its own."""
+        root = Path(os.environ.get("INSIGHTFACE_HOME") or Path.home() / ".insightface") / "models" / cls.MODEL
+        return root.is_dir() and any(root.glob("*.onnx"))
+
     def _load(self):
         silence_insightface_warning()
         from insightface.app import FaceAnalysis
-        app = FaceAnalysis(name="buffalo_l", allowed_modules=["detection", "recognition"],
+        app = FaceAnalysis(name=self.MODEL, allowed_modules=["detection", "recognition"],
                            providers=["CPUExecutionProvider"])
         app.prepare(ctx_id=-1, det_size=(self.det_size, self.det_size), det_thresh=self.det_thresh)
         return app

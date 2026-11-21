@@ -481,7 +481,9 @@ def faces_payload(state: AppState) -> dict:
             "people": len(people), "pets_available": state.pet_engine is not None, "pet_names": [n for n, _ in animals],
             "pet_count": len(state.pet_gallery) if state.pet_gallery is not None else 0,
             "count": len(state.gallery), "accept": faces_mod.ACCEPT, "suggest": faces_mod.SUGGEST,
-            "min_examples": faces_mod.MIN_EXAMPLES, "gallery_file": str(state.gallery.path), **library}
+            "min_examples": faces_mod.MIN_EXAMPLES, "gallery_file": str(state.gallery.path),
+            # False: the first Find faces downloads the model, so the page doesn't start it on its own
+            "model_ready": bool(getattr(state.engine, "model_ready", lambda: True)()), **library}
 
 
 def session_payload(state: AppState) -> dict:

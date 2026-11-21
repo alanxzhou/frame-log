@@ -204,7 +204,8 @@ the photo's keywords at import.
 - **Every scan** gets the roll's keywords from the setup screen: make and
   camera as one (`Nikon` + `FE` → *Nikon FE*; a camera already named
   *Nikon FE* isn't doubled) and the film (*Portra 400*). ISO isn't a keyword.
-  They show at the right of the keyword panel.
+  They show at the right of the keyword panel, under *every scan*, with the
+  ISO and a note of what isn't set (the header has no room for them).
 - **Per scan**: click a scan and start typing. Enter (or Tab) takes the
   highlighted suggestion; a comma adds exactly what you typed, so
   `beach, Mom, ` adds two. With the box empty, ← / → move to the next scan and
@@ -295,6 +296,10 @@ can pair and keyword while it runs. **Find faces** runs it again over every scan
 then). What was found is kept by the running tagger, so a page reload restores it, with your names, removed boxes and
 moved or drawn boxes, and only looks at the scans it hadn't reached. Each card shows how many faces are named.
 
+Two exceptions. Until the face model is on this computer, nothing starts on its own: the header says so, and the first
+**Find faces** downloads it (about 0.6 GB, once). And a run you **Stop** stays stopped for that roll, reloads
+included, until you press **Find faces**.
+
 Because this runs on every roll, the gallery's guesses (dashed names) are written by **Write** unless you confirm,
 change or clear them, though only the names you confirm teach the gallery. **Who's this?** is the quick way to go over
 them.
@@ -310,7 +315,9 @@ them as a crop, grouped:
 - last, the boxes the detector isn't sure are faces, outlined in amber, with **Not faces** to remove them all at once.
 
 Each group has the gallery's suggestions as buttons and a name field that completes from the gallery and your keyword
-library. Untick a crop that doesn't belong before naming the group; **×** on a crop removes that box (not a face). Click
+library. Untick a crop that doesn't belong before naming the group; **×** on a crop removes that box (not a face).
+**Nobody I know** leaves the ticked faces unnamed (a passer-by, a crowd): they stop being counted here, in the badges
+and in Write's summary, and aren't written. That's remembered for the roll. Click
 a crop to open its scan with that face selected. **Enter** names the highlighted group and moves to the next (on a
 guessed group, an empty field confirms the guess; on others it just moves on); Esc closes. Names chosen here are the
 same as names chosen in the zoom view.

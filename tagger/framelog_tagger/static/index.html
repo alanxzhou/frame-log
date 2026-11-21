@@ -365,6 +365,7 @@
   .kw-sugg .none { font-size: 11.5px; color: var(--muted); }
   .kw-roll { flex: none; display: flex; align-items: center; gap: 6px; cursor: help; }
   .kw-roll b { font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .kw-roll .unset { font-size: 11px; color: var(--muted); font-style: italic; }
   .kw.roll { background: transparent; box-shadow: inset 0 0 0 1px var(--line); padding: 3px 10px; }
   #kwLibBtn { font-size: 11.5px; padding: 5px 12px; }
   #kwMenu {
@@ -534,11 +535,11 @@
     <div class="line">
       <span class="roll" id="roll"></span>
       <span class="meta" id="meta"></span>
-      <span class="tags" id="tags" hidden title="Written into every scan's metadata on Write. Set them on the setup screen (Change roll)."></span>
     </div>
     <div class="line">
       <span class="meta" id="faceRun" hidden><span></span><button type="button" title="Stop finding faces. Scans already looked at keep their faces; Find faces carries on with the rest.">Stop</button></span>
       <span class="meta" id="faceSync" hidden></span>
+      <span class="meta" id="faceWait" hidden></span>
       <span class="stats" id="stats"></span>
     </div>
   </div>
@@ -676,7 +677,7 @@
   <div class="kw-row">
     <span class="kw-label">Suggested</span>
     <div class="kw-sugg" id="kwSugg"></div>
-    <span class="kw-roll" id="kwRoll" title="Added to every scan on Write, from the camera, make and film on the setup screen (ISO isn't a keyword). Change them with Change roll."></span>
+    <span class="kw-roll" id="kwRoll"></span>
     <button id="kwLibBtn" title="Every keyword you've used, kept on this computer">Library…</button>
   </div>
 </div>
@@ -787,7 +788,8 @@ function showSetup() {
   $("strip").hidden = true; $("help").hidden = true; $("kwPanel").hidden = true;
   for (const id of ["changeRoll", "autoPair", "reverse", "findFaces", "write"]) $(id).hidden = true;
   stopFinding();   // a run still going belongs to the roll being left
-  $("roll").textContent = ""; $("meta").textContent = ""; $("stats").textContent = ""; $("tags").hidden = true;
+  $("faceWait").hidden = true;
+  $("roll").textContent = ""; $("meta").textContent = ""; $("stats").textContent = "";
   $("preview").style.display = "none";
   onScansChanged();
 }
@@ -807,15 +809,19 @@ function showStrip() {
 }
 
 // The roll-wide values Write puts into every scan's metadata.
-function renderTags() {
-  const tags = $("tags");
-  tags.innerHTML = "";
-  for (const [tag, v] of [["Make", S.make], ["Camera", S.camera], ["Film", S.film], ["ISO", S.iso]]) {
-    const item = el("span", v ? null : "unset");
-    item.append(el("b", null, tag), document.createTextNode(v || "not set"));
-    tags.append(item);
-  }
-  tags.hidden = false;
+// They're shown with the roll's keywords in the keyword bar ("every scan"), not in the header, which has no room for them.
+function renderTags() { paintRollTags(); }
+function paintRollTags() {
+  const roll = $("kwRoll");
+  const items = [el("b", null, "every scan")];
+  for (const k of S.roll_keywords) items.push(el("span", "kw roll", k));
+  if (S.iso) items.push(Object.assign(el("span", "kw roll iso", "ISO " + S.iso), { title: "written as ISO on every scan (not a keyword)" }));
+  const unset = [["make", S.make], ["camera", S.camera], ["film", S.film], ["ISO", S.iso]].filter(([, v]) => !v).map(([n]) => n);
+  if (unset.length === 4) items.push(el("span", "unset", "camera & film not set"));
+  else if (unset.length) items.push(el("span", "unset", unset.join(", ") + " not set"));
+  roll.replaceChildren(...items);
+  roll.title = "Written into every scan on Write: make + camera and film as keywords, ISO as ISO. Set them on the setup screen (Change roll)." +
+    (S.make || S.camera ? "\nmake " + (S.make || "–") + " · camera " + (S.camera || "–") : "") + (S.film ? "\nfilm " + S.film : "");
 }
 
 function renderExif() {
@@ -1081,7 +1087,7 @@ async function undoStep(step) {
     for (const r of [...step.faces].reverse()) {
       const f = fc[r.scan]?.faces[r.i];
       if (!f) continue;
-      f.name = r.name; f.auto = r.auto; f.gone = r.gone;
+      f.name = r.name; f.auto = r.auto; f.gone = r.gone; f.stranger = r.stranger;
       const saved = (fcNames[r.scan] = fcNames[r.scan] || {});
       if (r.had) saved[f.key] = r.saved; else delete saved[f.key];
     }
@@ -1266,7 +1272,7 @@ function dropTarget(slot, i) {
 
 /* thumbnail size: the cells' width, from the slider or Ctrl/⌘ + wheel; remembered on this computer */
 const CELL_KEY = "framelog-tagger:cell-size", CELL_MIN = 130, CELL_MAX = 520;
-let cellPx = 180;
+let cellPx = 170;   // 7 across a 1366-wide window, scrollbar included
 let bigThumbs = false;   // big cells (or a high-density screen) get the large thumbnail
 function loadCellSize() {
   try { const v = parseInt(localStorage.getItem(CELL_KEY), 10); if (v) cellPx = v; } catch (e) {}
@@ -1958,9 +1964,7 @@ function paintKw() {
     return b;
   });
   $("kwSugg").replaceChildren(...(sugg.length ? sugg : [el("span", "none", "keywords you use show up here")]));
-  // the roll's own, written to every scan
-  const roll = $("kwRoll");
-  roll.replaceChildren(...(S.roll_keywords.length ? [el("b", null, "every scan"), ...S.roll_keywords.map((k) => el("span", "kw roll", k))] : []));
+  paintRollTags();   // the roll's own, written to every scan
   if ($("kwLib").open) renderLib();
   if (!$("kwMenu").hidden) renderMenu();
 }
@@ -2362,6 +2366,7 @@ function applyDetection(name, j) {
     const k = f.key = faceKey(f.box);   // where the detector put it: names and moves are remembered by this
     if (boxes[k]) f.box = boxes[k];
     if (saved[k] === null) { f.gone = true; f.name = ""; f.auto = false; }
+    else if (saved[k] && typeof saved[k] === "object") { f.stranger = !!saved[k].stranger; f.name = ""; f.auto = false; }
     else if (k in saved) { f.name = saved[k]; f.auto = false; } else f.auto = !!f.name && !f.file;   // a name from the file is yours
   }
   for (const [k, box] of Object.entries(boxes)) if (k[0] === "d") j.faces.push(drawnFace(k, box, saved[k]));
@@ -2384,8 +2389,23 @@ async function startFaces() {
     for (const d of j.scans) if (S.scans.some((s) => s.name === d.scan)) applyDetection(d.scan, d);
     for (const d of j.scans) paintFaceScan(d.scan, false);
   } catch (e) { /* nothing restored: they're found again below */ }
-  if (run === rollRun) findFaces(true);
+  if (run !== rollRun) return;
+  const wait = $("faceWait");
+  wait.hidden = true;
+  if (S.faces.model_ready === false) {   // the first Find faces downloads the model (0.6 GB): only when you ask
+    wait.textContent = "faces: Find faces downloads the face model first (0.6 GB, once)";
+    wait.hidden = false;
+    return;
+  }
+  if (facesStopped()) {   // you stopped the run on this roll: a reload doesn't start it again
+    wait.textContent = "faces: stopped · Find faces carries on";
+    wait.hidden = !S.scans.some((s) => !fc[s.name]);
+    return;
+  }
+  findFaces(true);
 }
+function facesStopped() { try { return localStorage.getItem(storeKey() + "#facesStopped") === "1"; } catch (e) { return false; } }
+function setFacesStopped(on) { try { on ? localStorage.setItem(storeKey() + "#facesStopped", "1") : localStorage.removeItem(storeKey() + "#facesStopped"); } catch (e) {} }
 function stopFinding() { rollRun++; finder = null; paintFinder(); paintWho(); }
 function paintFinder() {
   const chip = $("faceRun");
@@ -2450,7 +2470,8 @@ function faceBadge(name) {   // "2/3 faces" on a scan, once its faces were looke
   const fd = fc[name];
   if (!fd) return null;
   const live = liveFaces(fd), named = live.filter((f) => f.name).length, n = live.length;
-  const fb = el("span", "pill fbadge" + (!n ? " none" : named < n ? " warn" : ""), !n ? "no faces" : named + "/" + n + (n === 1 ? " face" : " faces"));
+  const open = live.filter(pending).length;
+  const fb = el("span", "pill fbadge" + (!n ? " none" : open ? " warn" : ""), !n ? "no faces" : named + "/" + n + (n === 1 ? " face" : " faces"));
   fb.title = !n ? "no faces found" : named + " of " + n + " faces named. Double-click the scan to review them.";
   return fb;
 }
@@ -2488,7 +2509,7 @@ function paintKwLine(line, name) {
 // Every face on the roll with no name, or only the gallery's guess, in one panel, grouped by who they look like (the
 // server clusters the fingerprints) so a person is named once for the whole roll. The groups are worked out when the
 // panel opens and stay put while you name them. Names go through setFaceName/removeFace, like the zoom view's.
-const pending = (f) => !f.gone && (!f.name || f.auto);
+const pending = (f) => !f.gone && !f.stranger && (!f.name || f.auto);   // a face you said you don't know is settled
 function pendingFaces() {
   return scanOrder().flatMap((scan) => (fc[scan]?.faces || []).filter(pending).map((f) => ({ scan, f })));
 }
@@ -2635,6 +2656,17 @@ function whoGroup(g, live) {
   name.disabled = !on.length;
   name.onclick = () => { if (inp.value.trim()) whoAct(g, inp.value); else inp.focus(); };
   act.append(inp, name);
+  if (g.type === "people" || g.type === "drawn") {
+    const nobody = el("button", null, "Nobody I know");
+    nobody.title = "leave the ticked faces unnamed (a passer-by, a crowd): they stop being counted here and aren't written";
+    nobody.disabled = !on.length;
+    nobody.onclick = () => {
+      batchFaces("mark " + plural(on.length, "face", "faces") + " as nobody you know",
+                 () => { for (const m of on) { const x = faceAt(m); if (x) markStranger(m.scan, x.i); } });
+      whoNext(g);
+    };
+    act.append(nobody);
+  }
   if (g.type !== "low" && live.length !== on.length) act.append(el("span", "hint", (live.length - on.length) + " unticked: left as they are"));
   box.append(act);
   return box;
@@ -2675,13 +2707,13 @@ function batchFaces(what, fn) {
 }
 function recordFace(scan, i, what) {
   const f = fc[scan].faces[i], saved = fcNames[scan] || {};
-  const rec = { scan, i, name: f.name, auto: f.auto, gone: !!f.gone, had: f.key in saved, saved: saved[f.key] };
+  const rec = { scan, i, name: f.name, auto: f.auto, gone: !!f.gone, stranger: !!f.stranger, had: f.key in saved, saved: saved[f.key] };
   if (faceBatch) faceBatch.faces.push(rec); else pushUndo({ what, faces: [rec] });
 }
 function setFaceName(scan, i, name) {
   const f = fc[scan].faces[i];
   recordFace(scan, i, (name.trim() ? "name a face " + name.trim() : "clear a face's name"));
-  f.name = name.trim().replace(/\s+/g, " "); f.auto = false;
+  f.name = name.trim().replace(/\s+/g, " "); f.auto = false; f.stranger = false;
   (fcNames[scan] = fcNames[scan] || {})[f.key] = f.name;
   persistFaces();
   paintKw();   // a face named is no longer suggested as a keyword
@@ -2692,8 +2724,18 @@ const liveFaces = (d) => d.faces.filter((f) => !f.gone);
 function removeFace(scan, i, gone = true) {
   const f = fc[scan].faces[i];
   recordFace(scan, i, gone ? "remove a box" : "bring back a box");
-  f.gone = gone; f.name = ""; f.auto = false;
+  f.gone = gone; f.name = ""; f.auto = false; f.stranger = false;
   (fcNames[scan] = fcNames[scan] || {})[f.key] = gone ? null : "";
+  persistFaces();
+  paintKw();
+}
+// "Nobody I know": a real face you won't name (a passer-by). It stays unnamed (not written), and stops being counted
+// in Who's this?, the badges and Write's summary. Remembered for the roll like a name.
+function markStranger(scan, i) {
+  const f = fc[scan].faces[i];
+  recordFace(scan, i, "mark a face as nobody you know");
+  f.stranger = true; f.name = ""; f.auto = false;
+  (fcNames[scan] = fcNames[scan] || {})[f.key] = { stranger: true };
   persistFaces();
   paintKw();
 }
@@ -2706,8 +2748,10 @@ function nextFace(data, i) {
 }
 // A box you draw has no detection behind it: it's written as a region with its name, but the gallery has nothing to
 // suggest for it or learn from. Moving a detected box keeps its detection (and what Write learns from it).
-function drawnFace(key, box, name) {
-  return { id: null, kind: "face", key, box, low: false, suggestions: [], name: name || "", auto: false, gone: name === null, drawn: true };
+function drawnFace(key, box, name) {   // name: as saved, a string, null (removed) or {stranger: true}
+  const stranger = !!(name && typeof name === "object" && name.stranger);
+  return { id: null, kind: "face", key, box, low: false, suggestions: [], name: typeof name === "string" ? name : "", auto: false,
+           gone: name === null, stranger, drawn: true };
 }
 function setFaceBox(scan, f, box) {
   f.box = box.map((v) => +v.toFixed(4));
@@ -2942,8 +2986,8 @@ function write() {
   // faces needing a look: guesses nobody confirmed, faces with no name, boxes the detector doubts
   const found = ps.flatMap((p) => (fc[p.scan]?.faces || []).map((f, i) => ({ scan: p.scan, f, i })).filter((x) => !x.f.gone));
   const guessed = found.filter((x) => x.f.name && x.f.auto);
-  const unnamed = found.filter((x) => !x.f.name && !x.f.low);
-  const doubtful = found.filter((x) => !x.f.name && x.f.low);
+  const unnamed = found.filter((x) => !x.f.name && !x.f.low && !x.f.stranger);
+  const doubtful = found.filter((x) => !x.f.name && x.f.low && !x.f.stranger);
   const lone = noLog() ? [] : ps.filter((p) => p.entry == null).map((p) => p.scan);
   const notLooked = S.faces?.available ? ps.filter((p) => !p.faces).length : 0;
 
@@ -3092,8 +3136,8 @@ async function boot() {
   $("write").onclick = write;
   $("writeGo").onclick = () => { const ps = writeSnap; $("writeDlg").close(); if (ps) doWrite(ps); };
   $("writeDlg").addEventListener("close", () => { writeSnap = null; });
-  $("findFaces").onclick = () => findFaces(false);
-  $("faceRun").lastElementChild.onclick = () => { if (finder) { finder.stop = true; paintFinder(); } };
+  $("findFaces").onclick = () => { setFacesStopped(false); $("faceWait").hidden = true; findFaces(false); };
+  $("faceRun").lastElementChild.onclick = () => { if (finder) { finder.stop = true; setFacesStopped(true); paintFinder(); } };
   $("whoBtn").onclick = openWho;
   $("whoClose").onclick = () => $("who").close();
   $("who").addEventListener("close", () => { who = null; if (S?.loaded) render(); });
