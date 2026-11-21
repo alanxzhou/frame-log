@@ -1,5 +1,6 @@
 """Face endpoints and Write's face handling. The detector is a fake that "sees" two faces in every scan."""
 
+import io
 import json
 from pathlib import Path
 
@@ -362,3 +363,100 @@ def test_stop_ends_a_run_and_unlocks_the_settings(env, tmp_path, monkeypatch):
     assert s["phase"] == "stopped" and not s["running"]
     assert c.post("/api/faces/library", json={"folders": [str(lib)], "pets": ["Kepler"]}).status_code == 200
     env["state"].sync.join(10)
+
+
+# ---------- restoring detections, grouping, crops, the preview with faces ----------
+
+def test_detected_returns_every_cached_scan_like_detect(env):
+    c = env["client"]
+    assert c.get("/api/faces/detected").json() == {"scans": []}          # nothing looked at yet
+    one = c.post("/api/faces/detect/r.jpg").json()
+    two = c.post("/api/faces/detect/a.jpg").json()
+    got = c.get("/api/faces/detected").json()["scans"]
+    assert [g["scan"] for g in got] == ["a.jpg", "r.jpg"]               # in the roll's order
+    assert got == [two, one]                                             # the same shape and values as detect
+
+
+def test_detected_without_the_face_tools_is_empty(tmp_path, monkeypatch):
+    monkeypatch.setenv("FRAMELOG_TAGGER_CONFIG", str(tmp_path / "config.json"))
+    Image.new("RGB", (10, 10)).save(tmp_path / "a.jpg")
+    c = TestClient(create_app(AppState(exiftool=None, default_tz="UTC", faces_note="no faces extra")))
+    assert c.get("/api/faces/detected").status_code == 409               # no roll
+    c.post("/api/load", json={"scans_dir": str(tmp_path)})
+    assert c.get("/api/faces/detected").json() == {"scans": []}
+
+
+def test_detected_asks_the_gallery_again(env):
+    c = env["client"]
+    assert c.post("/api/faces/detect/a.jpg").json()["faces"][1]["name"] == ""
+    _, dets = env["state"].session.detections["a.jpg"]
+    for i in range(3):                                                    # the stranger is learned meanwhile
+        env["gallery"].add("Zed", unit(dets[1].emb + RNG.normal(size=512) * 0.01), f"D:/z/{i}.jpg", FaceBox(0.1, 0.1, 0.1, 0.1))
+    assert c.get("/api/faces/detected").json()["scans"][0]["faces"][1]["name"] == "Zed"
+
+
+def test_group_puts_the_same_face_together():
+    a, b = unit(RNG.normal(size=512)), unit(RNG.normal(size=512))
+    near = lambda v: unit(v + RNG.normal(size=512) * 0.02)
+    embs = [near(a), near(b), near(a), unit(RNG.normal(size=512)), near(b), near(a)]
+    assert faces_mod.group(embs, 0.4) == [[0, 2, 5], [1, 4], [3]]
+    assert faces_mod.group([], 0.4) == []
+    assert faces_mod.group(embs, 1.1) == [[i] for i in range(6)]       # nothing is that similar
+
+
+def test_groups_endpoint_clusters_across_scans(env):
+    c = env["client"]
+    c.post("/api/faces/detect/a.jpg")
+    c.post("/api/faces/detect/r.jpg")
+    refs = [{"scan": "a.jpg", "id": 0}, {"scan": "a.jpg", "id": 1}, {"scan": "r.jpg", "id": 0},
+            {"scan": "r.jpg", "id": 1}, {"scan": "a.jpg", "id": None}, {"scan": "nope.jpg", "id": 0}]
+    groups = c.post("/api/faces/groups", json={"faces": refs}).json()["groups"]
+    # the two Ana-like faces together, the stranger (the same fingerprint in both scans) together, the rest alone
+    assert groups == [[0, 2], [1, 3], [4], [5]]
+
+
+def test_faces_and_pets_are_grouped_apart(pet_env):
+    c = pet_env["client"]
+    faces = c.post("/api/faces/detect/a.jpg").json()["faces"]
+    c.post("/api/faces/detect/r.jpg")
+    refs = [{"scan": s, "id": f["id"]} for s in ("a.jpg", "r.jpg") for f in faces]
+    groups = c.post("/api/faces/groups", json={"faces": refs}).json()["groups"]
+    kinds = [f["kind"] for f in faces] * 2
+    for g in groups:
+        assert len({kinds[i] for i in g}) == 1
+    assert sorted(map(sorted, groups)) == [[0, 3], [1, 4], [2, 5]]       # Ana, the dog, the stranger
+
+
+def test_crop_cuts_around_the_box(env):
+    c = env["client"]
+    r = c.get("/api/crop/a.jpg", params={"box": "0.1,0.2,0.2,0.3", "size": 64})
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    with Image.open(io.BytesIO(r.content)) as im:
+        assert max(im.size) <= 64
+    assert c.get("/api/crop/a.jpg", params={"box": "nope"}).status_code == 400
+    assert c.get("/api/crop/zz.jpg", params={"box": "0,0,.1,.1"}).status_code == 404
+
+
+def test_preview_with_faces_is_exactly_what_write_writes(env):
+    env["existing"].append(TaggedImage("a.jpg", 1, [FaceBox(0.7, 0.6, 0.1, 0.1, "Sabine")]))
+    c = env["client"]
+    faces = c.post("/api/faces/detect/a.jpg").json()["faces"]
+    pair = {"scan": "a.jpg", "keywords": ["party"], "faces": [
+        {"id": 0, "box": faces[0]["box"], "name": "Ana"}, {"id": 1, "box": faces[1]["box"], "name": ""}]}
+    j = c.post("/api/preview", json=pair).json()
+    assert j["faces"] == 1 and j["note"] == "" and "Ana" in j["keywords"]
+    region = region_arg(j["args"])
+    assert "Name=Ana,Type=Face" in region and "Name=Sabine," in region          # merged with what's in the file
+    assert "-XMP-dc:Subject=Ana" in j["args"]
+    assert dict(env["gallery"].people()) == {"Ana": 4} and not env["calls"]     # the preview changed nothing
+    c.post("/api/write", json={"pairs": [pair]})
+    assert env["calls"][0] == j["args"]
+
+
+def test_preview_explains_when_regions_cannot_be_read(env):
+    env["state"].exiftool = None
+    c = env["client"]
+    faces = c.post("/api/faces/detect/a.jpg").json()["faces"]
+    j = c.post("/api/preview", json={"scan": "a.jpg", "faces": [{"id": 0, "box": faces[0]["box"], "name": "Ana"}]}).json()
+    assert "exiftool" in j["note"] and region_arg(j["args"]) is None and "-XMP-dc:Subject=Ana" in j["args"]
+    assert c.post("/api/preview", json={"scan": "zz.jpg"}).status_code == 404

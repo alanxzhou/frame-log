@@ -386,6 +386,40 @@
   #preview pre { font-family: var(--mono); font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; color: var(--text); }
   .help { color: var(--muted); font-size: 12px; padding: 9px 16px; background: var(--panel); box-shadow: 0 -1px 0 var(--line); }
   .help svg { width: 9px; height: 9px; fill: currentColor; vertical-align: -1px; }
+  /* face names on a scan's keyword line: Write adds them as keywords, but they come from the faces */
+  .kws .fkw { color: var(--ok); }
+  .kws .fkw.auto { font-style: italic; opacity: .8; }
+  #faceRun button { font-size: 11px; padding: 2px 9px; margin-left: 6px; }
+
+  /* "Who's this?": every face on the roll still to name, grouped by who they look like */
+  #who { margin: auto; width: min(980px, calc(100vw - 32px)); max-height: calc(100vh - 48px); background: var(--panel); color: var(--text); border: 0; border-radius: 18px; padding: 0; box-shadow: 0 0 0 1px var(--line), 0 20px 50px rgba(0,0,0,.6); }
+  #who[open] { display: flex; flex-direction: column; }
+  #who::backdrop { background: rgba(0,0,0,.55); }
+  #who .whead { display: flex; align-items: center; gap: 12px; padding: 16px 22px 12px; box-shadow: 0 1px 0 var(--line); }
+  #who h2 { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  #who .whead .hint { flex: 1; font-size: 11.5px; color: var(--muted); }
+  #whoList { overflow: auto; padding: 10px 22px 18px; display: flex; flex-direction: column; gap: 10px; }
+  #whoList .empty { font-size: 12.5px; color: var(--muted); padding: 24px 0; text-align: center; }
+  .wgroup { border-radius: 12px; padding: 10px 12px; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); }
+  .wgroup.cur { box-shadow: inset 0 0 0 2px var(--accent); }
+  .wgroup .wtitle { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .wgroup .wtitle b { color: var(--text); font-weight: 600; }
+  .wgroup.low .wtitle b { color: var(--warn); }
+  .wgroup .crops { display: flex; flex-wrap: wrap; gap: 8px; }
+  .wcrop { position: relative; width: 104px; margin: 0; }
+  .wcrop img { display: block; width: 104px; height: 104px; object-fit: cover; border-radius: 9px; background: var(--img); cursor: zoom-in; }
+  .wcrop.off img { opacity: .3; }
+  .wcrop.low img { outline: 1.5px dashed var(--warn); outline-offset: -1.5px; }
+  .wcrop input { position: absolute; top: 5px; left: 5px; width: 15px; height: 15px; margin: 0; cursor: pointer; }
+  .wcrop .x { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; padding: 0; border-radius: 50%; font-size: 12px; line-height: 1; background: rgba(0,0,0,.65); box-shadow: none; display: grid; place-items: center; }
+  .wcrop figcaption { font-family: var(--mono); font-size: 9.5px; color: var(--muted); padding-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wcrop figcaption .who { color: var(--text); font-family: var(--sans); font-style: italic; }
+  .wcrop figcaption .unsure { color: var(--warn); font-family: var(--sans); }
+  .wgroup .wact { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .wgroup .wact input { width: 190px; background: var(--input); color: var(--text); border: 0; border-radius: 9px; padding: 6px 10px; font: inherit; font-size: 12.5px; box-shadow: inset 0 1px 3px rgba(0,0,0,.5), 0 0 0 1px var(--line); }
+  .wgroup .wact input:focus { outline: 0; box-shadow: inset 0 1px 3px rgba(0,0,0,.5), 0 0 0 1px var(--accent); }
+  .wgroup .wact .pct { font-family: var(--mono); font-size: 9.5px; opacity: .6; margin-left: 6px; }
+  .wgroup .wact .hint { font-size: 11px; color: var(--muted); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -395,6 +429,7 @@
   <span class="roll" id="roll"></span>
   <span class="meta" id="meta"></span>
   <span class="meta" id="faceSync" hidden></span>
+  <span class="meta" id="faceRun" hidden><span></span><button type="button" title="Stop finding faces. Scans already looked at keep their faces; Find faces carries on with the rest.">Stop</button></span>
   <span class="tags" id="tags" hidden title="Written into every scan's metadata on Write. Set them on the setup screen (Change roll)."></span>
   <span class="spacer"></span>
   <span class="stats" id="stats"></span>
@@ -402,6 +437,7 @@
   <button id="autoPair" hidden title="Reset to positional pairing: 1st scan ↔ 1st frame, and so on">Auto-pair</button>
   <button id="reverse" hidden title="Reverse the scan order (roll scanned tail-first)">Reverse scans</button>
   <button id="findFaces" hidden title="Find the faces in every scan and suggest who they are. Double-click a scan to review and name them.">Find faces</button>
+  <button id="whoBtn" hidden title="Name every face on the roll that has no name yet, or a name the gallery guessed, grouped by who they look like">Who's this?</button>
   <button id="write" class="primary" hidden title="Write metadata into every paired scan">Write</button>
 </header>
 
@@ -571,6 +607,11 @@
 
 <dialog id="zoom"><div class="frame"><img alt="" draggable="false"><div class="faces"></div></div><div class="facebar" hidden></div><div class="name"></div></dialog>
 <datalist id="faceNames"></datalist>
+<dialog id="who">
+  <div class="whead"><h2>Who's this?</h2><span class="hint" id="whoNote"></span><button type="button" class="primary" id="whoClose">Done</button></div>
+  <div id="whoList"></div>
+</dialog>
+<datalist id="whoNames"></datalist>
 
 <div id="toast"></div>
 <div id="preview"><h3><span id="previewTitle"></span><span id="previewClose">✕</span></h3><pre id="previewBody"></pre></div>
@@ -613,6 +654,7 @@ function showSetup() {
   $("setup").hidden = false;
   $("strip").hidden = true; $("help").hidden = true; $("kwPanel").hidden = true;
   for (const id of ["changeRoll", "autoPair", "reverse", "findFaces", "write"]) $(id).hidden = true;
+  stopFinding();   // a run still going belongs to the roll being left
   $("roll").textContent = ""; $("meta").textContent = ""; $("stats").textContent = ""; $("tags").hidden = true;
   $("preview").style.display = "none";
   onScansChanged();
@@ -628,6 +670,7 @@ function showStrip() {
   restoreKw();
   restoreFaces();
   if (!restore()) autoPair(); else render();
+  startFaces();
 }
 
 // The roll-wide values Write puts into every scan's metadata.
@@ -800,13 +843,13 @@ function swap(row, i, j) {
 // Every scan is written: one with a card gets that card's tags, one without (entry null) still gets
 // the roll-wide tags and its own keywords and faces, so they aren't silently dropped.
 function pairs() {
-  return cols.filter((c) => c.scan != null)
-             .map((c) => {
-               const p = { scan: c.scan, entry: c.entry, keywords: kw[c.scan] || [] };
-               // only scans whose faces were looked at: for the rest, Write leaves any regions in the file alone
-               if (fc[c.scan]) p.faces = fc[c.scan].faces.filter((f) => !f.gone).map((f) => ({ id: f.id, box: f.box, name: f.name }));
-               return p;
-             });
+  return cols.filter((c) => c.scan != null).map(pairFor);
+}
+function pairFor(c) {   // one scan as Write (and the tag preview) gets it
+  const p = { scan: c.scan, entry: c.entry, keywords: kw[c.scan] || [] };
+  // only scans whose faces were looked at: for the rest, Write leaves any regions in the file alone
+  if (fc[c.scan]) p.faces = fc[c.scan].faces.filter((f) => !f.gone).map((f) => ({ id: f.id, box: f.box, name: f.name }));
+  return p;
 }
 
 /* ---------- persistence (survive an accidental reload) ---------- */
@@ -949,13 +992,8 @@ function render() {
       sc.addEventListener("click", (ev) => clickScan(s.name, ev));
       sc.addEventListener("dblclick", () => openZoom(s.name));
       if (s.tagged) sc.append(el("span", "pill warn badge", "tagged"));
-      const fd = fc[s.name];
-      if (fd) {
-        const live = liveFaces(fd), named = live.filter((f) => f.name).length, n = live.length;
-        const fb = el("span", "pill fbadge" + (!n ? " none" : named < n ? " warn" : ""), !n ? "no faces" : named + "/" + n + (n === 1 ? " face" : " faces"));
-        fb.title = !n ? "no faces found" : named + " of " + n + " faces named. Double-click the scan to review them.";
-        sc.append(fb);
-      }
+      const fb = faceBadge(s.name);
+      if (fb) sc.append(fb);
       const r = results[s.name];
       if (r) { const b = el("span", "pill result " + (r.ok ? "ok" : "err"), r.ok ? "written" : r.error); b.title = r.error || (r.note ? r.note + " — " : "") + (r.path || ""); sc.append(b); }
     } else {
@@ -1361,12 +1399,11 @@ function paintKw() {
   if (!S || !S.loaded) return;
   // scan cells: selection and their keywords
   for (const cell of document.querySelectorAll(".scan[data-scan]")) {
-    const n = cell.dataset.scan, own = kw[n] || [];
+    const n = cell.dataset.scan;
     cell.classList.toggle("sel", sel.has(n));
-    const line = cell.querySelector(".kws");
-    line.textContent = own.join(" · ");
-    line.title = own.length ? own.join(", ") + (S.roll_keywords.length ? "\n+ the roll's: " + S.roll_keywords.join(", ") : "") : "";
+    paintKwLine(cell.querySelector(".kws"), n);
   }
+  paintWho();
   // the box: keywords on the selection, all-or-some
   const n = sel.size, input = $("kwInput");
   $("kwBox").classList.toggle("off", !n);
@@ -1592,7 +1629,11 @@ function initZoom() {
     if (ev.target !== img) d.close();
   });
   d.addEventListener("cancel", (ev) => { if (zm?.drawing) { ev.preventDefault(); setDrawing(false); } });
-  d.addEventListener("close", () => { d.classList.remove("drawing"); fSel = -1; zm = null; if (S && S.loaded) render(); });   // the cards show how many faces are named
+  d.addEventListener("close", () => {   // the cards show how many faces are named
+    d.classList.remove("drawing"); fSel = -1; zm = null;
+    if (S && S.loaded) render();
+    if ($("who").open) renderWho(true);   // opened from a crop there: back to the grid, with what changed
+  });
   addEventListener("resize", () => { if (d.open) layoutZoom(); });
 }
 
@@ -1793,7 +1834,10 @@ function renderFaceNames() {
   $("faceNames").replaceChildren(...(S.faces?.names || []).map((n) => { const o = document.createElement("option"); o.value = n; return o; }));
 }
 async function detectScan(name) {
-  const j = await api("POST", "/api/faces/detect/" + encodeURIComponent(name));
+  return applyDetection(name, await api("POST", "/api/faces/detect/" + encodeURIComponent(name)));
+}
+// a scan's detections from the server, with what you chose for them on this roll (names, removals, moved and drawn boxes)
+function applyDetection(name, j) {
   const saved = fcNames[name] || {}, boxes = fcBoxes[name] || {};
   for (const f of j.faces) {
     const k = f.key = faceKey(f.box);   // where the detector put it: names and moves are remembered by this
@@ -1805,31 +1849,289 @@ async function detectScan(name) {
   fc[name] = j;
   return j;
 }
-let finding = false;
-async function findFaces() {
-  if (!S.faces?.available) { toast(S.faces?.reason || "face tools aren't installed", true); return; }
-  if (finding) return;
-  finding = true;
-  const btn = $("findFaces"), names = S.scans.map((s) => s.name);
-  btn.disabled = true;
+// Faces are found on their own after Load roll, one scan at a time in the background, while you pair and keyword.
+// The server keeps what it found for the session, so a reload restores it (startFaces) and only looks at the scans it
+// hadn't reached. Each scan's badge, keyword line and the Who's this? count update in place: the strip isn't redrawn
+// under you. Find faces runs it again over every scan (the gallery may know more people by now).
+let rollRun = 0;        // bumped when the roll changes: a detection that comes back for the old one is dropped
+let finder = null;      // the run in progress: {run, stop, done, total}
+async function startFaces() {
+  const run = ++rollRun;
+  paintWho();
+  if (!S.faces?.available) return;
   try {
-    let note = "";
-    for (let i = 0; i < names.length; i++) {
-      btn.textContent = "Finding faces " + (i + 1) + "/" + names.length;
-      note = (await detectScan(names[i])).note || note;
+    const j = await api("GET", "/api/faces/detected");
+    if (run !== rollRun) return;
+    for (const d of j.scans) if (S.scans.some((s) => s.name === d.scan)) applyDetection(d.scan, d);
+    for (const d of j.scans) paintFaceScan(d.scan, false);
+  } catch (e) { /* nothing restored: they're found again below */ }
+  if (run === rollRun) findFaces(true);
+}
+function stopFinding() { rollRun++; finder = null; paintFinder(); paintWho(); }
+function paintFinder() {
+  const chip = $("faceRun");
+  chip.hidden = !finder;
+  $("findFaces").disabled = !!finder;
+  if (!finder) return;
+  chip.firstElementChild.textContent = finder.stop ? "stopping…" : "finding faces " + finder.done + "/" + finder.total;
+  chip.lastElementChild.disabled = finder.stop;
+}
+async function findFaces(auto = false) {
+  if (!S.faces?.available) { if (!auto) toast(S.faces?.reason || "face tools aren't installed", true); return; }
+  if (finder) return;
+  const names = S.scans.map((s) => s.name).filter((n) => !auto || !fc[n]);
+  if (!names.length) return;
+  const me = finder = { run: rollRun, stop: false, done: 0, total: names.length };
+  paintFinder();
+  let note = "", error = "";
+  for (const n of names) {
+    if (me.stop || me.run !== rollRun) break;
+    const had = !!fc[n];
+    try {
+      const j = await api("POST", "/api/faces/detect/" + encodeURIComponent(n));
+      if (me.run !== rollRun) return;   // the roll changed while it looked
+      applyDetection(n, j);
+      note = j.note || note;
+    } catch (e) {
+      if (me.run !== rollRun) return;
+      error = e.message;
+      break;
     }
-    const all = Object.values(fc).flatMap(liveFaces);
-    const f = S.faces;
-    toast(all.length + " faces in " + names.length + " scans, " + all.filter((x) => x.name).length + " already named" +
-          (note ? ". " + note
-           : f.sync?.running ? ". Still learning from your Lightroom library, so names will improve as it goes"
-           : !f.library.length && !f.people ? ". Nobody is learned yet: add your Lightroom photos under Change roll → Lightroom library" : ""), !!note);
-  } catch (e) {
-    toast("finding faces failed: " + e.message, true);
-  } finally {
-    finding = false; btn.disabled = false; btn.textContent = "Find faces";
-    render();
+    me.done++;
+    paintFaceScan(n, had);
+    paintFinder();
   }
+  if (finder === me) finder = null;
+  paintFinder();
+  if (me.run !== rollRun) return;
+  if (error) { toast("finding faces failed: " + error, true); return; }
+  const all = Object.values(fc).flatMap(liveFaces);
+  const f = S.faces, todo = pendingFaces().length;
+  toast((me.stop ? "stopped finding faces: " : "") + all.length + " faces in " + Object.keys(fc).length + " scans, " + all.filter((x) => x.name).length + " named" +
+        (todo ? " · Who's this? names the other " + todo : "") +
+        (note ? ". " + note
+         : f.sync?.running ? ". Still learning from your Lightroom library, so names will improve as it goes"
+         : !f.library.length && !f.people ? ". Nobody is learned yet: add your Lightroom photos under Change roll → Lightroom library" : ""), !!note);
+}
+// one scan's faces have changed: its badge and keyword line (in place), the suggestions, the Who's this? count, and the
+// zoom view if it was waiting on this scan
+function paintFaceScan(name, had) {
+  const cell = document.querySelector('.scan[data-scan="' + CSS.escape(name) + '"]');
+  if (cell) {
+    cell.querySelector(".fbadge")?.remove();
+    const fb = faceBadge(name);
+    if (fb) cell.append(fb);
+  }
+  paintKw();
+  if (zm?.name === name && !had) { paintFaces(); paintFaceBar(); }
+}
+function faceBadge(name) {   // "2/3 faces" on a scan, once its faces were looked for
+  const fd = fc[name];
+  if (!fd) return null;
+  const live = liveFaces(fd), named = live.filter((f) => f.name).length, n = live.length;
+  const fb = el("span", "pill fbadge" + (!n ? " none" : named < n ? " warn" : ""), !n ? "no faces" : named + "/" + n + (n === 1 ? " face" : " faces"));
+  fb.title = !n ? "no faces found" : named + " of " + n + " faces named. Double-click the scan to review them.";
+  return fb;
+}
+// The names Write adds to a scan as keywords because a face there has that name (a gallery guess too: Write writes
+// it unless you clear it). Shown on the scan's keyword line after its own keywords, in green; guesses in italics.
+function faceNamesFor(name) {
+  const seen = new Set(), out = [];
+  for (const f of fc[name] ? liveFaces(fc[name]) : []) {
+    if (!f.name || seen.has(lc(f.name))) continue;
+    seen.add(lc(f.name)); out.push({ name: f.name, auto: f.auto });
+  }
+  return out;
+}
+function paintKwLine(line, name) {
+  const own = kw[name] || [], ownLc = new Set(own.map(lc));
+  const faces = faceNamesFor(name).filter((f) => !ownLc.has(lc(f.name)));
+  const parts = [];
+  if (own.length) parts.push(own.join(" · "));
+  faces.forEach((f, i) => {
+    if (parts.length) parts.push(" · ");
+    const s = el("span", "fkw" + (f.auto ? " auto" : ""), f.name + (f.auto ? "?" : ""));
+    parts.push(s);
+  });
+  line.replaceChildren(...parts);
+  const facesText = faces.length ? "\nfrom the faces: " + faces.map((f) => f.name + (f.auto ? " (the gallery's guess, not confirmed)" : "")).join(", ") : "";
+  line.title = own.length || faces.length
+    ? (own.length ? own.join(", ") : "no keywords of its own") + facesText + (S.roll_keywords.length ? "\n+ the roll's: " + S.roll_keywords.join(", ") : "") : "";
+}
+
+/* ---------- who's this? ---------- */
+// Every face on the roll with no name, or only the gallery's guess, in one panel, grouped by who they look like (the
+// server clusters the fingerprints) so a person is named once for the whole roll. The groups are worked out when the
+// panel opens and stay put while you name them. Names go through setFaceName/removeFace, like the zoom view's.
+const pending = (f) => !f.gone && (!f.name || f.auto);
+function pendingFaces() {
+  return scanOrder().flatMap((scan) => (fc[scan]?.faces || []).filter(pending).map((f) => ({ scan, f })));
+}
+function paintWho() {
+  const b = $("whoBtn");
+  if (!S?.loaded || !S.faces?.available || $("setup").hidden === false) { b.hidden = true; return; }
+  const n = pendingFaces().length;
+  b.hidden = !Object.keys(fc).length;   // once faces have been looked for
+  b.textContent = "Who's this?" + (n ? " (" + n + ")" : "");
+  b.disabled = !n;
+  b.title = n ? "Name the " + plural(n, "face", "faces") + " on this roll with no name yet, or only the gallery's guess, grouped by who they look like"
+              : "Every face found on this roll has a name";
+}
+let who = null;   // {groups: [{type: "auto" | "people" | "drawn" | "low", name, kind, members: [{scan, key}]}], off: Set, cur}
+const memberId = (m) => m.scan + "\n" + m.key;
+function faceAt(m) {
+  const faces = fc[m.scan]?.faces || [], i = faces.findIndex((f) => f.key === m.key);
+  return i < 0 ? null : { i, f: faces[i] };
+}
+async function openWho() {
+  const all = pendingFaces(), groups = [];
+  const auto = new Map();
+  const ref = ({ scan, f }) => ({ scan, key: f.key });
+  for (const x of all) if (x.f.auto) {
+    const k = lc(x.f.name);
+    if (!auto.has(k)) auto.set(k, { type: "auto", name: x.f.name, members: [] });
+    auto.get(k).members.push(ref(x));
+  }
+  groups.push(...[...auto.values()].sort((a, b) => b.members.length - a.members.length));
+  const people = all.filter((x) => !x.f.name && !x.f.low && x.f.id != null);
+  if (people.length) {
+    let clusters;
+    try {
+      clusters = (await api("POST", "/api/faces/groups", { faces: people.map(({ scan, f }) => ({ scan, id: f.id })) })).groups;
+    } catch (e) { toast("couldn't group the faces: " + e.message, true); clusters = people.map((_, i) => [i]); }
+    for (const c of clusters) groups.push({ type: "people", kind: people[c[0]].f.kind, members: c.map((i) => ref(people[i])) });
+  }
+  for (const x of all) if (!x.f.name && !x.f.low && x.f.id == null) groups.push({ type: "drawn", members: [ref(x)] });
+  const low = all.filter((x) => !x.f.name && x.f.low);
+  if (low.length) groups.push({ type: "low", members: low.map(ref) });
+  who = { groups, off: new Set(), cur: groups[0] || null };
+  $("whoNames").replaceChildren(...mergeKw(S.faces.names || [], S.keywords.map((k) => k.name)).map((n) => { const o = document.createElement("option"); o.value = n; return o; }));
+  if (!$("who").open) $("who").showModal();
+  renderWho(true);
+}
+function liveGroup(g) {   // the group's faces still to name (a confirmed or renamed face leaves its group)
+  return g.members.filter((m) => {
+    const x = faceAt(m);
+    return x && pending(x.f) && (g.type === "auto" ? x.f.auto && lc(x.f.name) === lc(g.name) : !x.f.name);
+  });
+}
+function groupSuggestions(members) {   // the gallery's best guesses across the group: each name's best score
+  const best = new Map();
+  for (const m of members) for (const s of faceAt(m)?.f.suggestions || [])
+    if (!best.has(s.name) || best.get(s.name).score < s.score) best.set(s.name, s);
+  return [...best.values()].sort((a, b) => b.score - a.score).slice(0, 4);
+}
+function renderWho(focus) {
+  if (!who) return;
+  const list = $("whoList"), keep = list.scrollTop;
+  const shown = who.groups.map((g) => ({ g, live: liveGroup(g) })).filter((x) => x.live.length);
+  if (!shown.some((x) => x.g === who.cur)) who.cur = shown[0]?.g || null;
+  const total = shown.reduce((n, x) => n + x.live.length, 0);
+  $("whoNote").textContent = (total ? plural(total, "face", "faces") + " to name in " + plural(shown.length, "group", "groups") +
+    " · Enter names the highlighted group and moves on · untick a face that doesn't belong · click one to see it in its scan" : "") +
+    (finder ? " · still finding faces (" + finder.done + "/" + finder.total + "): open this again for the rest" : "");
+  list.replaceChildren(...(shown.length ? shown.map(({ g, live }) => whoGroup(g, live)) : [el("div", "empty", "Every face on this roll has a name. Write adds them as keywords and face regions.")]));
+  list.scrollTop = keep;
+  if (focus) {
+    const cur = list.querySelector(".wgroup.cur");
+    if (cur) { cur.querySelector("input[type=text]")?.focus({ preventScroll: true }); cur.scrollIntoView({ block: "nearest" }); }
+  }
+  paintWho();
+}
+function whoGroup(g, live) {
+  const box = el("section", "wgroup" + (g === who.cur ? " cur" : "") + (g.type === "low" ? " low" : ""));
+  const on = live.filter((m) => !who.off.has(memberId(m)));
+  const pet = g.type === "people" && g.kind === "pet";
+  const title = el("div", "wtitle");
+  const one = live.length === 1;
+  if (g.type === "auto") title.append(el("b", null, plural(live.length, "face", "faces")), " the gallery thinks " + (one ? "is " : "are ") + g.name + ", not confirmed yet");
+  else if (g.type === "low") title.append(el("b", null, plural(live.length, "box", "boxes")), " the detector isn't sure " + (one ? "is a face" : "are faces") + ": mostly hair, ears and blurs. Remove " + (one ? "it" : "them") + ", or name one that is a face");
+  else if (g.type === "drawn") title.append(el("b", null, "1 box"), " you drew");
+  else title.append(el("b", null, plural(live.length, pet ? "pet" : "face", pet ? "pets" : "faces")), live.length > 1 ? " that look like the same " + (pet ? "animal" : "person") : "");
+  box.append(title);
+  const crops = el("div", "crops");
+  for (const m of live) {
+    const { i, f } = faceAt(m), id = memberId(m);
+    const fig = el("figure", "wcrop" + (who.off.has(id) ? " off" : "") + (f.low ? " low" : ""));
+    const img = document.createElement("img");
+    img.src = "/api/crop/" + encodeURIComponent(m.scan) + "?box=" + f.box.map((v) => (+v).toFixed(4)).join(",") + "&size=208&v=" + (S.scans.find((s) => s.name === m.scan)?.v ?? 0);
+    img.alt = "face in " + m.scan; img.loading = "lazy";
+    img.title = "open " + m.scan + " with this face selected";
+    img.onclick = () => { who.cur = g; openZoom(m.scan); selectFace(i); };
+    const tick = document.createElement("input");
+    tick.type = "checkbox"; tick.checked = !who.off.has(id);
+    tick.title = "untick a face that doesn't belong in this group: it's left out when you name the group";
+    tick.onchange = () => { tick.checked ? who.off.delete(id) : who.off.add(id); who.cur = g; renderWho(false); };
+    const x = el("button", "x", "×"); x.type = "button";
+    x.title = "not " + (f.kind === "pet" ? "a pet" : "a face") + ": remove this box (it won't be written, and stays removed for this roll)";
+    x.onclick = () => { removeFace(m.scan, i); who.cur = g; renderWho(false); };
+    const cap = el("figcaption");
+    const pos = scanOrder().indexOf(m.scan);
+    cap.append(String(pos + 1).padStart(2, "0") + " ");
+    if (f.auto) cap.append(el("span", "who", f.name + "?"));
+    else if (f.low) cap.append(el("span", "unsure", "unsure"));
+    cap.title = m.scan;
+    fig.append(img, tick, x, cap);
+    crops.append(fig);
+  }
+  box.append(crops);
+  const act = el("div", "wact");
+  const inp = document.createElement("input");
+  inp.type = "text"; inp.setAttribute("list", "whoNames"); inp.placeholder = g.type === "auto" ? "someone else? type a name" : "who is this?";
+  inp.spellcheck = false;
+  inp.addEventListener("focus", () => { if (who.cur !== g) { who.cur = g; for (const s of $("whoList").children) s.classList.toggle("cur", s === box); } });
+  inp.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter") return;
+    ev.preventDefault(); ev.stopPropagation();
+    whoAct(g, inp.value);
+  });
+  if (g.type === "auto") {
+    const ok = el("button", "primary", "Confirm " + g.name + (on.length > 1 ? " (" + on.length + ")" : ""));
+    ok.disabled = !on.length; ok.onclick = () => whoAct(g, "");
+    act.append(ok);
+  }
+  if (g.type === "low") {
+    const rm = el("button", "primary", on.length === 1 && live.length === 1 ? "Not a face" : "Not faces" + (on.length > 1 ? " (" + on.length + ")" : ""));
+    rm.title = "remove the ticked boxes: they won't be written or suggested, and stay removed for this roll";
+    rm.disabled = !on.length; rm.onclick = () => whoRemove(g);
+    act.append(rm);
+  }
+  for (const s of groupSuggestions(live)) {
+    if (g.type === "auto" && lc(s.name) === lc(g.name)) continue;
+    const b = el("button", "kw", s.name);
+    b.append(el("span", "pct", Math.round(s.score * 100)));
+    b.title = "name the ticked faces " + s.name + " (the best match among them, about 40+ is likely)";
+    b.disabled = !on.length; b.onclick = () => whoAct(g, s.name);
+    act.append(b);
+  }
+  const name = el("button", g.type === "people" || g.type === "drawn" ? "primary" : null, "Name " + (!on.length ? "" : on.length === 1 ? (live.length === 1 ? "it" : "1 ticked") : on.length === live.length ? "all " + on.length : on.length + " ticked"));
+  name.disabled = !on.length;
+  name.onclick = () => { if (inp.value.trim()) whoAct(g, inp.value); else inp.focus(); };
+  act.append(inp, name);
+  if (g.type !== "low" && live.length !== on.length) act.append(el("span", "hint", (live.length - on.length) + " unticked: left as they are"));
+  box.append(act);
+  return box;
+}
+// Name the group's ticked faces (a blank name on a guessed group confirms the guess; on any other group it just
+// moves on), then go to the next group.
+function whoAct(g, typed) {
+  const name = typed.trim().replace(/\s+/g, " ");
+  const on = liveGroup(g).filter((m) => !who.off.has(memberId(m)));
+  if (name || g.type === "auto") {
+    for (const m of on) { const x = faceAt(m); if (x) setFaceName(m.scan, x.i, name || x.f.name); }
+  }
+  whoNext(g);
+}
+function whoRemove(g) {
+  for (const m of liveGroup(g).filter((m) => !who.off.has(memberId(m)))) { const x = faceAt(m); if (x) removeFace(m.scan, x.i); }
+  whoNext(g);
+}
+function whoNext(g) {
+  const at = who.groups.indexOf(g);
+  const later = [...who.groups.slice(at + 1), ...who.groups.slice(0, at + 1)];
+  who.cur = later.find((x) => liveGroup(x).some((m) => !who.off.has(memberId(m)))) || later.find((x) => liveGroup(x).length) || null;
+  renderWho(true);
+  render();   // the badges on the strip
 }
 function setFaceName(scan, i, name) {
   const f = fc[scan].faces[i];
@@ -2040,14 +2342,16 @@ function bringBack(bar, scan, data, removed) {
 }
 
 /* ---------- preview + toast ---------- */
+// What Write would write: a card paired with a scan is previewed as Write gets it (pairFor), faces and the face
+// regions included, through the same code on the server; a card with no scan shows just its own tags.
 async function showPreview(e) {
-  const scan = cols.find((c) => c.entry === e.id)?.scan;
-  const q = new URLSearchParams();
-  if (scan != null) { q.append("scan", scan); for (const k of kw[scan] || []) q.append("kw", k); }
-  const r = await fetch("/api/preview/" + e.id + "?" + q);
-  const j = await r.json();
-  $("previewTitle").textContent = "frame #" + e.frame + " → exiftool";
-  $("previewBody").textContent = j.args.join("\n");
+  const col = cols.find((c) => c.entry === e.id && c.scan != null);
+  let j;
+  try {
+    j = col ? await api("POST", "/api/preview", pairFor(col)) : await api("GET", "/api/preview/" + e.id);
+  } catch (err) { toast("preview failed: " + err.message, true); return; }
+  $("previewTitle").textContent = "frame #" + e.frame + (col ? " · " + col.scan : " (no scan)") + " → exiftool";
+  $("previewBody").textContent = (j.note ? "# " + j.note + "\n" : "") + j.args.join("\n");
   $("preview").style.display = "block";
 }
 $("previewClose").onclick = () => { $("preview").style.display = "none"; };
@@ -2138,7 +2442,16 @@ async function boot() {
   $("autoPair").onclick = () => { if (confirm("Reset all pairing to positional order?")) autoPair(); };
   $("reverse").onclick = reverseScans;
   $("write").onclick = write;
-  $("findFaces").onclick = findFaces;
+  $("findFaces").onclick = () => findFaces(false);
+  $("faceRun").lastElementChild.onclick = () => { if (finder) { finder.stop = true; paintFinder(); } };
+  $("whoBtn").onclick = openWho;
+  $("whoClose").onclick = () => $("who").close();
+  $("who").addEventListener("close", () => { who = null; if (S?.loaded) render(); });
+  document.addEventListener("keydown", (ev) => {   // Enter away from the name field (after a tick, say) acts on the highlighted group
+    if (ev.key !== "Enter" || !$("who").open || $("zoom").open || !who?.cur || ev.target.matches("input[type=text], button")) return;
+    ev.preventDefault();
+    whoAct(who.cur, $("whoList").querySelector(".wgroup.cur input[type=text]")?.value || "");
+  });
   initKeywords();
   initZoom();
   $("strip").addEventListener("wheel", (ev) => {
