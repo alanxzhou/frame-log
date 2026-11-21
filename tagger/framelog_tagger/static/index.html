@@ -55,6 +55,11 @@
   #whoBtn { min-width: 132px; font-variant-numeric: tabular-nums; }   /* room for "Who's this? (99)" */
   #write { min-width: 84px; }                                          /* and for "Writing…" */
   @media (max-width: 1240px) { header h1 span { display: none; } #actions { gap: 6px; } #actions button { padding: 7px 11px; } #actions #cellSize { width: 72px; } }
+  /* a narrow window: the status gets the first row, the keys the rows below (still independent of the status) */
+  @media (max-width: 980px) {
+    header { flex-wrap: wrap; height: auto; padding: 8px 12px; row-gap: 8px; }
+    #actions { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-end; row-gap: 6px; }
+  }
   header h1 { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; white-space: nowrap; }
   header h1::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
   header h1 span { font-weight: 500; color: var(--muted); }
@@ -965,9 +970,15 @@ function closePairMenu() { $("pairMenu").hidden = true; $("autoPair").setAttribu
 // Pairing changes go on the same undo stack as keyword changes, so Ctrl/⌘-Z takes back whatever came last.
 function pushUndo(step) { undoStack.push(step); if (undoStack.length > 100) undoStack.shift(); }
 function pairStep(what, card) { return { what, cols: JSON.stringify(cols), mode: pairMode, card }; }
+let undoing = false;   // undoing a new card waits on the server: a second Ctrl/⌘-Z meanwhile waits its turn
 async function undo() {
+  if (undoing) return;
   const step = undoStack.pop();
   if (!step) { toast("nothing to undo"); return; }
+  undoing = true;
+  try { await undoStep(step); } finally { undoing = false; }
+}
+async function undoStep(step) {
   if (step.kw) {
     ({ kw, order: kwOrder } = JSON.parse(step.kw));
     persistKw(); paintKw();
