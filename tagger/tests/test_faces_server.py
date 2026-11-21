@@ -125,8 +125,8 @@ def test_write_stores_regions_and_keywords_and_teaches_the_gallery(env):
     c = env["client"]
     faces = c.post("/api/faces/detect/a.jpg").json()["faces"]
     body = {"pairs": [{"scan": "a.jpg", "keywords": ["party"], "faces": [
-        {"id": 0, "box": faces[0]["box"], "name": "Ana"},
-        {"id": 1, "box": faces[1]["box"], "name": "Zed"},
+        {"id": 0, "box": faces[0]["box"], "name": "Ana", "confirmed": True},
+        {"id": 1, "box": faces[1]["box"], "name": "Zed", "confirmed": True},
         {"box": [0.9, 0.9, 0.05, 0.05], "name": ""},          # left unnamed: not written
     ]}]}
     j = c.post("/api/write", json=body).json()
@@ -142,10 +142,36 @@ def test_write_stores_regions_and_keywords_and_teaches_the_gallery(env):
     assert Gallery(env["gallery"].path).people()                      # saved to disk
 
 
+def test_only_confirmed_names_teach_the_gallery(env):
+    # Ana is the gallery's own guess, not confirmed: written, but learning from it would let a wrong guess
+    # reinforce itself. Zed was typed in (confirmed). A name sent without the flag counts as a guess.
+    c = env["client"]
+    faces = c.post("/api/faces/detect/a.jpg").json()["faces"]
+    assert faces[0]["name"] == "Ana"                                  # the gallery filled it in
+    j = c.post("/api/write", json={"pairs": [{"scan": "a.jpg", "faces": [
+        {"id": 0, "box": faces[0]["box"], "name": "Ana", "confirmed": False},
+        {"id": 1, "box": faces[1]["box"], "name": "Zed", "confirmed": True},
+        {"id": 2, "box": faces[2]["box"], "name": "Bo"},
+    ]}]}).json()
+    assert j["written"] == 1 and j["learned"] == 1
+    region = region_arg(env["calls"][0])
+    assert all("Name=" + n + ",Type=Face" in region for n in ("Ana", "Zed", "Bo"))   # every name is still written
+    assert {"-XMP-dc:Subject=Ana", "-XMP-dc:Subject=Zed", "-XMP-dc:Subject=Bo"} <= set(env["calls"][0])
+    assert dict(env["gallery"].people()) == {"Ana": 4, "Zed": 1}
+
+
+def test_confirming_a_guess_teaches_the_gallery(env):
+    c = env["client"]
+    faces = c.post("/api/faces/detect/a.jpg").json()["faces"]
+    j = c.post("/api/write", json={"pairs": [{"scan": "a.jpg", "faces": [
+        {"id": 0, "box": faces[0]["box"], "name": "Ana", "confirmed": True}]}]}).json()
+    assert j["learned"] == 1 and dict(env["gallery"].people()) == {"Ana": 5}
+
+
 def test_writing_the_same_roll_again_does_not_duplicate_faces(env):
     c = env["client"]
     faces = c.post("/api/faces/detect/a.jpg").json()["faces"]
-    body = {"pairs": [{"scan": "a.jpg", "faces": [{"id": 1, "box": faces[1]["box"], "name": "Zed"}]}]}
+    body = {"pairs": [{"scan": "a.jpg", "faces": [{"id": 1, "box": faces[1]["box"], "name": "Zed", "confirmed": True}]}]}
     c.post("/api/write", json=body)
     body["pairs"][0]["faces"][0]["name"] = "Zoe"                      # a correction
     c.post("/api/write", json=body)
@@ -192,7 +218,7 @@ def test_rotated_scans_get_the_keyword_but_no_region(env):
     c = env["client"]
     faces = c.post("/api/faces/detect/r.jpg").json()["faces"]
     j = c.post("/api/write", json={"pairs": [{"scan": "r.jpg", "faces": [
-        {"id": 0, "box": faces[0]["box"], "name": "Ana"}]}]}).json()
+        {"id": 0, "box": faces[0]["box"], "name": "Ana", "confirmed": True}]}]}).json()
     assert j["written"] == 1 and "rotated" in j["results"][0]["note"] and j["results"][0]["faces"] == 0
     args = env["calls"][0]
     assert region_arg(args) is None and "-XMP-dc:Subject=Ana" in args
@@ -302,7 +328,7 @@ def test_a_named_pet_is_written_like_a_face_and_teaches_the_pet_gallery_only(pet
     c = pet_env["client"]
     faces = c.post("/api/faces/detect/a.jpg").json()["faces"]
     pet = next(f for f in faces if f["kind"] == "pet")
-    j = c.post("/api/write", json={"pairs": [{"scan": "a.jpg", "faces": [{"id": pet["id"], "box": pet["box"], "name": "Kepler"}]}]}).json()
+    j = c.post("/api/write", json={"pairs": [{"scan": "a.jpg", "faces": [{"id": pet["id"], "box": pet["box"], "name": "Kepler", "confirmed": True}]}]}).json()
     assert j["written"] == 1 and j["learned"] == 1
     args = pet_env["calls"][0]
     assert "Name=Kepler,Type=Face" in region_arg(args) and "-XMP-dc:Subject=Kepler" in args
@@ -326,8 +352,8 @@ def test_a_box_named_as_the_other_kind_is_written_but_teaches_nothing(pet_env):
     face = next(f for f in faces if f["kind"] == "face")
     pet = next(f for f in faces if f["kind"] == "pet")
     j = c.post("/api/write", json={"pairs": [{"scan": "a.jpg", "faces": [
-        {"id": face["id"], "box": face["box"], "name": "Kepler"},     # the face model fired on the dog
-        {"id": pet["id"], "box": pet["box"], "name": "Ana"},          # the pet model fired on a person
+        {"id": face["id"], "box": face["box"], "name": "Kepler", "confirmed": True},     # the face model fired on the dog
+        {"id": pet["id"], "box": pet["box"], "name": "Ana", "confirmed": True},          # the pet model fired on a person
     ]}]}).json()
     assert j["written"] == 1 and j["learned"] == 0
     assert "Name=Kepler,Type=Face" in region_arg(pet_env["calls"][0])

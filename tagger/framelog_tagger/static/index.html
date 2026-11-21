@@ -963,7 +963,8 @@ function pairs() {
 function pairFor(c) {   // one scan as Write (and the tag preview) gets it
   const p = { scan: c.scan, entry: c.entry, keywords: kw[c.scan] || [] };
   // only scans whose faces were looked at: for the rest, Write leaves any regions in the file alone
-  if (fc[c.scan]) p.faces = fc[c.scan].faces.filter((f) => !f.gone).map((f) => ({ id: f.id, box: f.box, name: f.name }));
+  // confirmed: a name you gave (confirmed, typed, picked, drawn), not the gallery's guess; only those teach the gallery
+  if (fc[c.scan]) p.faces = fc[c.scan].faces.filter((f) => !f.gone).map((f) => ({ id: f.id, box: f.box, name: f.name, confirmed: !!f.name && !f.auto }));
   return p;
 }
 
@@ -2599,8 +2600,11 @@ async function write() {
     S.faces = j.faces; renderFaceNames();
     const failed = j.results.length - j.written;
     const skipped = j.results.filter((r) => r.note).length;
+    const okScans = new Set(j.results.filter((r) => r.ok).map((r) => r.scan));
+    const guessed = ps.filter((p) => okScans.has(p.scan)).flatMap((p) => p.faces || []).filter((f) => f.name && !f.confirmed).length;
     toast(j.written + " written" + (failed ? ", " + failed + " failed (see cards)" : "") + " → " + (S.in_place ? "in place" : S.out_dir) +
-          (j.learned ? " · " + j.learned + " faces added to the gallery" : "") +
+          (j.learned ? " · " + plural(j.learned, "face", "faces") + " added to the gallery" : "") +
+          (guessed ? " · " + plural(guessed, "guessed name", "guessed names") + " written but not learned (confirm them to teach the gallery)" : "") +
           (skipped ? " · " + skipped + " rotated scan(s) got face keywords but no face regions" : ""), failed > 0);
   } catch (e) {
     toast("write failed: " + e.message, true);

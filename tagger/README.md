@@ -241,7 +241,8 @@ then). What was found is kept by the running tagger, so a page reload restores i
 moved or drawn boxes, and only looks at the scans it hadn't reached. Each card shows how many faces are named.
 
 Because this runs on every roll, the gallery's guesses (dashed names) are written by **Write** unless you confirm,
-change or clear them. **Who's this?** is the quick way to go over them.
+change or clear them, though only the names you confirm teach the gallery. **Who's this?** is the quick way to go over
+them.
 
 **Who's this? (7)** in the header counts the faces with no name, or only the gallery's guess. It opens every one of
 them as a crop, grouped:
@@ -290,8 +291,11 @@ searchable. Things to know:
   doesn't show those existing boxes yet, so it will suggest a name for a face that already has one.)
 - Scans that are rotated in the file (EXIF orientation other than 1) get the keywords but no regions.
   Lightroom stores those regions in the file's unrotated pixels, and mapping back into that frame isn't done yet.
-- Every confirmed face is added to the gallery when you Write. Naming the same face again corrects it
-  rather than adding a second copy.
+- Only faces whose name is yours are added to the gallery when you Write: ones you confirmed, typed, or picked
+  (in the zoom view or Who's this?). A guess you left dashed is written into the file like any name, but the
+  gallery doesn't learn from it, so a wrong guess can't make itself more likely next time; the Write message
+  counts those. (A box you drew is written but has no fingerprint to learn from.) Naming the same face again
+  corrects it rather than adding a second copy.
 - Do this before importing into Lightroom, as with everything else here. Lightroom reads face regions at
   import; for photos already in a catalog use Metadata → Read Metadata from File.
 

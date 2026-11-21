@@ -137,6 +137,8 @@ class FaceTag(BaseModel):
     id: Optional[int] = None     # the detection this came from (this session), whose fingerprint Write learns from
     box: list[float]             # x, y, w, h: top-left corner and size, fractions of the upright picture
     name: str = ""               # blank: not named, so not written
+    confirmed: bool = False      # the name is yours (confirmed, typed, picked, or a box you drew), not just the gallery's
+                                 # guess: only these teach the gallery, so a wrong guess can't reinforce itself
 
 
 class Pair(BaseModel):
@@ -338,7 +340,7 @@ class ScanPlan:
     args: list[str]                  # the ExifTool assignments
     keywords: list[str]              # the scan's own keywords plus its named faces (the roll's come on top)
     named: list[FaceBox]             # the faces written as regions/keywords
-    learn: list[tuple]               # (name, detection) pairs that teach a gallery once written
+    learn: list[tuple]               # (name, detection) pairs that teach a gallery once written: confirmed names only
     regions: int                     # how many named faces went into face_args (0: none written)
     note: str = ""
 
@@ -353,7 +355,7 @@ def plan_scan(state: AppState, s: Session, scan: ScanInfo, entry: Optional[LogEn
         if name:
             named.append(FaceBox(*f.box, name=name))
             det = s.detections.get(scan.name)
-            if det and f.id is not None and 0 <= f.id < len(det[1]) and learns(state, det[1][f.id], name):
+            if f.confirmed and det and f.id is not None and 0 <= f.id < len(det[1]) and learns(state, det[1][f.id], name):
                 learn.append((name, det[1][f.id]))
     face_args = []
     if named:
@@ -807,7 +809,7 @@ def create_app(state: AppState) -> FastAPI:
                 state.library.add(r.pop("keywords"), written=1)
         state.library.save()
         learned = 0
-        for _, learn in done:   # every confirmed face or pet teaches its gallery; naming one again corrects it
+        for _, learn in done:   # every confirmed face or pet teaches its gallery (guesses don't); naming one again corrects it
             for name, det, source in learn:
                 gallery_for(state, det).add(name, det.emb, source, det.box)
                 learned += 1
