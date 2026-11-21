@@ -158,13 +158,13 @@ def test_large_thumbnail_for_big_cells(env):
     # The grid asks for the pixels a cell needs; past the small thumbnail it gets the large one, and only those two exist.
     from io import BytesIO
     c = env["client"]
-    Image.new("RGB", (1500, 1000), (20, 90, 160)).save(env["scans"] / "1.jpg")
+    Image.new("RGB", (3000, 2000), (20, 90, 160)).save(env["scans"] / "1.jpg")
     assert _load(env).status_code == 200
     size = lambda r: Image.open(BytesIO(r.content)).size
     assert size(c.get("/api/thumb/1.jpg")) == (360, 240)
     assert size(c.get("/api/thumb/1.jpg", params={"size": 300})) == (360, 240)
-    assert size(c.get("/api/thumb/1.jpg", params={"size": 500})) == (800, 533)
-    assert size(c.get("/api/thumb/1.jpg", params={"size": 99999})) == (800, 533)
+    assert size(c.get("/api/thumb/1.jpg", params={"size": 500})) == (1600, 1067)
+    assert size(c.get("/api/thumb/1.jpg", params={"size": 99999})) == (1600, 1067)
 
 
 def test_thumbnail_and_preview(env):

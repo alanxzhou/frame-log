@@ -48,7 +48,7 @@ except ImportError:
     faces_mod = pets_mod = None
 
 STATIC = Path(__file__).parent / "static"
-BIG_THUMB = 800   # longest edge of the large grid thumbnail (the small one is ThumbnailCache's default, 360)
+BIG_THUMB = 1600   # longest edge of the large grid thumbnail (the small one is ThumbnailCache's default, 360)
 LOCAL_HOSTS = ["127.0.0.1", "localhost"]
 STATE_CHANGING = {"POST", "PUT", "PATCH", "DELETE"}
 

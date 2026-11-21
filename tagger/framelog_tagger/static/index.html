@@ -135,7 +135,11 @@
     flex: 1; overflow-y: auto; overflow-x: hidden; padding: 16px;
     display: grid; grid-template-columns: repeat(auto-fill, minmax(min(var(--cell), 100%), 1fr)); gap: 12px; align-content: start;
   }
-  .slot { display: flex; flex-direction: column; gap: 4px; min-width: 0; border-radius: 16px; position: relative; }
+  .slot { display: flex; flex-direction: column; gap: 4px; min-width: 0; border-radius: 16px; position: relative; container-type: inline-size; }
+  @container (max-width: 175px) {   /* small cells: GPS is just its light, so the time has room */
+    .entry .gps { font-size: 0; width: 14px; height: 14px; padding: 0; }
+    .entry .gps::before { left: 4px; }
+  }
   .slot.over { box-shadow: 0 0 0 2px var(--accent); }
   .slot:has(.scan.sel) .scan { box-shadow: var(--card-shadow), 0 0 0 2px var(--accent); }
 
@@ -429,7 +433,7 @@
   <span class="spacer"></span>
   <label id="sizeCtl" title="Thumbnail size. Ctrl (⌘ on a Mac) + scroll wheel over the scans, or pinch, does the same">
     <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="4.4" height="4.4" rx="1"/><rect x="6.6" y="1" width="4.4" height="4.4" rx="1"/><rect x="1" y="6.6" width="4.4" height="4.4" rx="1"/><rect x="6.6" y="6.6" width="4.4" height="4.4" rx="1"/></svg>
-    <input type="range" id="cellSize" min="110" max="520" step="1" aria-label="thumbnail size">
+    <input type="range" id="cellSize" min="130" max="520" step="1" aria-label="thumbnail size">
     <svg class="big" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1.6"/></svg>
   </label>
   <span class="stats" id="stats"></span>
@@ -964,7 +968,7 @@ function dropTarget(slot, i) {
 }
 
 /* thumbnail size: the cells' width, from the slider or Ctrl/⌘ + wheel; remembered on this computer */
-const CELL_KEY = "framelog-tagger:cell-size", CELL_MIN = 110, CELL_MAX = 520;
+const CELL_KEY = "framelog-tagger:cell-size", CELL_MIN = 130, CELL_MAX = 520;
 let cellPx = 180;
 let bigThumbs = false;   // big cells (or a high-density screen) get the large thumbnail
 function loadCellSize() {
@@ -978,7 +982,7 @@ function setCellSize(px, save = true) {
   if (save) try { localStorage.setItem(CELL_KEY, String(cellPx)); } catch (e) {}
   updateThumbTier();
 }
-function thumbUrl(name) { return imageUrl("thumb", name) + (bigThumbs ? "&size=800" : ""); }
+function thumbUrl(name) { return imageUrl("thumb", name) + (bigThumbs ? "&size=1600" : ""); }
 function updateThumbTier() {
   const box = document.querySelector("#strip .thumb");
   if (!box || !box.clientWidth) return;
@@ -2260,6 +2264,7 @@ async function boot() {
   initZoom();
   $("strip").addEventListener("wheel", zoomGrid, { passive: false });
   $("cellSize").addEventListener("input", () => setCellSize(+$("cellSize").value));
+  $("cellSize").addEventListener("change", () => $("cellSize").blur());   // give the arrow keys back to the selection
   addEventListener("resize", updateThumbTier);
   loadCellSize();
   if (S.faces?.sync?.running) pollSync();
