@@ -63,7 +63,9 @@ def env(tmp_path: Path, monkeypatch):
                      sync=Sync(engine, gallery, "exiftool", settings), face_settings=settings)
     client = TestClient(create_app(state))
     assert client.post("/api/load", json={"scans_dir": str(scans)}).status_code == 200
-    return {"client": client, "state": state, "gallery": gallery, "calls": calls, "scans": scans, "existing": existing}
+    yield {"client": client, "state": state, "gallery": gallery, "calls": calls, "scans": scans, "existing": existing}
+    state.sync.stop()   # a library read started by the test finishes here, while its config path is still the test's
+    state.sync.join(10)
 
 
 def region_arg(args):
