@@ -70,3 +70,26 @@ def test_lightroom_face_names_join_the_keyword_library(tmp_path):
     names = {it["name"]: it for it in again.to_list()}
     assert set(names) == {"beach", "Ana", "Kepler"}
     assert names["Ana"]["used"] == "" and names["Ana"]["count"] == 0   # suggested, but not counted as used
+
+
+def test_region_names_are_read_from_exiftool_and_lightroom_xmp():
+    from framelog_tagger.keywords import xmp_region_names
+    exiftool = ("<mwg-rs:RegionList><rdf:Bag><rdf:li rdf:parseType='Resource'><mwg-rs:Area stArea:x='0.5'/>"
+                "<mwg-rs:Name>Ana &amp; Bo</mwg-rs:Name><mwg-rs:Type>Face</mwg-rs:Type></rdf:li></rdf:Bag></mwg-rs:RegionList>")
+    lightroom = ('<mwg-rs:RegionList><rdf:Bag><rdf:li><rdf:Description mwg-rs:Name="Kepler" mwg-rs:Type="Face"/>'
+                 '</rdf:li></rdf:Bag></mwg-rs:RegionList>')
+    assert xmp_region_names(exiftool) == ["Ana & Bo"]
+    assert xmp_region_names(lightroom.encode()) == ["Kepler"]
+    assert xmp_region_names(None) == [] and xmp_region_names("<dc:subject/>") == []
+
+
+def test_the_page_gets_a_scans_own_keywords_without_its_face_names(tmp_path):
+    from framelog_tagger.scans import list_scans
+    xmp = ('<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF><rdf:Description><dc:subject><rdf:Bag><rdf:li>beach</rdf:li>'
+           '<rdf:li>Ana</rdf:li></rdf:Bag></dc:subject><mwg-rs:RegionList><rdf:Bag><rdf:li rdf:parseType="Resource">'
+           '<mwg-rs:Name>Ana</mwg-rs:Name></rdf:li></rdf:Bag></mwg-rs:RegionList></rdf:Description></rdf:RDF></x:xmpmeta>')
+    Image.new("RGB", (40, 30)).save(tmp_path / "a.jpg", xmp=xmp.encode())
+    s = list_scans(tmp_path)[0]
+    assert s.keywords == ["beach", "Ana"] and s.region_names == ["Ana"]
+    d = s.to_dict()
+    assert d["keywords"] == ["beach"] and d["region_names"] == ["Ana"]

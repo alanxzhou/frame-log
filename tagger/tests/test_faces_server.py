@@ -486,3 +486,65 @@ def test_preview_explains_when_regions_cannot_be_read(env):
     j = c.post("/api/preview", json={"scan": "a.jpg", "faces": [{"id": 0, "box": faces[0]["box"], "name": "Ana"}]}).json()
     assert "exiftool" in j["note"] and region_arg(j["args"]) is None and "-XMP-dc:Subject=Ana" in j["args"]
     assert c.post("/api/preview", json={"scan": "zz.jpg"}).status_code == 404
+
+
+# --- names already on the file's face regions (Lightroom's, or an earlier Write's) ---
+
+def subjects(args):
+    return [a.split("=", 1)[1] for a in args if a.startswith("-XMP-dc:Subject=") and "=" in a and a.split("=", 1)[1]]
+
+
+def test_a_face_the_file_already_names_comes_back_named_and_confirmed(env):
+    # Zoe sits on the detector's left face; Max has a region where the detector found nothing
+    env["existing"].append(TaggedImage("a.jpg", 1, [FaceBox(0.1, 0.2, 0.2, 0.3, "Zoe"), FaceBox(0.8, 0.8, 0.1, 0.1, "Max")]))
+    j = env["client"].post("/api/faces/detect/a.jpg").json()
+    left = j["faces"][0]
+    assert left["name"] == "Zoe" and left["file"] and left["id"] == 0
+    extra = [f for f in j["faces"] if f["id"] is None]
+    assert [(f["name"], f["file"], f["box"]) for f in extra] == [("Max", True, [0.8, 0.8, 0.1, 0.1])]
+    # /detected shows the same
+    assert env["client"].get("/api/faces/detected").json()["scans"][0]["faces"] == j["faces"]
+
+
+def test_clearing_a_name_from_the_file_takes_it_off_the_region_and_the_keywords(env):
+    env["existing"].append(TaggedImage("a.jpg", 1, [FaceBox(0.1, 0.2, 0.2, 0.3, "Zoe"), FaceBox(0.8, 0.8, 0.1, 0.1, "Max")]))
+    env["state"].session.scan_by_name("a.jpg").region_names = ["Zoe", "Max"]
+    c = env["client"]
+    c.post("/api/faces/detect/a.jpg")
+    c.post("/api/write", json={"pairs": [{"scan": "a.jpg", "faces": [
+        {"id": 0, "box": [0.1, 0.2, 0.2, 0.3], "name": "", "file": True},                 # Zoe cleared: an unnamed box
+        {"id": None, "box": [0.8, 0.8, 0.1, 0.1], "name": "", "file": True, "gone": True}]}]})   # Max: not a face
+    args = env["calls"][-1]
+    region = region_arg(args)
+    assert "Zoe" not in region and "Max" not in region and region.count("Type=Face") == 1
+    assert "Zoe" not in subjects(args) and "Max" not in subjects(args)
+    assert env["state"].session.scan_by_name("a.jpg").region_names == []
+
+
+def test_removing_every_region_empties_the_list(env):
+    env["existing"].append(TaggedImage("a.jpg", 1, [FaceBox(0.8, 0.8, 0.1, 0.1, "Max")]))
+    env["client"].post("/api/write", json={"pairs": [{"scan": "a.jpg", "faces": [
+        {"id": None, "box": [0.8, 0.8, 0.1, 0.1], "name": "", "file": True, "gone": True}]}]})
+    assert "-XMP-mwg-rs:RegionInfo=" in env["calls"][-1]
+
+
+def test_names_on_regions_stay_in_the_keywords_when_faces_were_not_looked_at(env):
+    env["state"].session.scan_by_name("a.jpg").region_names = ["Zoe"]
+    env["client"].post("/api/write", json={"pairs": [{"scan": "a.jpg", "keywords": ["beach"]}]})
+    args = env["calls"][-1]
+    assert subjects(args) == ["beach", "Zoe"] and region_arg(args) is None
+
+
+def test_renaming_a_face_from_the_file_replaces_its_region(env):
+    env["existing"].append(TaggedImage("a.jpg", 1, [FaceBox(0.1, 0.2, 0.2, 0.3, "Zoe")]))
+    env["state"].session.scan_by_name("a.jpg").region_names = ["Zoe"]
+    env["client"].post("/api/write", json={"pairs": [{"scan": "a.jpg", "faces": [
+        {"id": 0, "box": [0.1, 0.2, 0.2, 0.3], "name": "Ana", "file": True, "confirmed": True}]}]})
+    args = env["calls"][-1]
+    assert "Name=Ana" in region_arg(args) and "Zoe" not in region_arg(args)
+    assert "Ana" in subjects(args) and "Zoe" not in subjects(args)
+
+
+def test_write_in_place_marks_the_scan_tagged(env):
+    j = env["client"].post("/api/write", json={"pairs": [{"scan": "a.jpg"}]}).json()
+    assert j["results"][0]["tagged"] is True and j["results"][0]["region_names"] == []

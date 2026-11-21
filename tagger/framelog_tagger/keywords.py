@@ -62,6 +62,26 @@ def xmp_keywords(xmp: bytes | str | None) -> list[str]:
     return merge(html.unescape(li) for li in _LI.findall(m.group(1))) if m else []
 
 
+_REGION_LIST = re.compile(r"<mwg-rs:RegionList\b.*?</mwg-rs:RegionList>", re.S)
+# ExifTool writes a region's name as an element, Lightroom as an attribute
+_REGION_NAME = re.compile(r"<mwg-rs:Name>(.*?)</mwg-rs:Name>|\bmwg-rs:Name\s*=\s*([\"'])(.*?)\2", re.S)
+
+
+def xmp_region_names(xmp: bytes | str | None) -> list[str]:
+    """The names on the face regions in an XMP packet (Lightroom's, or an earlier Write's).
+
+    Write puts every named face in the keywords too, so these names are also in `xmp_keywords`. Reading them apart
+    lets the tagger show them as faces, not as keywords you typed, so clearing a face later clears its keyword.
+    """
+    if isinstance(xmp, bytes):
+        xmp = xmp.decode("utf-8", "replace")
+    names = []
+    for block in _REGION_LIST.findall(xmp or ""):
+        for m in _REGION_NAME.finditer(block):
+            names.append(html.unescape(m.group(1) if m.group(1) is not None else m.group(3)))
+    return merge(names)
+
+
 def library_path() -> Path:
     return config.config_path().parent / "keywords.json"
 

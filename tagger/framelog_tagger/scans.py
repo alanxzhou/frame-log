@@ -10,7 +10,7 @@ from threading import Lock
 
 from PIL import Image, ImageOps
 
-from .keywords import xmp_keywords
+from .keywords import xmp_keywords, xmp_region_names
 
 JPEG_EXTS = {".jpg", ".jpeg"}
 EXIF_DATETIME_ORIGINAL = 0x9003
@@ -25,14 +25,19 @@ class ScanInfo:
     height: int
     tagged: bool  # already has DateTimeOriginal, i.e. probably tagged before
     keywords: list[str] = field(default_factory=list)  # XMP-dc:Subject already in the file
+    region_names: list[str] = field(default_factory=list)  # names on the face regions already in the file
     orientation: int = 1  # EXIF Orientation; width/height are the stored pixels, so 5-8 means the picture is turned
     # The file's st_mtime_ns. The UI puts it in image URLs, so a different picture under
     # the same name (another folder, a re-rename, an edit) isn't shown from the browser's cache.
     version: int = 0
 
     def to_dict(self) -> dict:
+        # The page gets the scan's own keywords: a face region's name is in the file's keywords too (Write puts it
+        # there), but it belongs to the face, so it's sent apart and shown as one.
+        faces = {n.lower() for n in self.region_names}
         return {"name": self.name, "width": self.width, "height": self.height, "tagged": self.tagged,
-                "keywords": self.keywords, "orientation": self.orientation, "v": self.version}
+                "keywords": [k for k in self.keywords if k.lower() not in faces], "region_names": self.region_names,
+                "orientation": self.orientation, "v": self.version}
 
 
 def file_version(path: Path) -> int:
@@ -64,13 +69,15 @@ def list_scans(directory: Path | str) -> list[ScanInfo]:
                 exif = im.getexif()
                 tagged = bool(exif.get_ifd(0x8769).get(EXIF_DATETIME_ORIGINAL))
                 keywords = xmp_keywords(im.info.get("xmp"))
+                region_names = xmp_region_names(im.info.get("xmp"))
                 orientation = int(exif.get(EXIF_ORIENTATION) or 1)
         except Exception:
             w = h = 0
             tagged = False
             keywords = []
+            region_names = []
             orientation = 1
-        out.append(ScanInfo(name=p.name, path=p, width=w, height=h, tagged=tagged, keywords=keywords,
+        out.append(ScanInfo(name=p.name, path=p, width=w, height=h, tagged=tagged, keywords=keywords, region_names=region_names,
                             orientation=orientation, version=file_version(p)))
     return out
 

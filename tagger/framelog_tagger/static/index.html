@@ -1031,7 +1031,9 @@ function pairFor(c) {   // one scan as Write (and the tag preview) gets it
   const p = { scan: c.scan, entry: c.entry, keywords: kw[c.scan] || [] };
   // only scans whose faces were looked at: for the rest, Write leaves any regions in the file alone
   // confirmed: a name you gave (confirmed, typed, picked, drawn), not the gallery's guess; only those teach the gallery
-  if (fc[c.scan]) p.faces = fc[c.scan].faces.filter((f) => !f.gone).map((f) => ({ id: f.id, box: f.box, name: f.name, confirmed: !!f.name && !f.auto }));
+  // file: a region already in the file; one you removed is sent too (gone), so Write takes it out of the file
+  if (fc[c.scan]) p.faces = fc[c.scan].faces.filter((f) => !f.gone || f.file)
+    .map((f) => ({ id: f.id, box: f.box, name: f.gone ? "" : f.name, confirmed: !!f.name && !f.auto && !f.gone, file: !!f.file, gone: !!f.gone }));
   return p;
 }
 
@@ -2112,7 +2114,7 @@ function applyDetection(name, j) {
     const k = f.key = faceKey(f.box);   // where the detector put it: names and moves are remembered by this
     if (boxes[k]) f.box = boxes[k];
     if (saved[k] === null) { f.gone = true; f.name = ""; f.auto = false; }
-    else if (k in saved) { f.name = saved[k]; f.auto = false; } else f.auto = !!f.name;
+    else if (k in saved) { f.name = saved[k]; f.auto = false; } else f.auto = !!f.name && !f.file;   // a name from the file is yours
   }
   for (const [k, box] of Object.entries(boxes)) if (k[0] === "d") j.faces.push(drawnFace(k, box, saved[k]));
   fc[name] = j;
@@ -2208,7 +2210,11 @@ function faceBadge(name) {   // "2/3 faces" on a scan, once its faces were looke
 // it unless you clear it). Shown on the scan's keyword line after its own keywords, in green; guesses in italics.
 function faceNamesFor(name) {
   const seen = new Set(), out = [];
-  for (const f of fc[name] ? liveFaces(fc[name]) : []) {
+  if (!fc[name]) {   // faces not looked at yet: the names already on the file's face regions, which Write keeps
+    const s = S.scans.find((x) => x.name === name);
+    return (s?.region_names || []).map((n) => ({ name: n, auto: false }));
+  }
+  for (const f of liveFaces(fc[name])) {
     if (!f.name || seen.has(lc(f.name))) continue;
     seen.add(lc(f.name)); out.push({ name: f.name, auto: f.auto });
   }
@@ -2565,7 +2571,8 @@ function paintFaceBar() {
     return;
   }
   const i = fSel, f = data.faces[i], what = f.kind === "pet" ? "a pet" : "a face";
-  bar.append(el("span", null, (f.kind === "pet" ? "pet " : "face ") + (live.indexOf(f) + 1) + " of " + live.length + (f.low ? " · unsure it's " + what : "")));
+  bar.append(el("span", null, (f.kind === "pet" ? "pet " : "face ") + (live.indexOf(f) + 1) + " of " + live.length + (f.low ? " · unsure it's " + what : "")
+    + (f.file ? " · named in the file" : "")));
   for (const s of f.suggestions) {
     const b = el("button", "kw" + (s.name === f.name ? " on" : ""), s.name);
     b.append(el("span", "pct", Math.round(s.score * 100)));
@@ -2723,6 +2730,7 @@ async function doWrite(ps) {
       results[res.scan] = res;
       const s = S.scans.find((x) => x.name === res.scan);
       if (s && res.v != null) s.v = res.v;   // an in-place write changed the file, so its thumbnail URL changes too
+      if (s && res.ok) { s.tagged = res.tagged; s.region_names = res.region_names; }   // as the file now is
     }
     S.keywords = j.keywords;
     S.faces = j.faces; renderFaceNames();

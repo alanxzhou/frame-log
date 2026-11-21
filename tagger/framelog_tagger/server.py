@@ -39,7 +39,7 @@ from .dialogs import pick as native_pick
 from .exif import ExifToolError, TagContext, build_args, exiftool_version, find_exiftool, resolve_zone, write_tags
 from .keywords import Library, clean, merge, roll_keywords
 from .log import LogEntry, LogFormatError, read_log
-from .regions import FaceBox, iou as regions_iou, merge_regions, read_regions, region_args
+from .regions import FaceBox, iou as regions_iou, match_boxes, merge_regions, read_regions, region_args
 from .pairing import by_frame
 from .rename import apply_rename, detect_name, plan_rename
 from .scans import ScanInfo, ThumbnailCache, file_version, list_scans
@@ -83,6 +83,7 @@ class Session:
     big_thumbs: ThumbnailCache = field(default_factory=lambda: ThumbnailCache(BIG_THUMB))   # for large grid cells
     views: ThumbnailCache = field(default_factory=lambda: ThumbnailCache(2400))   # the zoomed-in view
     detections: dict = field(default_factory=dict)   # scan name -> ((w, h), [faces.Detection]): kept so Write can learn from them
+    file_regions: dict = field(default_factory=dict)  # scan name -> [FaceBox] already in the file (read with ExifTool), or None
 
     def __post_init__(self):
         self.next_id = max(self.entries, default=-1) + 1
@@ -139,6 +140,8 @@ class FaceTag(BaseModel):
     name: str = ""               # blank: not named, so not written
     confirmed: bool = False      # the name is yours (confirmed, typed, picked, or a box you drew), not just the gallery's
                                  # guess: only these teach the gallery, so a wrong guess can't reinforce itself
+    file: bool = False           # the face is a region already in the file (shown named when its faces were found)
+    gone: bool = False           # removed as not a face; only sent for a file region, which Write then drops
 
 
 class Pair(BaseModel):
@@ -320,17 +323,45 @@ def find_in_scan(state: AppState, path):
     return size, dets, note
 
 
-def detection_payload(state: AppState, name: str, size, dets) -> dict:
+def file_regions(state: AppState, s: Session, scan: ScanInfo) -> Optional[list[FaceBox]]:
+    """The face regions already in a scan's file (Lightroom's, or an earlier Write's), upright; None when they can't be
+    read (no ExifTool, or it failed). Read once per session and scan; Write forgets the scans it changes."""
+    if scan.name not in s.file_regions:
+        regions = None
+        if state.exiftool:
+            try:
+                regions = [f for img in read_regions(state.exiftool, [scan.path]) for f in img.faces]
+            except (OSError, ValueError, RuntimeError):
+                regions = None
+        s.file_regions[scan.name] = regions
+    return s.file_regions[scan.name]
+
+
+def detection_payload(state: AppState, name: str, size, dets, regions: Optional[list[FaceBox]] = None) -> dict:
     """One scan's detections as the UI shows them, with who each looks like (asked of the gallery now, so a
-    restored scan gets the names learned since it was looked at)."""
+    restored scan gets the names learned since it was looked at).
+
+    A detection on a face the file already names (a region from Lightroom or an earlier Write) takes that name, marked
+    `file`: it's yours, not a guess. A named region with no detection on it is listed too, as a box of its own, so
+    every name the file carries can be seen, changed or cleared."""
     w, h = size
+    named = [r for r in regions or [] if r.name.strip()]
+    hit = match_boxes(named, [d.box for d in dets])   # per named region: the detection on that face, or None
+    from_file = {di: r.name for r, di in zip(named, hit) if di is not None}
     out = []
     for i, d in enumerate(dets):
         gallery, t = (state.pet_gallery, pets_mod) if d.kind == "pet" else (state.gallery, faces_mod)
         sug = [{"name": n, "score": round(sc, 3)} for n, sc in gallery.suggest(d.emb) if sc >= t.SUGGEST] if gallery is not None else []
         auto = bool(sug) and sug[0]["score"] >= t.ACCEPT and d.score >= t.AUTO_DET
-        out.append({"id": i, "kind": d.kind, "box": [d.box.x, d.box.y, d.box.w, d.box.h], "score": round(d.score, 3),
-                    "low": d.score < t.AUTO_DET, "suggestions": sug, "name": sug[0]["name"] if auto else ""})
+        face = {"id": i, "kind": d.kind, "box": [d.box.x, d.box.y, d.box.w, d.box.h], "score": round(d.score, 3),
+                "low": d.score < t.AUTO_DET, "suggestions": sug, "name": sug[0]["name"] if auto else ""}
+        if i in from_file:
+            face.update(name=from_file[i], file=True, low=False)
+        out.append(face)
+    for r, di in zip(named, hit):
+        if di is None:
+            out.append({"id": None, "kind": "face", "box": [r.x, r.y, r.w, r.h], "score": 1.0, "low": False,
+                        "suggestions": [], "name": r.name, "file": True})
     return {"scan": name, "width": w, "height": h, "faces": out, "note": ""}
 
 
@@ -343,6 +374,7 @@ class ScanPlan:
     learn: list[tuple]               # (name, detection) pairs that teach a gallery once written: confirmed names only
     regions: int                     # how many named faces went into face_args (0: none written)
     note: str = ""
+    region_names: Optional[list[str]] = None   # the names on the file's regions after Write; None: regions untouched
 
 
 def plan_scan(state: AppState, s: Session, scan: ScanInfo, entry: Optional[LogEntry], kws: list[str],
@@ -350,15 +382,24 @@ def plan_scan(state: AppState, s: Session, scan: ScanInfo, entry: Optional[LogEn
     """The ExifTool args for one scan: its card's tags, its keywords and named faces, and the face regions merged
     with the ones already in the file. Reads the file's regions (ExifTool) but changes nothing."""
     named, learn, note = [], [], ""
-    for f in faces or []:   # named faces only; a name spelled like a keyword already in use takes its spelling
+    cleared, dropped = [], []   # file regions you took the name off (kept as unnamed boxes), or removed as not faces
+    for f in faces or []:   # a name spelled like a keyword already in use takes its spelling
         name = state.library.canonical(clean(f.name)) if clean(f.name) else ""
+        if f.gone:
+            if f.file:
+                dropped.append(FaceBox(*f.box))
+            continue
         if name:
             named.append(FaceBox(*f.box, name=name))
             det = s.detections.get(scan.name)
             if f.confirmed and det and f.id is not None and 0 <= f.id < len(det[1]) and learns(state, det[1][f.id], name):
                 learn.append((name, det[1][f.id]))
+        elif f.file:
+            cleared.append(FaceBox(*f.box))
     face_args = []
-    if named:
+    # The names on the file's regions are in its keywords too. Unless the regions are rewritten below, they all stay.
+    kept_names = list(scan.region_names)
+    if named or cleared or dropped:
         if scan.orientation != 1 or not (scan.width and scan.height):
             # regions would have to be mapped back into the file's stored frame; not done yet
             note = f"face regions not written: this scan is rotated (EXIF orientation {scan.orientation})"
@@ -366,18 +407,23 @@ def plan_scan(state: AppState, s: Session, scan: ScanInfo, entry: Optional[LogEn
             note = "face regions not written: exiftool isn't available to read the ones already in the file"
         else:
             # Write replaces the file's whole region list, so carry over the boxes already there
-            # (Lightroom's, or an earlier Write's) for faces that weren't just named.
+            # (Lightroom's, or an earlier Write's) for faces that weren't named, cleared or removed here.
             try:
                 existing = [f for img in read_regions(state.exiftool, [scan.path]) for f in img.faces]
             except (OSError, ValueError, RuntimeError) as e:
                 existing = None
                 note = f"face regions not written: couldn't read the ones already in the file ({e})"
             if existing is not None:
-                face_args = region_args(merge_regions(existing, named), scan.width, scan.height, keep_unnamed=True)
-    kws = merge(kws, [f.name for f in named])   # a named face is also a keyword, which is what Lightroom lists
+                gone = match_boxes(existing, cleared + dropped)
+                kept = merge_regions([r for r, g in zip(existing, gone) if g is None], named) + cleared
+                face_args = region_args(kept, scan.width, scan.height, keep_unnamed=True, force=True)
+                kept_names = [r.name for r in kept if r.name.strip()]
+    # a named face is also a keyword, which is what Lightroom lists; so is every name left on a region in the file
+    kws = merge(kws, [f.name for f in named], kept_names)
     # A scan that has keywords and is given none (and no roll ones) gets them cleared, as you'd expect.
     args = build_args(entry, s.ctx, kws, clear_keywords=bool(scan.keywords), face_args=face_args)
-    return ScanPlan(args=args, keywords=kws, named=named, learn=learn, regions=len(named) if face_args else 0, note=note)
+    return ScanPlan(args=args, keywords=kws, named=named, learn=learn, regions=len(named) if face_args else 0, note=note,
+                    region_names=merge(kept_names) if face_args else None)
 
 
 def faces_payload(state: AppState) -> dict:
@@ -629,7 +675,7 @@ def create_app(state: AppState) -> FastAPI:
             except Exception as e:  # noqa: BLE001  (a bad file or a model that won't load)
                 raise HTTPException(500, f"face detection failed: {e}")
             s.detections[name] = (size, dets)
-        return {**detection_payload(state, name, *s.detections[name]), "note": note}
+        return {**detection_payload(state, name, *s.detections[name], file_regions(state, s, scan)), "note": note}
 
     @app.get("/api/faces/detected")
     def detected_faces():
@@ -640,7 +686,8 @@ def create_app(state: AppState) -> FastAPI:
             return {"scans": []}
         order = {sc.name: i for i, sc in enumerate(s.scans)}
         names = sorted((n for n in s.detections if n in order), key=order.get)
-        return {"scans": [detection_payload(state, n, *s.detections[n]) for n in names]}
+        return {"scans": [detection_payload(state, n, *s.detections[n], file_regions(state, s, s.scan_by_name(n)))
+                          for n in names]}
 
     @app.post("/api/faces/groups")
     def face_groups(req: GroupRequest):
@@ -790,13 +837,17 @@ def create_app(state: AppState) -> FastAPI:
             plan = plan_scan(state, s, scan, entry, kws, faces)
             try:
                 write_tags(state.exiftool, scan.path, dst, plan.args)
-                scan.tagged = True
                 written = merge(s.ctx.keywords, plan.keywords)
                 if s.in_place:   # copies start from the original each time, so only then has the file changed
+                    scan.tagged = True
                     scan.keywords = written
+                    if plan.region_names is not None:
+                        scan.region_names = plan.region_names
+                    s.file_regions.pop(scan.name, None)   # read again when its faces are next shown
                     scan.version = file_version(scan.path)   # keeps the UI's image URLs in step with the file
                 return ({"scan": scan.name, "entry": idx, "ok": True, "path": str(dst), "keywords": written,
-                         "v": scan.version, "faces": plan.regions, "note": plan.note},
+                         "v": scan.version, "faces": plan.regions, "note": plan.note, "tagged": scan.tagged,
+                         "region_names": scan.region_names},
                         [(n, d, str(scan.path)) for n, d in plan.learn])
             except (ExifToolError, OSError) as e:
                 return {"scan": scan.name, "entry": idx, "ok": False, "error": str(e)}, []

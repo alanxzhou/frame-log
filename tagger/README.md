@@ -305,11 +305,15 @@ detector: [docs/pet-tagging-experiments.md](docs/pet-tagging-experiments.md).
 (`XMP-dc:Subject`), on a scan with no log card too. Lightroom wants both: the region puts the name on the face, and the keyword makes it
 searchable. Things to know:
 
-- Regions already in the file are kept. Write changes only the boxes of faces you named: a box you name
-  replaces the old box on that same face, and every other box (Lightroom's, or an earlier Write's, named or
-  not) stays as it was. A scan with no named face isn't touched, nor one Write reached before its faces were
-  looked at (a run you stopped, say). (Find faces
-  doesn't show those existing boxes yet, so it will suggest a name for a face that already has one.)
+- Regions already in the file are kept. Find faces shows the named ones: a face the file already names
+  (Lightroom's region, or an earlier Write's) comes up with that name, confirmed, and marked *named in the file*
+  in the zoom view; a named region the detector found no face on shows as a box of its own. Write changes only
+  the boxes you touched: a face you name replaces the old box on that same face, a name you clear leaves an
+  unnamed box, a box you remove (not a face) is taken out, and every other box stays as it was. A scan with no
+  changed face isn't touched, nor one Write reached before its faces were looked at (a run you stopped, say).
+- The names on a file's regions are its face names, not keywords you typed. At **Load roll** they show in green
+  on the scan's keyword line, with the face names, and Write keeps them in the keywords for as long as the region
+  keeps its name. Clear the name on the face and the keyword goes too.
 - Scans that are rotated in the file (EXIF orientation other than 1) get the keywords but no regions.
   Lightroom stores those regions in the file's unrotated pixels, and mapping back into that frame isn't done yet.
 - Only faces whose name is yours are added to the gallery when you Write: ones you confirmed, typed, or picked
