@@ -1685,24 +1685,54 @@ function nearKw() {
   return order.map((n, i) => ({ n, d: dist(i) })).filter((x) => x.d > 0 && x.d <= NEAR)
               .sort((a, b) => a.d - b.d).flatMap((x) => kw[x.n] || []);
 }
+// Words from the selected scans' card notes: a short note whole ("tram 28", "Alfama steps"), and the capitalised
+// words inside a longer one ("forgot to log - Ben at the cafe" -> Ben), which are mostly names and places.
+const NOTE_SKIP = new Set("a an the at in on of to and or with by for from near my our i".split(" "));
+function noteKw() {
+  const byId = Object.fromEntries(S.entries.map((e) => [e.id, e]));
+  const out = [];
+  for (const n of selected()) {
+    const c = cols.find((x) => x.scan === n);
+    const note = ((c && c.entry != null && byId[c.entry]?.notes) || "").trim();
+    if (!note) continue;
+    const words = note.split(/\s+/);
+    if (words.length <= 3 && note.length <= 32 && !/[.!?]/.test(note)) out.push(note.replace(/[,;:]+$/, ""));
+    words.forEach((w, i) => {
+      w = w.replace(/^[^\p{L}\d]+|[^\p{L}\d]+$/gu, "");
+      if (i > 0 && w.length > 2 && /^\p{Lu}/u.test(w) && !NOTE_SKIP.has(lc(w))) out.push(w);
+    });
+  }
+  return out;
+}
 function kwPool() {
   const roll = new Set(S.roll_keywords.map(lc));
-  return mergeKw(faceKw(), nearKw(), kwOrder, S.keywords.map((x) => x.name)).filter((k) => !roll.has(lc(k)));
+  return mergeKw(faceKw(), noteKw(), nearKw(), kwOrder, S.keywords.map((x) => x.name)).filter((k) => !roll.has(lc(k)));
 }
 function suggestions() { return kwPool().slice(0, 9); }
 let menu = { items: [], hi: 0 };
+// The menu while you type: keywords that start with what you typed first (an exact match first of all), then ones with
+// a word starting with it ("28" finds "tram 28"), then ones containing it. The roll's keywords (camera, film) are left
+// out: every scan gets them anyway. When nothing starts with what you typed, "add new keyword" comes first, so Enter
+// adds your word rather than some keyword that merely contains it ("tra" shouldn't become "Portra 400").
 function menuItems(q) {
   q = cleanKw(q);
   if (!q) return [];
-  const pre = [], sub = [];
-  for (const k of mergeKw(kwPool(), S.roll_keywords)) {
+  const pre = [], word = [], sub = [], ql = lc(q);
+  const pool = kwPool();
+  for (const k of pool) {
     if (kwCount(k) === sel.size) continue;   // already on every selected scan
-    const i = lc(k).indexOf(lc(q));
-    if (i === 0) pre.push(k); else if (i > 0) sub.push(k);
+    const kl = lc(k), i = kl.indexOf(ql);
+    if (i === 0) pre.push(k);
+    else if (i > 0 && kl.split(/[\s\-/]+/).some((w) => w.startsWith(ql))) word.push(k);
+    else if (i > 0) sub.push(k);
   }
-  pre.sort((a, b) => (lc(a) === lc(q) ? -1 : lc(b) === lc(q) ? 1 : 0));   // an exact match first
-  const items = [...pre, ...sub].slice(0, 8).map((k) => ({ k }));
-  if (!mergeKw(kwPool(), S.roll_keywords).some((k) => lc(k) === lc(q))) items.push({ k: q, create: true });
+  pre.sort((a, b) => (lc(a) === ql ? -1 : lc(b) === ql ? 1 : 0));   // an exact match first
+  const items = [...pre, ...word, ...sub].slice(0, 8).map((k) => ({ k }));
+  const exists = pool.some((k) => lc(k) === ql) || S.roll_keywords.some((k) => lc(k) === ql);
+  if (!exists) {
+    const create = { k: q, create: true };
+    if (pre.length || word.length) items.push(create); else items.unshift(create);
+  }
   return items;
 }
 function renderMenu() {
@@ -1776,13 +1806,13 @@ function paintKw() {
   input.placeholder = !n ? "click a scan to keyword it · shift-click a range · ⌘/Ctrl-A for all"
                     : (chips.length ? "add another…" : "add keywords, comma-separated…") + "   ← → next scan · ⌘/Ctrl-Z undo";
   // suggestions, numbered for the 1–9 keys
-  const faces = new Set(faceKw().map(lc)), near = new Set(nearKw().map(lc));
+  const faces = new Set(faceKw().map(lc)), notes = new Set(noteKw().map(lc)), near = new Set(nearKw().map(lc));
   const sugg = suggestions().map((k, i) => {
     const c = n ? kwCount(k) : 0;
     const b = el("button", "kw" + (c && c === n ? " on" : c ? " some" : ""));
     b.type = "button"; b.disabled = !n;
     b.append(el("span", "key", String(i + 1)), el("span", null, k));
-    const why = faces.has(lc(k)) ? "a face here looks like " + k + ". " : near.has(lc(k)) ? "on a scan next to this one. " : "";
+    const why = faces.has(lc(k)) ? "a face here looks like " + k + ". " : notes.has(lc(k)) ? "from the card's note. " : near.has(lc(k)) ? "on a scan next to this one. " : "";
     b.title = !n ? "select scans first" : why + (c === n ? "On every selected scan: click (or press " + (i + 1) + ") to remove" : "Click (or press " + (i + 1) + ") to add to the selected scans");
     b.onclick = () => toggleKw(k);
     return b;

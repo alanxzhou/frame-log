@@ -206,10 +206,17 @@ the photo's keywords at import.
   for all. The box then shows each keyword as on all of them, or as *2/5* (on
   some): click it to give it to all, × to take it off all.
 - **Suggestions** follow the selected scans: first who the face gallery thinks
-  is in them (faces you haven't named yet, after **Find faces**), then the
+  is in them (faces you haven't named yet, after **Find faces**), then words
+  from their cards' notes (a short note whole, like *tram 28*, and the
+  capitalised words in a longer one, mostly names and places), then the
   keywords on the three scans either side, nearest first, then the rest of this
   roll's keywords and your library, most recent first. Hover one to see why it's
-  there. Press **1–9** (with the box not focused) to toggle one on the
+  there.
+- **While you type**, the menu lists keywords that start with what you typed,
+  then ones with a word that does (*28* finds *tram 28*), then ones that merely
+  contain it. When nothing starts with it, *add new keyword* comes first, so
+  Enter adds your word. The roll's keywords (camera, film) aren't offered:
+  every scan gets them anyway. Press **1–9** (with the box not focused) to toggle one on the
   selected scans. ⌘/Ctrl-Z undoes keyword changes (and pairing changes, in the
   order you made them); Esc clears the selection.
 - Keywords match case-insensitively; the spelling you used first is kept.
