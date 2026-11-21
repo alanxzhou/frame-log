@@ -91,7 +91,9 @@ and so on). Fix the exceptions:
   to log a frame" and "the lab skipped a blank".
 - **Reverse scans** for a roll that was scanned tail-first.
 - **Auto-pair** resets to positional order.
-- Click a **frame number** to see exactly which ExifTool tags will be written.
+- Click a **frame number** to see exactly which ExifTool tags will be written to the scan paired with it:
+  the card's tags, the keywords (named faces included) and the face regions, worked out by the same code as Write,
+  merged with the regions already in the file. A line starting with `#` says when regions would be left out.
 
 A scan left in a slot with no card is still written, just without the card's
 tags (see below). Its light (next to the cell number) and the picture's
@@ -159,6 +161,9 @@ the photo's keywords at import.
   selected scans. ⌘/Ctrl-Z undoes keyword changes; Esc clears the selection.
 - Keywords match case-insensitively; the spelling you used first is kept.
 
+A scan's keyword line shows its own keywords, then in green the names of the faces in it, which Write adds as
+keywords too (see [Faces](#faces)); a name the gallery guessed and you haven't confirmed is in italics with a `?`.
+
 Each scan's keywords are remembered in the browser along with the pairing.
 Keywords already in the files (an earlier Write, another app) are read at
 **Load roll**, so re-writing a roll keeps them. Write replaces a scan's
@@ -215,8 +220,32 @@ remembers the folder and the names, so with no arguments it repeats the last one
 photo again (a name changed in Lightroom after it was learned isn't picked up otherwise).
 `framelog-tagger faces people` lists who's in the galleries; `faces forget NAME` removes someone.
 
-**Use it.** On the grid, **Find faces** looks at every scan (about half a second each; the first one
-loads the model). Each card shows how many faces are named. Double-click a scan to review:
+**Use it.** After **Load roll** the faces are found on their own, one scan at a time in the background (about half
+a second each; the first one loads the model). The header shows *finding faces 3/12* with a **Stop** button, and you
+can pair and keyword while it runs. **Find faces** runs it again over every scan (the gallery may know more people by
+then). What was found is kept by the running tagger, so a page reload restores it, with your names, removed boxes and
+moved or drawn boxes, and only looks at the scans it hadn't reached. Each card shows how many faces are named.
+
+Because this runs on every roll, the gallery's guesses (dashed names) are written by **Write** unless you confirm,
+change or clear them. **Who's this?** is the quick way to go over them.
+
+**Who's this? (7)** in the header counts the faces with no name, or only the gallery's guess. It opens every one of
+them as a crop, grouped:
+
+- the gallery's guesses, one group per name, each with **Confirm**;
+- faces with no name, grouped by who they look like across the roll (their fingerprints are clustered, faces and
+  pets apart), so a friend or stranger on six frames is named once. The grouping is untuned and errs towards
+  splitting one person into two groups rather than joining two people;
+- boxes you drew, one each;
+- last, the boxes the detector isn't sure are faces, outlined in amber, with **Not faces** to remove them all at once.
+
+Each group has the gallery's suggestions as buttons and a name field that completes from the gallery and your keyword
+library. Untick a crop that doesn't belong before naming the group; **×** on a crop removes that box (not a face). Click
+a crop to open its scan with that face selected. **Enter** names the highlighted group and moves to the next (on a
+guessed group, an empty field confirms the guess; on others it just moves on); Esc closes. Names chosen here are the
+same as names chosen in the zoom view.
+
+Double-click a scan to review it:
 
 - Boxes: **green** = named, **dashed green** = suggested by the gallery but not yet confirmed,
   **amber** = nobody yet, **dim** = the detector isn't sure it's a face.
@@ -225,7 +254,8 @@ loads the model). Each card shows how many faces are named. Double-click a scan 
   and **Clear**. Enter confirms and moves to the next face.
 - A name is only filled in on its own when it's a close match **and** the detector is confident (0.6+).
   Doubtful boxes, which are mostly hair, ears and blurs, get suggestions but never a name you didn't pick.
-- Names you choose are remembered for the roll if you reload the page (you'll need to Find faces again).
+- Names you choose are remembered for the roll in the browser. A reload restores the faces too; restarting the
+  tagger or loading the roll again finds them again, and your names, removals and boxes are put back on them.
 
 **Pets.** The same Find faces also finds pets, using a head detector trained on the pet boxes you drew in Lightroom, so
 its boxes look like yours. Pets are named from a gallery of their own and appear like any other face (box, suggestions,
@@ -241,7 +271,8 @@ searchable. Things to know:
 
 - Regions already in the file are kept. Write changes only the boxes of faces you named: a box you name
   replaces the old box on that same face, and every other box (Lightroom's, or an earlier Write's, named or
-  not) stays as it was. A scan where Find faces wasn't run, or with no named face, isn't touched. (Find faces
+  not) stays as it was. A scan with no named face isn't touched, nor one Write reached before its faces were
+  looked at (a run you stopped, say). (Find faces
   doesn't show those existing boxes yet, so it will suggest a name for a face that already has one.)
 - Scans that are rotated in the file (EXIF orientation other than 1) get the keywords but no regions.
   Lightroom stores those regions in the file's unrotated pixels, and mapping back into that frame isn't done yet.
@@ -309,7 +340,7 @@ tagger/
     keywords.py   roll keywords, reading keywords from a scan, the keyword library
     regions.py    face regions: Lightroom's coordinate convention, matching boxes, writing/reading XMP regions (no model needed)
     faces.py      detector + recognition model, the gallery of named faces, learning from your Lightroom folder
-    server.py     FastAPI: /api/session, /api/pick, /api/load, /api/thumb, /api/preview, /api/entries, /api/keywords, /api/faces/detect, /api/write, /api/rename/*
+    server.py     FastAPI: /api/session, /api/pick, /api/load, /api/thumb, /api/crop, /api/preview, /api/entries, /api/keywords, /api/faces/detect, /api/faces/detected, /api/faces/groups, /api/write, /api/rename/*
     static/index.html   setup screen + the pairing UI
   pets.py       pet head detector + fingerprints (ONNX, models/pet_head.onnx), the same flow as faces
   models/         pet_head.onnx, the detector trained on the pet boxes tagged in Lightroom
