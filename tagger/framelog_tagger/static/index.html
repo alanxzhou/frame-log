@@ -1921,8 +1921,10 @@ function paintFaceScan(name, had) {
     cell.querySelector(".fbadge")?.remove();
     const fb = faceBadge(name);
     if (fb) cell.append(fb);
+    paintKwLine(cell.querySelector(".kws"), name);
   }
-  paintKw();
+  // the keyword box and suggestions only change for a selected scan; repainting them otherwise could eat a click
+  if (sel.has(name)) paintKw(); else paintWho();
   if (zm?.name === name && !had) { paintFaces(); paintFaceBar(); }
 }
 function faceBadge(name) {   // "2/3 faces" on a scan, once its faces were looked for
@@ -2025,6 +2027,7 @@ function renderWho(focus) {
   if (!who) return;
   const list = $("whoList"), keep = list.scrollTop;
   const shown = who.groups.map((g) => ({ g, live: liveGroup(g) })).filter((x) => x.live.length);
+  if (!shown.length && pendingFaces().length) { openWho(); return; }   // faces found or drawn since it opened
   if (!shown.some((x) => x.g === who.cur)) who.cur = shown[0]?.g || null;
   const total = shown.reduce((n, x) => n + x.live.length, 0);
   $("whoNote").textContent = (total ? plural(total, "face", "faces") + " to name in " + plural(shown.length, "group", "groups") +
