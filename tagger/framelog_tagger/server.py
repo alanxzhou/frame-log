@@ -40,6 +40,7 @@ from .exif import ExifToolError, TagContext, build_args, exiftool_version, find_
 from .keywords import Library, clean, merge, roll_keywords
 from .log import LogEntry, LogFormatError, read_log
 from .regions import FaceBox, iou as regions_iou, merge_regions, read_regions, region_args
+from .pairing import by_frame
 from .rename import apply_rename, detect_name, plan_rename
 from .scans import ScanInfo, ThumbnailCache, file_version, list_scans
 
@@ -429,6 +430,8 @@ def session_payload(state: AppState) -> dict:
         "in_place": s.in_place,
         "scans": [sc.to_dict() for sc in s.scans],
         "entries": entries,
+        # scans paired with cards by frame number, when their names carry it (None: pair by position)
+        "frame_pairing": by_frame([sc.name for sc in s.scans], [(e["id"], e["frame"]) for e in entries]),
     }
 
 

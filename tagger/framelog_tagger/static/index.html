@@ -76,6 +76,7 @@
   .stats { font-size: 12px; color: var(--muted); }
   .stats b { color: var(--text); font-weight: 600; }
   .stats .warn { color: var(--warn); }
+  .stats .how { cursor: help; }
 
   /* ---- setup screen ---- */
   #setup { flex: 1; overflow: auto; padding: 28px 16px; }
@@ -466,6 +467,15 @@
   .wgroup .wact input:focus { outline: 0; box-shadow: inset 0 1px 3px rgba(0,0,0,.5), 0 0 0 1px var(--accent); }
   .wgroup .wact .pct { font-family: var(--mono); font-size: 9.5px; opacity: .6; margin-left: 6px; }
   .wgroup .wact .hint { font-size: 11px; color: var(--muted); }
+  /* Auto-pair's two ways: by frame number, in order */
+  #pairMenu {
+    position: fixed; z-index: 8; width: 290px; padding: 5px; background: var(--raised); border-radius: 12px;
+    box-shadow: 0 0 0 1px var(--line), 0 12px 30px rgba(0,0,0,.55);
+  }
+  #pairMenu button { display: block; width: 100%; text-align: left; white-space: normal; background: transparent; box-shadow: none; border-radius: 8px; padding: 7px 10px; }
+  #pairMenu button:hover:not(:disabled), #pairMenu button:focus-visible { background: var(--card); filter: none; outline: 0; }
+  #pairMenu button .why { display: block; font-size: 11px; font-weight: 400; color: var(--muted); margin-top: 2px; }
+  #pairMenu button .now { font-size: 10.5px; font-weight: 500; color: var(--muted); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -493,7 +503,7 @@
     <svg class="big" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1.6"/></svg>
   </label>
   <button id="changeRoll" hidden title="Back to the setup screen">Change roll</button>
-  <button id="autoPair" hidden title="Reset to positional pairing: 1st scan ↔ 1st frame, and so on">Auto-pair</button>
+  <button id="autoPair" hidden aria-haspopup="menu" aria-expanded="false" title="Pair every scan with a card again: by frame number, or in order">Auto-pair ▾</button>
   <button id="reverse" hidden title="Reverse the scan order (roll scanned tail-first)">Reverse scans</button>
   <button id="findFaces" hidden title="Find the faces in every scan and suggest who they are. Double-click a scan to review and name them.">Find faces</button>
   <button id="whoBtn" hidden title="Name every face on the roll that has no name yet, or a name the gallery guessed, grouped by who they look like">Who's this?</button>
@@ -673,6 +683,7 @@
 </dialog>
 <datalist id="whoNames"></datalist>
 
+<div id="pairMenu" role="menu" hidden></div>
 <div id="toast"></div>
 <div id="preview"><h3><span id="previewTitle"></span><span id="previewClose">✕</span></h3><pre id="previewBody"></pre></div>
 
@@ -866,15 +877,59 @@ function normalize() {
   while (cols.length && cols[cols.length - 1].scan == null && cols[cols.length - 1].entry == null) cols.pop();
   cols.push({ scan: null, entry: null });
 }
-function autoPair() {
-  const n = Math.max(S.scans.length, S.entries.length);
-  cols = [];
-  for (let i = 0; i < n; i++) cols.push({
-    scan: i < S.scans.length ? S.scans[i].name : null,
-    entry: i < S.entries.length ? S.entries[i].id : null,
-  });
+// Pair every scan with a card. "frame": scan NN with the card for frame NN, worked out by the server (S.frame_pairing:
+// it allows for lab numbering off by a constant, and is null when the scan names don't carry frame numbers that fit).
+// "order": 1st scan with the 1st card, and so on. With no mode, by frame number when it fits.
+let pairMode = "order";   // how the pairing was last reset; shown in the stats
+function autoPair(mode) {
+  const fp = S.frame_pairing;
+  mode = mode || (fp ? "frame" : "order");
+  if (mode === "frame" && fp) {
+    cols = fp.slots.map(([scan, entry]) => ({ scan, entry }));
+  } else {
+    mode = "order";
+    const n = Math.max(S.scans.length, S.entries.length);
+    cols = [];
+    for (let i = 0; i < n; i++) cols.push({
+      scan: i < S.scans.length ? S.scans[i].name : null,
+      entry: i < S.entries.length ? S.entries[i].id : null,
+    });
+  }
+  pairMode = mode;
+  try { localStorage.setItem(storeKey() + "#mode", mode); } catch (e) {}
   normalize(); render();
 }
+function offsetText(fp) {   // "scan NN ↔ frame #NN", or for lab names (a large offset) the first pair as an example
+  if (!fp.offset) return "scan NN ↔ frame #NN";
+  const byId = Object.fromEntries(S.entries.map((e) => [e.id, e]));
+  const ex = fp.slots.find(([scan, id]) => scan != null && id != null);
+  return ex ? ex[0] + " ↔ frame #" + byId[ex[1]]?.frame + ", and on in step from there" : "by the number at the end of each scan's name";
+}
+function openPairMenu() {
+  const menu = $("pairMenu"), b = $("autoPair"), fp = S.frame_pairing;
+  if (!menu.hidden) { closePairMenu(); return; }
+  const item = (mode, label, why, disabled) => {
+    const it = el("button", mode === pairMode ? "cur" : null, label);
+    it.type = "button"; it.setAttribute("role", "menuitem"); it.disabled = disabled;
+    if (mode === pairMode) it.append(el("span", "now", "  · how it was paired"));
+    it.append(el("span", "why", why));
+    it.onclick = () => {
+      closePairMenu();
+      if (confirm("Reset all pairing " + (mode === "frame" ? "by frame number" : "to positional order") + "? Your swaps and shifts are lost.")) autoPair(mode);
+    };
+    return it;
+  };
+  menu.replaceChildren(
+    item("frame", "By frame number", fp ? offsetText(fp) + ": a frame you didn't log leaves its scan without a card, and the rest stay paired"
+                                         : "Needs scans whose names end in their frame number (Rename scans does that), matching the log's frames", !fp),
+    item("order", "In order", "1st scan ↔ 1st card, 2nd ↔ 2nd, and so on", false));
+  const r = b.getBoundingClientRect();
+  menu.style.top = r.bottom + 6 + "px";
+  menu.style.left = Math.max(8, Math.min(innerWidth - 298, r.left)) + "px";
+  menu.hidden = false; b.setAttribute("aria-expanded", "true");
+  menu.querySelector("button:not(:disabled)")?.focus();
+}
+function closePairMenu() { $("pairMenu").hidden = true; $("autoPair").setAttribute("aria-expanded", "false"); }
 function reverseScans() {
   const seq = cols.map((c) => c.scan);
   while (seq.length && seq[seq.length - 1] == null) seq.pop();
@@ -947,7 +1002,9 @@ function restore() {
       if (c.scan != null && !scanNames.has(c.scan)) return false;
       if (c.entry != null && !ids.has(c.entry)) return false;
     }
-    cols = saved; normalize(); return true;
+    cols = saved; normalize();
+    pairMode = localStorage.getItem(storeKey() + "#mode") || "order";   // saved before frame pairing existed: in order
+    return true;
   } catch (e) { return false; }
 }
 
@@ -1185,10 +1242,14 @@ function renderStats() {
   const changes = (edited ? " · " + edited + " edited" : "") + (added ? " · " + added + " added" : "");
   const entriesUn = cols.filter((c) => c.entry != null && c.scan == null).length;
   const unpaired = entriesUn ? ' · <span class="warn">' + entriesUn + " card" + (entriesUn > 1 ? "s" : "") + " without scan</span>" : "";
-  if (noLog()) { setStats("<b>" + p + "</b> scans" + (S.entries.length ? "" : " · roll-wide tags only") + changes + unpaired); return; }
+  const fp = S.frame_pairing;
+  const how = !S.entries.length ? "" : pairMode === "frame" && fp
+    ? ' <span class="how" title="Paired by frame number: ' + offsetText(fp) + '. Auto-pair switches to in order.">by frame #</span>'
+    : ' <span class="how" title="Paired in order: 1st scan ↔ 1st card. ' + (fp ? "Auto-pair can pair by frame number instead." : "The scan names don't carry frame numbers that fit the log, so frame-number pairing isn't offered.") + '">in order</span>';
+  if (noLog()) { setStats("<b>" + p + "</b> scans" + (S.entries.length ? "" : " · roll-wide tags only") + how + changes + unpaired); return; }
   const fallback = S.entries.filter((e) => e.local && e.zone_source === "fallback").length;
   setStats(
-    "<b>" + (p - scansUn) + "</b> paired" + changes +
+    "<b>" + (p - scansUn) + "</b> paired" + how + changes +
     (scansUn ? ' · <span class="warn" title="' + NO_CARD + '">' + scansUn + " scan" + (scansUn > 1 ? "s" : "") +
                " without log (roll-wide tags only)</span>" : "") +
     (entriesUn ? ' · <span class="warn">' + entriesUn + " log entr" + (entriesUn > 1 ? "ies" : "y") + " without scan</span>" : "") +
@@ -2585,7 +2646,16 @@ async function boot() {
   $("cal").addEventListener("click", (ev) => ev.preventDefault());   // it sits inside a <label>: don't bounce focus to the text field
   $("editRevert").onclick = () => editAction("POST", "/revert");
   $("editDelete").onclick = () => editAction("DELETE", "", "Delete this card?");
-  $("autoPair").onclick = () => { if (confirm("Reset all pairing to positional order?")) autoPair(); };
+  $("autoPair").onclick = openPairMenu;
+  document.addEventListener("mousedown", (ev) => { if (!$("pairMenu").hidden && !ev.target.closest("#pairMenu, #autoPair")) closePairMenu(); });
+  $("pairMenu").addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") { ev.stopPropagation(); closePairMenu(); $("autoPair").focus(); }
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault(); ev.stopPropagation();
+      const items = [...$("pairMenu").querySelectorAll("button:not(:disabled)")], i = items.indexOf(document.activeElement);
+      items[(i + (ev.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
+    }
+  });
   $("reverse").onclick = reverseScans;
   $("write").onclick = write;
   $("findFaces").onclick = () => findFaces(false);

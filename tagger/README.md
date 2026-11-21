@@ -80,8 +80,20 @@ before loading. A loaded roll keeps its paths, so **Change roll** first.
 
 ### Pairing
 
-Scans and log entries start paired positionally (first scan to first frame,
-and so on). Fix the exceptions:
+Scans and log cards start paired **by frame number** when the scans' names
+carry it: every name ends in a number (`2026-10 Lisbon-05.jpg` after Rename,
+or the lab's own `004123450005.jpg`) and most of those numbers match a frame
+in the export. Scan 05 then gets the card for frame #5, so a frame you forgot
+to log leaves just its own scan without a card instead of shifting every scan
+after it one card off. A card with no scan gets a cell of its own where its
+number falls (a second card with the same frame #, at the end), so nothing is
+dropped. Labs that number from 00, or off by any constant, are allowed for:
+the offset that lines up the most numbers is used.
+
+Otherwise (names without numbers, or numbers that don't fit the log) they
+start paired **in order**: first scan to first card, and so on. The stats in
+the header say which (*paired by frame #* or *in order*; hover it for how).
+Fix the exceptions:
 
 - **Drag** a scan onto another cell to swap the two scans, or a log card onto
   another cell to swap the two cards.
@@ -90,7 +102,9 @@ and so on). Fix the exceptions:
   the foot of the card for the card. This is the one-click fix for "I forgot
   to log a frame" and "the lab skipped a blank".
 - **Reverse scans** for a roll that was scanned tail-first.
-- **Auto-pair** resets to positional order.
+- **Auto-pair ▾** pairs everything again, **by frame number** (when the names
+  allow it) or **in order**, your choice. It asks first, since it replaces
+  your swaps and shifts.
 - Click a **frame number** to see exactly which ExifTool tags will be written to the scan paired with it:
   the card's tags, the keywords (named faces included) and the face regions, worked out by the same code as Write,
   merged with the regions already in the file. A line starting with `#` says when regions would be left out.
@@ -334,6 +348,7 @@ tagger/
     log.py        JSON export → Roll/LogEntry (the contract with ../index.html's buildJson)
     scans.py      JPEG listing (natural sort), thumbnails, "already tagged" check
     rename.py     lab folder → <roll>/<roll>-NN.jpg (plan, then apply)
+    pairing.py    pairing scans with cards by the frame number at the end of their names
     exif.py       LogEntry → ExifTool arguments (per-frame zone); write_tags()
     dialogs.py    native folder/file pickers via a Tk helper process
     config.py     remembered setup-screen values
