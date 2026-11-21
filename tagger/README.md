@@ -131,8 +131,9 @@ Fix the exceptions:
   number, counting down** (when the names allow it) or **in order**, your
   choice. It replaces your swaps and shifts; ⌘/Ctrl-Z takes it back.
 - **⌘/Ctrl-Z** undoes pairing changes (swap, shift, reverse, Auto-pair, a card
-  made with New or Paste) and keyword changes, one step at a time, latest
-  first.
+  made with New or Paste), card edits (one card or several, a revert, a
+  delete), naming or removing faces (a group named in Who's this? is one step)
+  and keyword changes, one step at a time, latest first.
 - Click a **frame number** to see exactly which ExifTool tags will be written to the scan paired with it:
   the card's tags, the keywords (named faces included) and the face regions, worked out by the same code as Write,
   merged with the regions already in the file. A line starting with `#` says when regions would be left out.
@@ -148,14 +149,22 @@ card.
 When there's no export, or the export is missing frames, make the cards here:
 
 - **New** in a cell with no card makes a card from scratch. The frame number,
-  zone, time and gear start from the card before it, as on the phone. With an
+  zone and gear start from the card before it, as on the phone; the time
+  starts halfway between the cards either side (a frame you forgot to log was
+  shot between them). With an
   export, a cell with no card has a *no card* row with New and Paste; without
   one, they show on the picture when you point at it.
 - The **copy** key on a card, then **Paste** in a cell with no card, adds a
   duplicate to adjust. **▶** opens an empty cell where you need one.
 - The **pencil** key (or a double-click) edits any card: frame #, time (local,
   in the card's zone), zone, coordinates, lens, aperture, shutter and notes.
-  Leave the time blank to leave a scan's date tags alone.
+  Leave the time blank to leave a scan's date tags alone. A card with no GPS
+  offers **same place as #N** for the cards either side. ⌘/Ctrl-Enter saves.
+- **Several cards at once**: select their scans (shift-click a range), then
+  the pencil on one of their cards edits them all: zone, coordinates, lens,
+  aperture, shutter and notes. A field they share shows its value; one that
+  differs shows *varies* and is left as it is unless you type in it. Frame #
+  and time stay per card. Handy for a lens changed mid-roll.
 
 The chip at the bottom of each card says where it stands: **original** (as read
 from the export), **edited** (changed here, with the old value shown under

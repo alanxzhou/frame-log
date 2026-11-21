@@ -268,6 +268,9 @@
   #editor::backdrop { background: rgba(0,0,0,.55); }
   #editor h2 { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; display: flex; gap: 10px; align-items: center; }
   #editor .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  #editPlaces { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: -4px; font-size: 11.5px; color: var(--muted); }
+  #editPlaces button { font-size: 11px; padding: 3px 10px; }
+  #editor.bulk .one { display: none; }
   #editor .wide { grid-column: 1 / -1; }
   #editor label { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--muted); }
   #editor input, #editor textarea {
@@ -686,9 +689,9 @@
   <form id="editForm" method="dialog" autocomplete="off">
     <h2><span id="editTitle"></span><span class="state" id="editState"></span></h2>
     <div class="grid">
-      <label><span>frame #</span><input type="number" name="frame" min="0" step="1" required></label>
+      <label class="one"><span>frame #</span><input type="number" name="frame" min="0" step="1" required></label>
       <label><span>zone</span><input type="text" name="tz"></label>
-      <label class="wide"><span>time (local, in that zone)</span>
+      <label class="wide one"><span>time (local, in that zone)</span>
         <div class="dt">
           <input type="text" name="local" placeholder="YYYY-MM-DD HH:MM:SS" spellcheck="false">
           <button type="button" class="icon" id="calBtn" title="pick a date and time" aria-label="pick a date and time"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="2.4" width="9" height="8.1" rx="1.6"/><path d="M1.5 5.2h9M4 1.2v2.2M8 1.2v2.2"/></svg></button>
@@ -699,6 +702,7 @@
       <label><span>longitude</span><input type="number" name="lon" step="any" min="-180" max="180"></label>
       <label><span>altitude (m)</span><input type="number" name="alt" step="any"></label>
       <label><span>accuracy (± m)</span><input type="number" name="acc" step="any" min="0"></label>
+      <div class="wide" id="editPlaces" hidden></div>
       <label class="wide"><span>lens</span><input type="text" name="lens"></label>
       <label><span>aperture</span><input type="text" name="aperture" placeholder="f/2.8"></label>
       <label><span>shutter</span><input type="text" name="shutter" placeholder="1/250"></label>
@@ -1060,6 +1064,30 @@ async function undoStep(step) {
   if (step.kw) {
     ({ kw, order: kwOrder } = JSON.parse(step.kw));
     persistKw(); paintKw();
+  } else if (step.cards) {   // card edits: put the values back
+    try {
+      let j = null;
+      for (const c of step.cards) if (S.entries.some((e) => e.id === c.id)) { j = await api("PUT", "/api/entries/" + c.id, c.fields); S = j; }
+      if (j) cardsChanged(j);
+    } catch (e) { toast("couldn't undo: " + e.message, true); return; }
+  } else if (step.recreate) {   // a deleted card: make it again, in its cell if that's still free
+    try {
+      const j = await api("POST", "/api/entries", { fields: step.recreate.fields });
+      const c = cols[step.recreate.col];
+      if (c && c.entry == null) c.entry = j.created; else cols.push({ scan: null, entry: j.created });
+      cardsChanged(j);
+    } catch (e) { toast("couldn't undo: " + e.message, true); return; }
+  } else if (step.faces) {   // names and removals, latest first
+    for (const r of [...step.faces].reverse()) {
+      const f = fc[r.scan]?.faces[r.i];
+      if (!f) continue;
+      f.name = r.name; f.auto = r.auto; f.gone = r.gone;
+      const saved = (fcNames[r.scan] = fcNames[r.scan] || {});
+      if (r.had) saved[f.key] = r.saved; else delete saved[f.key];
+    }
+    persistFaces();
+    for (const scan of new Set(step.faces.map((r) => r.scan))) paintFaceScan(scan, true);
+    paintKw();
   } else {
     if (step.card != null) {   // the step made a card: take it back off the server too
       try { S = await api("DELETE", "/api/entries/" + step.card); } catch (e) { toast("couldn't remove the card: " + e.message, true); }
@@ -1417,16 +1445,61 @@ const EDIT_FIELDS = { frame: "frame", tz: "tz", local: "local_iso", lat: "lat", 
                       lens: "lens", aperture: "aperture", shutter: "shutter", notes: "notes" };
 let editing = null;    // {id: card id, or null for a new card; col: slot a new card goes into}
 
-function newCardDefaults(col) {
-  // Carry the gear (and zone and time, as a starting point) over from the card before this slot, like the phone does.
+// The cards on either side of a cell (skipping empty ones): a new card starts from them, and "same place as" offers them.
+function neighbours(col) {
   const byId = Object.fromEntries(S.entries.map((e) => [e.id, e]));
-  let prev = null;
+  let prev = null, next = null;
   for (let k = col - 1; k >= 0 && !prev; k--) if (cols[k].entry != null) prev = byId[cols[k].entry];
+  for (let k = col + 1; k < cols.length && !next; k++) if (cols[k].entry != null) next = byId[cols[k].entry];
+  return { prev, next };
+}
+// "YYYY-MM-DDTHH:MM:SS" for a UTC instant, as the clock read in zone tz
+function localIn(ms, tz) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: tz || undefined, hourCycle: "h23",
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    .formatToParts(new Date(ms)).map((p) => [p.type, p.value]));
+  return parts.year + "-" + parts.month + "-" + parts.day + "T" + parts.hour + ":" + parts.minute + ":" + parts.second;
+}
+function newCardDefaults(col) {
+  // Carry the gear and zone over from the card before this slot, like the phone does. The time starts halfway between
+  // the cards either side (a frame you forgot to log was shot between them), else at the one before.
+  const { prev, next } = neighbours(col);
+  let local = prev ? prev.local_iso : "";
+  if (prev?.iso && next?.iso) {
+    const mid = (Date.parse(prev.iso) + Date.parse(next.iso)) / 2;
+    try { local = localIn(Math.round(mid / 1000) * 1000, prev.zone || S.tz); } catch (e) { /* unknown zone: keep prev's */ }
+  }
   return { status: "added", added: "new", frame: prev ? prev.frame + 1 : col + 1, tz: prev ? prev.tz : "",
-           local_iso: prev ? prev.local_iso : "", lat: null, lon: null, alt: null, acc: null,
+           local_iso: local, lat: null, lon: null, alt: null, acc: null,
            lens: prev ? prev.lens : "", aperture: prev ? prev.aperture : "", shutter: prev ? prev.shutter : "", notes: "" };
 }
+// "Same place as #4 / #6": a card with no GPS (a frame you didn't log) takes the coordinates of a neighbour
+function paintPlaces(col) {
+  const box = $("editPlaces"), f = $("editForm").elements;
+  box.replaceChildren();
+  const near = col == null ? [] : Object.values(neighbours(col)).filter((e) => e && e.lat != null && e.lon != null);
+  box.hidden = !near.length;
+  if (!near.length) return;
+  box.append("same place as");
+  for (const e of near) {
+    const b = el("button", null, "#" + e.frame); b.type = "button";
+    b.title = e.lat.toFixed(5) + ", " + e.lon.toFixed(5) + (e.notes ? " · " + e.notes : "");
+    b.onclick = () => { f.lat.value = e.lat; f.lon.value = e.lon; f.alt.value = e.alt ?? ""; f.acc.value = e.acc ?? ""; };
+    box.append(b);
+  }
+}
+// The cards a pencil edits: this one, or, when its scan is one of several selected, every selected scan's card.
+function bulkIds(id) {
+  const at = cols.findIndex((c) => c.entry === id);
+  if (at < 0 || cols[at].scan == null || !sel.has(cols[at].scan) || sel.size < 2) return null;
+  const ids = cols.filter((c) => c.scan != null && sel.has(c.scan) && c.entry != null).map((c) => c.entry);
+  return ids.length > 1 ? ids : null;
+}
+const BULK_FIELDS = ["tz", "lat", "lon", "alt", "acc", "lens", "aperture", "shutter", "notes"];
 function openEditor(id, col) {
+  const bulk = id != null ? bulkIds(id) : null;
+  if (bulk) { openBulkEditor(bulk); return; }
+  $("editor").classList.remove("bulk");
   const e = id != null ? S.entries.find((x) => x.id === id) : newCardDefaults(col);
   editing = { id, col };
   const f = $("editForm").elements;
@@ -1451,8 +1524,63 @@ function openEditor(id, col) {
   $("editDelete").hidden = e.status !== "added" || id == null;
   $("editSave").textContent = id == null ? "Add card" : "Save";
   $("editError").textContent = "";
+  const at = id == null ? col : cols.findIndex((c) => c.entry === id);
+  paintPlaces(e.lat == null || e.lon == null ? at : null);   // only offered while the card has no GPS
   $("editor").showModal();
   f.frame.focus();
+}
+// One editor for several cards (a lens changed mid-roll, a zone, a note for a run of frames): a field they share shows
+// its value, one that differs shows "varies" and is left alone unless you type in it. Frame # and time stay per card.
+function openBulkEditor(ids) {
+  const cards = ids.map((i) => S.entries.find((x) => x.id === i));
+  const f = $("editForm").elements;
+  editing = { bulk: ids, shown: {} };
+  closeCal();
+  for (const [name, key] of Object.entries(EDIT_FIELDS)) {
+    const input = f[name], label = input.closest("label");
+    label.classList.remove("changed"); label.querySelector(".was")?.remove();
+    if (!BULK_FIELDS.includes(name)) continue;
+    const vals = [...new Set(cards.map((c) => String(c[key] ?? "")))];
+    input.value = vals.length === 1 ? vals[0] : "";
+    input.placeholder = vals.length === 1 ? "" : "varies: left as is";
+    editing.shown[name] = input.value;
+  }
+  f.tz.placeholder = f.tz.placeholder || S.tz + " (fallback)";
+  const frames = cards.map((c) => c.frame).sort((a, b) => a - b);
+  $("editTitle").textContent = cards.length + " cards · #" + frames.join(", #");
+  $("editState").replaceWith(Object.assign(el("span", "state"), { id: "editState" }));
+  $("editRevert").hidden = true; $("editDelete").hidden = true;
+  $("editSave").textContent = "Save " + cards.length + " cards";
+  $("editError").textContent = "";
+  $("editPlaces").hidden = true;
+  $("editor").classList.add("bulk");
+  $("editor").showModal();
+  f.lens.focus();
+}
+// a card's values as the editor sends them (PUT /api/entries/{id})
+function cardFields(e) {
+  return { frame: e.frame, local: e.local_iso || "", tz: e.tz || "", lat: e.lat, lon: e.lon, alt: e.alt, acc: e.acc,
+           lens: e.lens || "", aperture: e.aperture || "", shutter: e.shutter || "", notes: e.notes || "" };
+}
+async function saveBulk() {
+  const f = $("editForm").elements, num = (v) => (v.trim() === "" ? null : Number(v));
+  const changed = {};
+  for (const name of BULK_FIELDS) {
+    if (f[name].value === editing.shown[name]) continue;
+    const v = f[name].value;
+    changed[name] = ["lat", "lon", "alt", "acc"].includes(name) ? num(v) : name === "tz" ? v.trim() : v;
+  }
+  if (!Object.keys(changed).length) { $("editor").close(); return; }
+  const before = editing.bulk.map((i) => cardFields(S.entries.find((x) => x.id === i)));
+  let j = null;
+  for (const id of editing.bulk) {
+    const e = S.entries.find((x) => x.id === id);
+    j = await api("PUT", "/api/entries/" + id, { ...cardFields(e), ...changed });
+    S = j;   // the next card is read from the updated session
+  }
+  pushUndo({ what: "edit " + editing.bulk.length + " cards", cards: editing.bulk.map((id, k) => ({ id, fields: before[k] })) });
+  $("editor").close(); cardsChanged(j);
+  toast(editing.bulk.length + " cards changed: " + Object.keys(changed).join(", ") + " · Ctrl/⌘-Z undoes it");
 }
 function cardsChanged(j) {
   S = j;
@@ -1461,6 +1589,11 @@ function cardsChanged(j) {
 }
 async function saveCard(ev) {
   ev.preventDefault();
+  if (editing?.bulk) {
+    $("editSave").disabled = true;
+    try { await saveBulk(); } catch (e) { $("editError").textContent = e.message; } finally { $("editSave").disabled = false; }
+    return;
+  }
   const f = $("editForm").elements;
   const num = (v) => (v.trim() === "" ? null : Number(v));
   const fields = {
@@ -1471,8 +1604,10 @@ async function saveCard(ev) {
   const { id, col } = editing;
   $("editSave").disabled = true;
   try {
+    const before = id == null ? null : cardFields(S.entries.find((x) => x.id === id));
     const j = id == null ? await api("POST", "/api/entries", { fields }) : await api("PUT", "/api/entries/" + id, fields);
     if (id == null) { pushUndo(pairStep("new card", j.created)); cols[col].entry = j.created; }
+    else pushUndo({ what: "edit #" + before.frame, cards: [{ id, fields: before }] });
     $("editor").close(); cardsChanged(j);
   } catch (e) {
     $("editError").textContent = e.message;
@@ -1481,11 +1616,16 @@ async function saveCard(ev) {
   }
 }
 async function editAction(method, suffix, question) {
-  if (question && !await ask(question, "This can't be undone.", yesNo(method === "DELETE" ? "Delete" : "Yes"))) return;
+  if (question && !await ask(question, "Ctrl/⌘-Z brings it back.", yesNo(method === "DELETE" ? "Delete" : "Yes"))) return;
   const { id } = editing;
+  const e = S.entries.find((x) => x.id === id);
+  const before = e && cardFields(e), col = cols.findIndex((c) => c.entry === id);
   try {
     const j = await api(method, "/api/entries/" + id + suffix);
-    if (method === "DELETE") cols.forEach((c) => { if (c.entry === id) c.entry = null; });
+    if (method === "DELETE") {
+      cols.forEach((c) => { if (c.entry === id) c.entry = null; });
+      pushUndo({ what: "delete #" + before.frame, recreate: { fields: before, col } });
+    } else if (before) pushUndo({ what: "revert #" + before.frame, cards: [{ id, fields: before }] });
     $("editor").close(); cardsChanged(j);
   } catch (e) {
     $("editError").textContent = e.message;
@@ -2505,12 +2645,15 @@ function whoAct(g, typed) {
   const name = typed.trim().replace(/\s+/g, " ");
   const on = liveGroup(g).filter((m) => !who.off.has(memberId(m)));
   if (name || g.type === "auto") {
-    for (const m of on) { const x = faceAt(m); if (x) setFaceName(m.scan, x.i, name || x.f.name); }
+    batchFaces(name ? "name " + on.length + " faces " + name : "confirm " + on.length + " faces",
+               () => { for (const m of on) { const x = faceAt(m); if (x) setFaceName(m.scan, x.i, name || x.f.name); } });
   }
   whoNext(g);
 }
 function whoRemove(g) {
-  for (const m of liveGroup(g).filter((m) => !who.off.has(memberId(m)))) { const x = faceAt(m); if (x) removeFace(m.scan, x.i); }
+  batchFaces("remove boxes", () => {
+    for (const m of liveGroup(g).filter((m) => !who.off.has(memberId(m)))) { const x = faceAt(m); if (x) removeFace(m.scan, x.i); }
+  });
   whoNext(g);
 }
 function whoNext(g) {
@@ -2520,8 +2663,24 @@ function whoNext(g) {
   renderWho(true);
   render();   // the badges on the strip
 }
+// Naming and removing faces go on the undo stack too. A group named at once in Who's this? (or "Bring back") is one
+// step: faceBatch collects the faces it changes.
+let faceBatch = null;
+function batchFaces(what, fn) {
+  const mine = !faceBatch;
+  if (mine) faceBatch = { what, faces: [] };
+  try { fn(); } finally {
+    if (mine) { if (faceBatch.faces.length) pushUndo({ what: faceBatch.what, faces: faceBatch.faces }); faceBatch = null; }
+  }
+}
+function recordFace(scan, i, what) {
+  const f = fc[scan].faces[i], saved = fcNames[scan] || {};
+  const rec = { scan, i, name: f.name, auto: f.auto, gone: !!f.gone, had: f.key in saved, saved: saved[f.key] };
+  if (faceBatch) faceBatch.faces.push(rec); else pushUndo({ what, faces: [rec] });
+}
 function setFaceName(scan, i, name) {
   const f = fc[scan].faces[i];
+  recordFace(scan, i, (name.trim() ? "name a face " + name.trim() : "clear a face's name"));
   f.name = name.trim().replace(/\s+/g, " "); f.auto = false;
   (fcNames[scan] = fcNames[scan] || {})[f.key] = f.name;
   persistFaces();
@@ -2532,6 +2691,7 @@ function setFaceName(scan, i, name) {
 const liveFaces = (d) => d.faces.filter((f) => !f.gone);
 function removeFace(scan, i, gone = true) {
   const f = fc[scan].faces[i];
+  recordFace(scan, i, gone ? "remove a box" : "bring back a box");
   f.gone = gone; f.name = ""; f.auto = false;
   (fcNames[scan] = fcNames[scan] || {})[f.key] = gone ? null : "";
   persistFaces();
@@ -2725,7 +2885,7 @@ function bringBack(bar, scan, data, removed) {
   if (!removed) return;
   const b = el("button", null, "Bring back " + removed + " removed");
   b.title = "show the boxes you marked as not a face or pet again";
-  b.onclick = () => { data.faces.forEach((f, j) => { if (f.gone) removeFace(scan, j, false); }); selectFace(fSel, false); };
+  b.onclick = () => { batchFaces("bring back boxes", () => data.faces.forEach((f, j) => { if (f.gone) removeFace(scan, j, false); })); selectFace(fSel, false); };
   bar.append(b);
 }
 
@@ -2904,6 +3064,9 @@ async function boot() {
     S = await (await fetch("/api/unload", { method: "POST" })).json(); showSetup();
   };
   $("editForm").addEventListener("submit", saveCard);
+  $("editForm").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); $("editForm").requestSubmit(); }
+  });
   $("editCancel").onclick = () => $("editor").close();
   $("calBtn").onclick = (ev) => { ev.preventDefault(); cal ? closeCal() : openCal(); };
   $("editForm").elements.local.addEventListener("input", () => {   // typing moves an open picker along
