@@ -128,17 +128,21 @@
   #renamePreview td.arrow { color: var(--muted); width: 1%; }
   #renamePreview tr.folder td { color: var(--text); font-weight: 500; }
 
-  /* ---- strip ---- */
-  #strip { flex: 1; overflow-x: auto; overflow-y: hidden; padding: 18px 16px; display: flex; gap: 14px; align-items: stretch; }
-  .col { width: var(--col-w); flex: 0 0 var(--col-w); display: flex; flex-direction: column; gap: 6px; }
-  .col .idx { font-family: var(--mono); font-size: 10.5px; color: var(--muted); text-align: center; letter-spacing: .06em; font-variant-numeric: tabular-nums; }
+  /* ---- contact sheet: a wrapping grid of slots, each a scan above the log card it's paired with ---- */
+  /* --cell is the thumbnail size (slider, Ctrl/⌘ + wheel); --ar is the picture box's shape, the roll's usual one */
+  #strip {
+    --cell: 180px; --ar: 1.5;
+    flex: 1; overflow-y: auto; overflow-x: hidden; padding: 16px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(min(var(--cell), 100%), 1fr)); gap: 12px; align-content: start;
+  }
+  .slot { display: flex; flex-direction: column; gap: 4px; min-width: 0; border-radius: 16px; position: relative; }
+  .slot.over { box-shadow: 0 0 0 2px var(--accent); }
+  .slot:has(.scan.sel) .scan { box-shadow: var(--card-shadow), 0 0 0 2px var(--accent); }
 
   .cell {
     background: var(--card); border-radius: 14px; box-shadow: var(--card-shadow); position: relative;
-    min-height: 60px; transition: box-shadow .12s, background .12s;
+    transition: box-shadow .12s, background .12s;
   }
-  .cell.empty { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line); }
-  .cell.over { background: var(--raised); box-shadow: inset 0 0 0 2px var(--accent); }
   .cell.drag { opacity: .35; }
   .cell[draggable="true"] { cursor: grab; }
 
@@ -154,44 +158,61 @@
   .pill.warn::before { background: var(--warn); box-shadow: 0 0 5px var(--warn); }
   .pill.err::before { background: var(--danger); box-shadow: 0 0 5px var(--danger); }
 
-  .scan { height: 206px; display: flex; flex-direction: column; padding: 6px 6px 0; cursor: pointer; }
-  .scan.sel { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* the scan: picture fitted in the box, then two fixed lines (the pills below are placed from the bottom) */
+  .scan { display: flex; flex-direction: column; padding: 6px 6px 0; cursor: pointer; }
   .scan.sel .name { color: var(--text); }
-  .scan img { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: var(--img); border-radius: 9px; pointer-events: none; }
-  .scan .name { font-family: var(--mono); font-size: 10.5px; padding: 5px 2px 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .thumb { aspect-ratio: var(--ar); background: var(--img); border-radius: 9px; position: relative; overflow: hidden; }
+  .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+  .scan .name { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10.5px; line-height: 14px; padding: 5px 2px 0; color: var(--muted); white-space: nowrap; min-width: 0; }
+  .scan .name > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+  .scan .idx { flex: none; color: var(--muted); opacity: .7; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
   .scan .kws { font-size: 11px; line-height: 16px; height: 16px; padding: 0 2px 4px; box-sizing: content-box; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .scan .kws:empty::before { content: "no keywords"; color: var(--muted); opacity: .5; }
   .scan .badge, .scan .result { background: rgba(0,0,0,.6); backdrop-filter: blur(6px); }
   .scan .badge { top: 12px; left: 12px; }
   .scan .result { bottom: 48px; right: 12px; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; }
-  .scan.empty { padding: 0; align-items: center; justify-content: center; color: var(--muted); font-size: 11.5px; }
+  .scan.empty { cursor: default; background: transparent; box-shadow: none; }
+  .scan.empty .thumb { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line); display: grid; place-items: center; color: var(--muted); font-size: 11.5px; }
 
-  .link { height: 22px; display: flex; align-items: center; justify-content: center; position: relative; }
-  .link::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; transform: translateX(-50%); background: var(--line); }
-  .link .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--led-off); box-shadow: inset 0 1px 2px rgba(0,0,0,.5); z-index: 1; }
-  .link.paired .dot { background: var(--ok); box-shadow: 0 0 10px var(--ok), 0 0 2px var(--ok), inset 0 -1px 1px rgba(0,0,0,.25); }
-  .link.half .dot { background: var(--warn); box-shadow: 0 0 10px var(--warn), 0 0 2px var(--warn), inset 0 -1px 1px rgba(0,0,0,.25); }
+  /* pairing light, where the connector dot used to be: green = written with its card, amber = a scan with no card or a card with no scan */
+  .led { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--led-off); box-shadow: inset 0 1px 1px rgba(0,0,0,.4); }
+  .led.paired { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .led.half { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+  .slot.half .scan:not(.empty) .thumb { box-shadow: inset 0 0 0 2px rgba(240,135,58,.7); }
 
-  .entry { padding: 12px 13px 8px; height: 162px; display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
-  .entry .frame { font-size: 26px; font-weight: 700; letter-spacing: -.02em; line-height: 1; margin-bottom: 4px; font-variant-numeric: tabular-nums; cursor: pointer; align-self: flex-start; }
+  /* keys that show on hover over the picture: shift the scans, and make a card where there's none */
+  .hover { position: absolute; top: 6px; left: 6px; right: 6px; z-index: 2; display: flex; align-items: center; gap: 4px; opacity: 0; pointer-events: none; transition: opacity .12s; }
+  .slot:hover .hover, .slot:focus-within .hover { opacity: 1; pointer-events: auto; }
+  .hover .spacer { flex: 1; }
+  .hover button:not(.icon) { font-size: 10.5px; padding: 3px 9px; }
+  .hover button { background: rgba(28,27,25,.82); backdrop-filter: blur(6px); }
+
+  /* the log card, compact: frame # and time, zone, gear, note, then where it came from and its keys */
+  .entry { padding: 7px 9px 5px; display: flex; flex-direction: column; gap: 1px; overflow: hidden; cursor: default; font-size: 11px; color: var(--muted); }
+  .entry .top { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+  .entry .frame { font-size: 15px; font-weight: 700; line-height: 1.15; color: var(--text); font-variant-numeric: tabular-nums; cursor: pointer; flex: none; }
   .entry .frame span { color: var(--muted); font-weight: 500; }
   .entry .frame:hover span { color: var(--text); }
-  /* labelled rows: TIME / ZONE / LENS / NOTE */
-  .entry [data-k] { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: baseline; font-size: 11px; color: var(--muted); }
-  .entry [data-k]::before { content: attr(data-k); font-size: 8.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; opacity: .75; }
-  .entry .v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .entry .time { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-  .entry .time .v { color: var(--text); }
-  .entry .zone.fallback .v { color: var(--warn); }
-  .entry .notes .v { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 11.5px; }
-  .entry .gps { top: 10px; right: 10px; background: var(--bg); padding-left: 16px; }
-  .entry.empty { align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 11.5px; }
-  .entry.empty .make { display: flex; gap: 6px; }
-  .entry.empty .make button { font-size: 11px; padding: 4px 11px; }
-  .entry .time .v.none { color: var(--muted); }
+  .entry .ln { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 15px; height: 15px; }
+  .entry .time { font-family: var(--mono); font-size: 10.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+  .entry .time.none { color: var(--muted); }
+  .entry .zone.fallback { color: var(--warn); }
+  .entry .notes { color: var(--text); opacity: .85; }
+  .entry .gps { position: relative; flex: none; margin-left: auto; align-self: center; background: var(--bg); }
+  .entry .foot { margin-top: 2px; display: flex; align-items: center; gap: 2px; }
+  .entry .foot .shift { visibility: hidden; }
+  .slot:hover .entry .foot .shift, .entry .foot .shift:focus-within { visibility: visible; }
 
-  /* card footer: where the card came from, then edit / copy keys */
-  .entry .foot { margin-top: auto; display: flex; align-items: center; gap: 4px; padding-top: 4px; }
+  /* a slot with no card: a slim row to make one (with a log export), or nothing until hover (without) */
+  .nocard { display: flex; align-items: center; gap: 4px; padding: 4px 5px 4px 10px; border-radius: 12px; box-shadow: inset 0 0 0 1.5px var(--line); font-size: 11px; color: var(--muted); background: transparent; }
+  .nocard .what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nocard.warn .what { color: var(--warn); }
+  .nocard button:not(.icon) { font-size: 10.5px; padding: 3px 9px; }
+  .nocard .shift { display: none; }
+  .slot:hover .nocard .shift, .nocard .shift:focus-within { display: flex; }
+  .slot:hover .nocard .what { visibility: hidden; }   /* the amber light and ring still say it; the keys need the room */
+
+  /* card footer: where the card came from, then shift / copy / edit keys */
   .state { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
   .state::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--led-off); box-shadow: inset 0 1px 1px rgba(0,0,0,.4); }
   .state.edited { color: var(--warn); }
@@ -261,7 +282,16 @@
   .shift button { width: 26px; height: 26px; padding: 0; border-radius: 50%; display: grid; place-items: center; color: var(--muted); }
   .shift button:hover:not(:disabled) { color: var(--text); }
   .shift button:disabled { opacity: .35; box-shadow: none; cursor: default; }
-  .shift svg { width: 12px; height: 12px; fill: currentColor; display: block; }
+  .shift svg { width: 10px; height: 10px; fill: currentColor; display: block; }
+  .shift { gap: 2px; }
+  .hover .shift button, .entry .shift button, .nocard .shift button { width: 22px; height: 22px; }
+
+  /* thumbnail size: the header's slider, shown with the grid */
+  #sizeCtl { display: flex; align-items: center; gap: 6px; color: var(--muted); cursor: help; }
+  body:has(#strip[hidden]) #sizeCtl { display: none; }
+  #sizeCtl svg { width: 12px; height: 12px; fill: currentColor; flex: none; }
+  #sizeCtl svg.big { width: 15px; height: 15px; }
+  #cellSize { width: 96px; accent-color: var(--accent); cursor: pointer; }
 
   /* ---- keywords: a tag box for the selected scans, numbered suggestions, the roll's own ---- */
   #kwPanel { background: var(--panel); box-shadow: 0 -1px 0 var(--line); padding: 10px 16px 9px; display: flex; flex-direction: column; gap: 8px; }
@@ -397,6 +427,11 @@
   <span class="meta" id="faceSync" hidden></span>
   <span class="tags" id="tags" hidden title="Written into every scan's metadata on Write. Set them on the setup screen (Change roll)."></span>
   <span class="spacer"></span>
+  <label id="sizeCtl" title="Thumbnail size. Ctrl (⌘ on a Mac) + scroll wheel over the scans, or pinch, does the same">
+    <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="4.4" height="4.4" rx="1"/><rect x="6.6" y="1" width="4.4" height="4.4" rx="1"/><rect x="1" y="6.6" width="4.4" height="4.4" rx="1"/><rect x="6.6" y="6.6" width="4.4" height="4.4" rx="1"/></svg>
+    <input type="range" id="cellSize" min="110" max="520" step="1" aria-label="thumbnail size">
+    <svg class="big" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1.6"/></svg>
+  </label>
   <span class="stats" id="stats"></span>
   <button id="changeRoll" hidden title="Back to the setup screen">Change roll</button>
   <button id="autoPair" hidden title="Reset to positional pairing: 1st scan ↔ 1st frame, and so on">Auto-pair</button>
@@ -525,7 +560,7 @@
 </div>
 
 <div class="help" id="help" hidden>
-  click a scan and type to keyword it · double-click a scan to view it large (click the picture for 100%, drag to pan) · drag a card onto another card to swap · <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6 9.2 1.6v8.8z"/></svg> <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M9.8 6 2.8 1.6v8.8z"/></svg> shift this card and everything after it · double-click a log card to edit it · copy a card, then paste it into an empty slot · click a frame # to preview the tags · scroll wheel pans
+  click a scan and type to keyword it · arrow keys move the selection · double-click a scan to view it large · drag a scan or a card onto another cell to swap · <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6 9.2 1.6v8.8z"/></svg> <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M9.8 6 2.8 1.6v8.8z"/></svg> (on hover) shift this scan or card and everything after it · double-click a log card to edit it · copy a card, then paste it into a cell with none · click a frame # to preview the tags · Ctrl + wheel resizes
 </div>
 
 <dialog id="editor">
@@ -883,71 +918,141 @@ function cardFoot(e) {
   foot.append(stateChip(e), copy, iconButton(PENCIL, "edit this card", () => openEditor(e.id)));   // edit, the one used most, at the end
   return foot;
 }
-function labelled(cls, key, text) {   // a labelled line on a log card
-  const r = el("div", cls); r.dataset.k = key;
-  r.append(el("span", "v", text));
-  return r;
-}
 function shiftBar(row, i) {
   const bar = el("div", "shift");
-  const left = el("button"); left.innerHTML = TRI_L; left.title = "shift left (closes the gap before this card)"; left.setAttribute("aria-label", "shift left");
-  const right = el("button"); right.innerHTML = TRI_R; right.title = "shift this and everything after it right"; right.setAttribute("aria-label", "shift right");
+  const what = row === "scan" ? "scan" : "card";
+  const left = el("button"); left.innerHTML = TRI_L; left.title = "shift this " + what + " and everything after it left (closes the gap before it)"; left.setAttribute("aria-label", "shift " + what + " left");
+  const right = el("button"); right.innerHTML = TRI_R; right.title = "shift this " + what + " and everything after it right"; right.setAttribute("aria-label", "shift " + what + " right");
   left.disabled = i === 0 || cols[i - 1][row] != null;
-  left.onclick = () => shift(row, i, -1);
-  right.onclick = () => shift(row, i, +1);
+  left.onclick = (ev) => { ev.stopPropagation(); shift(row, i, -1); };
+  right.onclick = (ev) => { ev.stopPropagation(); shift(row, i, +1); };
   bar.append(left, right);
   return bar;
 }
+// New / Paste: make a card for slot i, from scratch or as a copy of the copied one
+function makeCardKeys(i, entryById) {
+  const add = el("button", null, "New"); add.title = "make a card for this cell from scratch";
+  add.onclick = (ev) => { ev.stopPropagation(); openEditor(null, i); };
+  const paste = el("button", null, "Paste");
+  paste.disabled = clip == null;
+  paste.title = clip == null ? "copy a card first" : "paste a copy of #" + entryById[clip].frame + " here";
+  paste.onclick = (ev) => { ev.stopPropagation(); pasteCard(i); };
+  return [add, paste];
+}
+// A scan or a card is dragged by its own cell and dropped anywhere on another slot: what's dragged says which row swaps.
 let dragging = "";
-function dragify(cell, row, i) {
-  if (cols[i][row] != null) {
-    cell.draggable = true;
-    cell.addEventListener("dragstart", (ev) => {
-      dragging = row + ":" + i;
-      ev.dataTransfer.setData("text/plain", dragging);
-      ev.dataTransfer.effectAllowed = "move";
-      cell.classList.add("drag");
-    });
-    cell.addEventListener("dragend", () => { cell.classList.remove("drag"); dragging = ""; });
-  }
-  cell.addEventListener("dragover", (ev) => {
-    if (dragging.split(":")[0] !== row) return;
-    ev.preventDefault(); cell.classList.add("over");
+function dragSource(cell, row, i) {
+  cell.draggable = true;
+  cell.addEventListener("dragstart", (ev) => {
+    dragging = row + ":" + i;
+    ev.dataTransfer.setData("text/plain", dragging);
+    ev.dataTransfer.effectAllowed = "move";
+    cell.classList.add("drag");
   });
-  cell.addEventListener("dragleave", () => cell.classList.remove("over"));
-  cell.addEventListener("drop", (ev) => {
-    ev.preventDefault(); cell.classList.remove("over");
+  cell.addEventListener("dragend", () => { cell.classList.remove("drag"); dragging = ""; });
+}
+function dropTarget(slot, i) {
+  let depth = 0;   // dragenter/leave fire for every child crossed
+  slot.addEventListener("dragenter", (ev) => { if (!dragging) return; ev.preventDefault(); depth++; slot.classList.add("over"); });
+  slot.addEventListener("dragover", (ev) => { if (!dragging) return; ev.preventDefault(); ev.dataTransfer.dropEffect = "move"; });
+  slot.addEventListener("dragleave", () => { if (--depth <= 0) { depth = 0; slot.classList.remove("over"); } });
+  slot.addEventListener("drop", (ev) => {
+    ev.preventDefault(); depth = 0; slot.classList.remove("over");
     const [srow, si] = (ev.dataTransfer.getData("text/plain") || dragging).split(":");
-    if (srow !== row) return;
-    swap(row, parseInt(si, 10), i);
+    if (srow === "scan" || srow === "entry") swap(srow, parseInt(si, 10), i);
   });
+}
+
+/* thumbnail size: the cells' width, from the slider or Ctrl/⌘ + wheel; remembered on this computer */
+const CELL_KEY = "framelog-tagger:cell-size", CELL_MIN = 110, CELL_MAX = 520;
+let cellPx = 180;
+let bigThumbs = false;   // big cells (or a high-density screen) get the large thumbnail
+function loadCellSize() {
+  try { const v = parseInt(localStorage.getItem(CELL_KEY), 10); if (v) cellPx = v; } catch (e) {}
+  setCellSize(cellPx, false);
+}
+function setCellSize(px, save = true) {
+  cellPx = Math.round(Math.min(CELL_MAX, Math.max(CELL_MIN, px)));
+  $("strip").style.setProperty("--cell", cellPx + "px");
+  $("cellSize").value = cellPx;
+  if (save) try { localStorage.setItem(CELL_KEY, String(cellPx)); } catch (e) {}
+  updateThumbTier();
+}
+function thumbUrl(name) { return imageUrl("thumb", name) + (bigThumbs ? "&size=800" : ""); }
+function updateThumbTier() {
+  const box = document.querySelector("#strip .thumb");
+  if (!box || !box.clientWidth) return;
+  const need = Math.max(box.clientWidth, box.clientHeight) * (window.devicePixelRatio || 1);
+  const big = bigThumbs ? need > 330 : need > 400;   // the small thumbnail is 360 px; a gap between the two so it doesn't flap
+  if (big === bigThumbs) return;
+  bigThumbs = big;
+  for (const img of $("strip").querySelectorAll(".thumb img[data-name]")) img.src = thumbUrl(img.dataset.name);
+}
+function zoomGrid(ev) {   // Ctrl/⌘ + wheel, and a trackpad pinch (which arrives as Ctrl + wheel), over the grid
+  if (!(ev.ctrlKey || ev.metaKey)) return;
+  ev.preventDefault();   // not the page's own zoom
+  const strip = $("strip"), slot = ev.target.closest(".slot"), before = slot?.getBoundingClientRect().top;
+  const dy = ev.deltaMode === 1 ? ev.deltaY * 16 : ev.deltaMode === 2 ? ev.deltaY * 400 : ev.deltaY;
+  setCellSize(cellPx * Math.exp(-Math.max(-300, Math.min(300, dy)) * 0.0015));
+  if (slot) strip.scrollTop += slot.getBoundingClientRect().top - before;   // keep the cell under the pointer in place
+}
+// the picture box's shape: the roll's usual one, so a landscape roll isn't letterboxed in square tiles
+function rollShape() {
+  const r = S.scans.filter((s) => s.width && s.height)
+                   .map((s) => (s.orientation >= 5 && s.orientation <= 8 ? s.height / s.width : s.width / s.height))
+                   .sort((a, b) => a - b);
+  return Math.min(1.8, Math.max(0.67, r.length ? r[r.length >> 1] : 1.5)).toFixed(3);
+}
+function shortTime(local) {   // "2026-10-03 10:05:12" -> "Oct 3 10:05"
+  const p = parseLocal(local.replace("T", " "));
+  return p ? MONTHS[p.m].slice(0, 3) + " " + p.d + " " + pad2(p.hh) + ":" + pad2(p.mm) : local;
+}
+// A scan's keyword line on the grid. One function, so anything else a scan is tagged with (named faces) can join it here.
+function renderKwLine(line, name) {
+  const own = kw[name] || [];
+  line.textContent = own.join(" · ");
+  line.title = own.length ? own.join(", ") + (S.roll_keywords.length ? "\n+ the roll's: " + S.roll_keywords.join(", ") : "") : "";
 }
 
 function render() {
   const strip = $("strip");
-  const scroll = strip.scrollLeft;
+  const scroll = strip.scrollTop;
   strip.innerHTML = "";
   const scanByName = Object.fromEntries(S.scans.map((s) => [s.name, s]));
   const entryById = Object.fromEntries(S.entries.map((e) => [e.id, e]));
   if (clip != null && !(clip in entryById)) clip = null;
   $("autoPair").hidden = !S.entries.length;
   $("meta").textContent = S.scans.length + " scans · " + (noLog() && !S.entries.length ? "no log" : S.entries.length + " frames") + (S.exiftool ? "" : " · exiftool missing");
+  strip.style.setProperty("--ar", rollShape());
 
   cols.forEach((c, i) => {
-    const col = el("div", "col");
-    col.append(el("div", "idx", String(i + 1).padStart(2, "0")));
+    const slot = el("div", "slot");
+    slot.dataset.i = i;
+    // pairing light: without a log, a scan on its own is the norm; with one, a scan with no card is
+    // still written (roll-wide tags only) but shows amber, as it often means a mispairing
+    const both = c.scan != null && (c.entry != null || noLog());
+    const one = !both && (c.scan != null || c.entry != null);
+    if (one) slot.classList.add("half");
+    const led = el("span", "led" + (both ? " paired" : one ? " half" : ""));
+    if (c.scan != null) led.title = c.entry != null ? "written with this card's tags" : NO_CARD;
+    else if (c.entry != null) led.title = "no scan: this card isn't written";
 
-    // scan cell
+    // scan cell: the picture, its slot number and name, its keywords
     const sc = el("div", "cell scan" + (c.scan == null ? " empty" : ""));
+    const thumb = el("div", "thumb");
+    const name = el("div", "name");
+    name.append(el("span", "idx", String(i + 1).padStart(2, "0")), led);
     if (c.scan != null) {
       const s = scanByName[c.scan];
       const img = document.createElement("img");
-      img.src = imageUrl("thumb", s.name); img.loading = "lazy"; img.alt = s.name;
-      const kws = el("div", "kws");
-      sc.append(img, el("div", "name", s.name), kws);
+      img.src = thumbUrl(s.name); img.loading = "lazy"; img.alt = s.name; img.dataset.name = s.name;
+      thumb.append(img);
+      name.append(el("span", null, s.name));
+      name.title = s.name;
+      sc.append(thumb, name, el("div", "kws"));
       sc.dataset.scan = s.name;
-      sc.addEventListener("click", (ev) => clickScan(s.name, ev));
-      sc.addEventListener("dblclick", () => openZoom(s.name));
+      sc.addEventListener("click", (ev) => { if (!ev.target.closest("button")) clickScan(s.name, ev); });
+      sc.addEventListener("dblclick", (ev) => { if (!ev.target.closest("button")) openZoom(s.name); });
       if (s.tagged) sc.append(el("span", "pill warn badge", "tagged"));
       const fd = fc[s.name];
       if (fd) {
@@ -958,63 +1063,55 @@ function render() {
       }
       const r = results[s.name];
       if (r) { const b = el("span", "pill result " + (r.ok ? "ok" : "err"), r.ok ? "written" : r.error); b.title = r.error || (r.note ? r.note + " — " : "") + (r.path || ""); sc.append(b); }
+      dragSource(sc, "scan", i);
     } else {
-      sc.textContent = "no scan";
+      thumb.textContent = c.entry != null ? "no scan" : "empty";
+      sc.append(thumb, name);
     }
-    dragify(sc, "scan", i);
-    col.append(shiftBar("scan", i), sc);
+    // keys on hover: shift the scans; without a log export, make a card here
+    const hover = el("div", "hover");
+    if (c.entry == null && noLog()) hover.append(...makeCardKeys(i, entryById));
+    hover.append(el("span", "spacer"), shiftBar("scan", i));
+    thumb.append(hover);
+    slot.append(sc);
 
-    // connector: without a log, a scan on its own is the norm; with one, a scan with no card is
-    // still written (roll-wide tags only) but stays amber, as it often means a mispairing
-    const both = c.scan != null && (c.entry != null || noLog());
-    const one = !both && (c.scan != null || c.entry != null);
-    const link = el("div", "link" + (both ? " paired" : one ? " half" : ""));
-    if (c.scan != null) link.title = c.entry != null ? "written with this card's tags" : NO_CARD;
-    else if (c.entry != null) link.title = "no scan: this card isn't written";
-    link.append(el("div", "dot"));
-    col.append(link);
-
-    // entry cell
-    const ec = el("div", "cell entry" + (c.entry == null ? " empty" : ""));
+    // the card, compact
     if (c.entry != null) {
       const e = entryById[c.entry];
-      ec.classList.add(e.status);
-      const fr = el("div", "frame"); fr.append(el("span", null, "#"), String(e.frame)); fr.title = "preview ExifTool tags";
+      const ec = el("div", "cell entry " + e.status);
+      const top = el("div", "top");
+      const fr = el("span", "frame"); fr.append(el("span", null, "#"), String(e.frame)); fr.title = "preview ExifTool tags";
       fr.onclick = () => showPreview(e);
-      const time = labelled("time", "time", e.local || "none");
-      if (!e.local) { time.firstChild.classList.add("none"); time.title = "no time: date tags are left alone"; }
-      ec.append(fr, time);
-      if (e.local) {
-        const zone = labelled("zone" + (e.zone_source === "fallback" ? " fallback" : ""), "zone", e.zone + " (" + e.offset + ")");
-        zone.title = e.zone_source === "phone" ? "zone recorded with this frame"
-                                               : "no zone recorded for this frame; using the fallback zone";
-        ec.append(zone);
-      }
-      const gear = [e.lens, e.aperture, e.shutter].filter(Boolean).join(" · ");
-      if (gear) ec.append(labelled("gear", "lens", gear));
-      if (e.notes) ec.append(labelled("notes", "note", e.notes));
+      const time = el("span", "ln time" + (e.local ? "" : " none"), e.local ? shortTime(e.local_iso || e.local) : "no time");
+      time.title = e.local ? e.local + " (local, in the card's zone)" : "no time: date tags are left alone";
       const gps = el("span", "pill gps " + (e.lat != null ? "yes" : "warn"), e.lat != null ? "GPS" : "no GPS");
       if (e.lat != null) gps.title = e.lat.toFixed(5) + ", " + e.lon.toFixed(5) + (e.acc != null ? " ±" + e.acc + " m" : "");
-      ec.append(gps, cardFoot(e));
-      ec.ondblclick = () => openEditor(e.id);
-    } else {
-      const none = el("span", null, noLog() ? "roll-wide tags only" : c.scan != null ? "no log entry · roll-wide tags only" : "no log entry");
-      if (c.scan != null) none.title = NO_CARD;
-      ec.append(none);
-      const make = el("div", "make");
-      const add = el("button", null, "New"); add.title = "make a card for this slot from scratch";
-      add.onclick = () => openEditor(null, i);
-      const paste = el("button", null, "Paste");
-      paste.disabled = clip == null;
-      paste.title = clip == null ? "copy a card first" : "paste a copy of #" + entryById[clip].frame + " here";
-      paste.onclick = () => pasteCard(i);
-      make.append(add, paste); ec.append(make);
+      top.append(fr, time, gps);
+      const zone = el("div", "ln zone" + (e.zone_source === "fallback" ? " fallback" : ""), e.local ? e.zone + " " + e.offset : "");
+      if (e.local) zone.title = e.zone_source === "phone" ? "zone recorded with this frame" : "no zone recorded for this frame; using the fallback zone";
+      const gear = el("div", "ln gear", [e.lens, e.aperture, e.shutter].filter(Boolean).join(" · "));
+      gear.title = gear.textContent;
+      const notes = el("div", "ln notes", e.notes || "");
+      notes.title = e.notes || "";
+      const foot = cardFoot(e);
+      foot.insertBefore(shiftBar("entry", i), foot.children[1]);
+      ec.append(top, zone, gear, notes, foot);
+      ec.addEventListener("dblclick", (ev) => { if (!ev.target.closest("button")) openEditor(e.id); });
+      dragSource(ec, "entry", i);
+      slot.append(ec);
+    } else if (!noLog()) {
+      // with a log export, a cell with no card says so, and offers to make one
+      const nc = el("div", "cell nocard" + (c.scan != null ? " warn" : ""));
+      const what = el("span", "what", "no card");
+      if (c.scan != null) what.title = NO_CARD;
+      nc.append(what, ...makeCardKeys(i, entryById), shiftBar("entry", i));
+      slot.append(nc);
     }
-    dragify(ec, "entry", i);
-    col.append(ec, shiftBar("entry", i));
-    strip.append(col);
+    dropTarget(slot, i);
+    strip.append(slot);
   });
-  strip.scrollLeft = scroll;
+  strip.scrollTop = scroll;
+  updateThumbTier();
   renderStats();
   persist();
   paintKw();
@@ -1247,7 +1344,25 @@ function stepSel(dir, extend) {
   if (!order.length) return;
   let i = order.indexOf(lead);
   i = i < 0 ? (dir > 0 ? 0 : order.length - 1) : Math.max(0, Math.min(order.length - 1, i + dir));
-  lead = order[i];
+  goTo(order[i], extend);
+}
+// ↑ / ↓: the cell above or below in the grid, or the nearest one with a scan in that row
+function stepRow(dir, extend) {
+  const at = cols.findIndex((c) => c.scan != null && c.scan === lead);
+  if (at < 0) return stepSel(dir, extend);
+  const n = Math.max(1, getComputedStyle($("strip")).gridTemplateColumns.split(" ").filter(Boolean).length);
+  const t = Math.max(0, Math.min(cols.length - 1, at + dir * n));
+  const row = Math.floor(t / n);
+  if (row === Math.floor(at / n)) return;   // already on the first or last row
+  let best = -1;
+  for (let k = row * n; k < Math.min(cols.length, row * n + n); k++)
+    if (cols[k].scan != null && (best < 0 || Math.abs(k - t) < Math.abs(best - t))) best = k;
+  for (let k = t + dir; best < 0 && k >= 0 && k < cols.length; k += dir) if (cols[k].scan != null) best = k;   // a row with no scans: the next scan past it
+  if (best >= 0 && best !== at) goTo(cols[best].scan, extend);
+}
+function goTo(name, extend) {   // make `name` the lead, extending the range from the anchor with Shift
+  const order = scanOrder(), i = order.indexOf(name);
+  lead = name;
   if (extend && anchor != null && order.includes(anchor)) {
     const [a, b] = [order.indexOf(anchor), i].sort((x, y) => x - y);
     sel = new Set(order.slice(a, b + 1));
@@ -1255,7 +1370,7 @@ function stepSel(dir, extend) {
     sel = new Set([lead]); anchor = lead;
   }
   paintKw();
-  document.querySelector('.scan[data-scan="' + CSS.escape(lead) + '"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  document.querySelector('.scan[data-scan="' + CSS.escape(lead) + '"]')?.closest(".slot")?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 function selectAll() { const order = scanOrder(); sel = new Set(order); anchor = order[0] ?? null; lead = order[order.length - 1] ?? null; paintKw(); }
 function clearSel() { sel = new Set(); anchor = lead = null; paintKw(); }
@@ -1361,11 +1476,9 @@ function paintKw() {
   if (!S || !S.loaded) return;
   // scan cells: selection and their keywords
   for (const cell of document.querySelectorAll(".scan[data-scan]")) {
-    const n = cell.dataset.scan, own = kw[n] || [];
+    const n = cell.dataset.scan;
     cell.classList.toggle("sel", sel.has(n));
-    const line = cell.querySelector(".kws");
-    line.textContent = own.join(" · ");
-    line.title = own.length ? own.join(", ") + (S.roll_keywords.length ? "\n+ the roll's: " + S.roll_keywords.join(", ") : "") : "";
+    renderKwLine(cell.querySelector(".kws"), n);
   }
   // the box: keywords on the selection, all-or-some
   const n = sel.size, input = $("kwInput");
@@ -1453,7 +1566,10 @@ function initKeywords() {
     const open = !$("kwMenu").hidden && menu.items.length;
     const mod = ev.metaKey || ev.ctrlKey;
     if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
-      if (!open) return;
+      if (!open) {   // with the box empty, ↑ / ↓ move to the scan above or below, as ← / → do sideways
+        if (!input.value && !mod && !ev.altKey) { ev.preventDefault(); stepRow(ev.key === "ArrowDown" ? 1 : -1, ev.shiftKey); }
+        return;
+      }
       ev.preventDefault();
       menu.hi = (menu.hi + (ev.key === "ArrowDown" ? 1 : -1) + menu.items.length) % menu.items.length; renderMenu();
     } else if (ev.key === "Enter" || (ev.key === "Tab" && open)) {
@@ -1480,6 +1596,7 @@ function initKeywords() {
     else if (mod && lc(ev.key) === "z") { ev.preventDefault(); undoKw(); }
     else if (mod || ev.altKey) return;
     else if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") { ev.preventDefault(); stepSel(ev.key === "ArrowRight" ? 1 : -1, ev.shiftKey); }
+    else if (ev.key === "ArrowUp" || ev.key === "ArrowDown") { ev.preventDefault(); stepRow(ev.key === "ArrowDown" ? 1 : -1, ev.shiftKey); }
     else if (ev.key === "Escape") clearSel();
     else if (ev.key === "Enter" && sel.size && !ev.target.closest("button")) { ev.preventDefault(); input.focus(); }
     else if (/^[1-9]$/.test(ev.key) && sel.size) { const k = suggestions()[+ev.key - 1]; if (k) toggleKw(k); }
@@ -2141,9 +2258,10 @@ async function boot() {
   $("findFaces").onclick = findFaces;
   initKeywords();
   initZoom();
-  $("strip").addEventListener("wheel", (ev) => {
-    if (Math.abs(ev.deltaY) > Math.abs(ev.deltaX)) { ev.preventDefault(); $("strip").scrollLeft += ev.deltaY; }
-  }, { passive: false });
+  $("strip").addEventListener("wheel", zoomGrid, { passive: false });
+  $("cellSize").addEventListener("input", () => setCellSize(+$("cellSize").value));
+  addEventListener("resize", updateThumbTier);
+  loadCellSize();
   if (S.faces?.sync?.running) pollSync();
   if (S.loaded) showStrip(); else showSetup();
   paintSync();

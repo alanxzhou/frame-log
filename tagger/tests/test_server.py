@@ -154,6 +154,19 @@ def test_load_rejects_bad_input(env):
     assert r.status_code == 400 and "no JPEGs" in r.json()["detail"]
 
 
+def test_large_thumbnail_for_big_cells(env):
+    # The grid asks for the pixels a cell needs; past the small thumbnail it gets the large one, and only those two exist.
+    from io import BytesIO
+    c = env["client"]
+    Image.new("RGB", (1500, 1000), (20, 90, 160)).save(env["scans"] / "1.jpg")
+    assert _load(env).status_code == 200
+    size = lambda r: Image.open(BytesIO(r.content)).size
+    assert size(c.get("/api/thumb/1.jpg")) == (360, 240)
+    assert size(c.get("/api/thumb/1.jpg", params={"size": 300})) == (360, 240)
+    assert size(c.get("/api/thumb/1.jpg", params={"size": 500})) == (800, 533)
+    assert size(c.get("/api/thumb/1.jpg", params={"size": 99999})) == (800, 533)
+
+
 def test_thumbnail_and_preview(env):
     c = env["client"]
     assert _load(env).status_code == 200
@@ -162,6 +175,8 @@ def test_thumbnail_and_preview(env):
     assert c.get("/api/thumb/nope.jpg").status_code == 404
     r = c.get("/api/view/2.jpg")
     assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    assert c.get("/api/thumb/2.jpg", params={"size": 5000}).status_code == 200
+    assert c.get("/api/thumb/nope.jpg", params={"size": 5000}).status_code == 404
     assert c.get("/api/view/nope.jpg").status_code == 404
     r = c.get("/api/full/2.jpg")
     assert r.status_code == 200 and r.content == (env["scans"] / "2.jpg").read_bytes()

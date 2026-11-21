@@ -48,6 +48,7 @@ except ImportError:
     faces_mod = pets_mod = None
 
 STATIC = Path(__file__).parent / "static"
+BIG_THUMB = 800   # longest edge of the large grid thumbnail (the small one is ThumbnailCache's default, 360)
 LOCAL_HOSTS = ["127.0.0.1", "localhost"]
 STATE_CHANGING = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -76,6 +77,7 @@ class Session:
     added: dict[int, str] = field(default_factory=dict)            # cards made here -> "new" | "copy of #N"
     next_id: int = 0
     thumbs: ThumbnailCache = field(default_factory=ThumbnailCache)
+    big_thumbs: ThumbnailCache = field(default_factory=lambda: ThumbnailCache(BIG_THUMB))   # for large grid cells
     views: ThumbnailCache = field(default_factory=lambda: ThumbnailCache(2400))   # the zoomed-in view
     detections: dict = field(default_factory=dict)   # scan name -> ((w, h), [faces.Detection]): kept so Write can learn from them
 
@@ -486,8 +488,11 @@ def create_app(state: AppState) -> FastAPI:
                         headers={"Cache-Control": "private, max-age=3600"})
 
     @app.get("/api/thumb/{name}")
-    def thumb(name: str):
-        return scaled(name, need_session().thumbs)
+    def thumb(name: str, size: int = 0):
+        """The grid's thumbnail. `size` is the pixels the cell needs: above the small size, the large one is served.
+        Only those two sizes are made, so the cache stays bounded whatever a client asks for."""
+        s = need_session()
+        return scaled(name, s.big_thumbs if size > s.thumbs.size else s.thumbs)
 
     @app.get("/api/view/{name}")
     def view(name: str):
