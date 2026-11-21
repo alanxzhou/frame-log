@@ -12,6 +12,30 @@ Status: `todo`, `in progress`, `done`, `won't do`. Update the status and the not
 | 12 | Manually test with a real mouse: Ctrl + wheel resize, drag-to-swap, Shift/Ctrl-click, the Auto-pair menu, a click just outside a face box (agents only sent some of these from JavaScript) | todo (needs a person) |
 | 1c | Tune the Who's this? grouping thresholds (`faces.GROUP = 0.40`, `pets.GROUP = 0.65` are guesses) on real photos | todo (needs real photos) |
 
+## Round 2 findings (not started, for a separate PR)
+
+From a walkthrough on 2026-11-21 of the finished `tagger-ux` branch: a fresh lab folder through Rename, Load, Who's
+this? and Write, at 1366 px, with the same demo harness.
+
+| # | Where | What feels clunky | Suggested fix |
+|---|-------|-------------------|---------------|
+| R1 | Setup | The "set once" parts (ExifTool at the top, Lightroom library below) show on every roll's setup screen | Collapse each to one line once it's set ("ExifTool 13.0 ✓ · change") |
+| R2 | Setup | Make, camera, film and ISO are typed from scratch on every roll | Offer recent combinations in a dropdown; fill ISO from a film name ending in a number (Portra 400 → 400) |
+| R3 | Setup | The Rename preview is about 300 px tall for 12 frames and pushes Load roll below the fold | Show the folder row and three files, then "… and 9 more" to expand |
+| R4 | Setup | After Rename the panel stays open on a preview where nothing changes, and Load roll is still a scroll away | Collapse it to "renamed to *Lisbon Oct* ✓" and move focus to Load roll (or offer "Rename and load") |
+| R5 | Setup | The Rename question repeats what the preview already shows, and renaming is reversible | Drop the question; keep the toast |
+| R6 | Setup | The fallback time zone shows even when every frame in the export carries its own zone | Hide it then, or fold it into a "details" line |
+| R7 | Who's this? | No key removes a doubtful box: Enter skips it, Delete does nothing | Enter on a doubtful group = Not a face; Delete = × on the highlighted crop |
+| R8 | Who's this? | A guess group shows "Confirm Ana (5)" and "Name all 5" side by side; the second does nothing with an empty field | Drop "Name all" on guess groups (typing another name and Enter covers it) |
+| R9 | Who's this? | Every guess group needs its own Enter (3 here, many more on a big roll) | "Confirm all guesses" at the top when the guesses look right |
+| R10 | Write summary | A scan without a card only links to its cell | Offer New card right there (it starts with the halfway time) |
+| R11 | Write summary | Doesn't mention scans with no keywords of their own | Add "8 scans with no keywords" with links |
+| R12 | Grid | After Write each cell shows "tagged" and "written" (plus the face count): two badges saying the same thing | Hide "tagged" while "written" shows |
+| R13 | Grid | Nothing shows that a scan changed after Write (a keyword added, a face renamed) | Mark cells changed since the last Write; Write says "Write 3 changed scans" |
+| R14 | Grid | The spare "empty" cell at the end (with New / Paste) is noise on a roll with an export | Show it only while dragging |
+| R15 | Zoom view | Still no keys: reviewing one scan needs the mouse to move between faces and scans | ←/→ previous/next scan, Tab next face, X not a face |
+| R16 | Header | "1 scan without log (roll-wide tags only)" is cut off | Shorten to "1 scan without a card"; the tooltip keeps the detail |
+
 ## Done
 
 All on branch `tagger-ux`. 196 tests pass.
