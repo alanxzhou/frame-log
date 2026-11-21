@@ -95,7 +95,10 @@ to log leaves just its own scan without a card instead of shifting every scan
 after it one card off. A card with no scan gets a cell of its own where its
 number falls (a second card with the same frame #, at the end), so nothing is
 dropped. Labs that number from 00, or off by any constant, are allowed for:
-the offset that lines up the most numbers is used.
+the offset that lines up the most numbers is used. So is a lab that numbered
+the roll last frame first, when its numbers fit better counting down; often
+they fit equally well both ways, so pick **By frame number, counting down**
+under Auto-pair for that roll.
 
 Otherwise (names without numbers, or numbers that don't fit the log) they
 start paired **in order**: first scan to first card, and so on. The stats in
@@ -109,9 +112,9 @@ Fix the exceptions:
   the foot of the card for the card. This is the one-click fix for "I forgot
   to log a frame" and "the lab skipped a blank".
 - **Reverse scans** for a roll that was scanned tail-first.
-- **Auto-pair ▾** pairs everything again, **by frame number** (when the names
-  allow it) or **in order**, your choice. It asks first, since it replaces
-  your swaps and shifts.
+- **Auto-pair ▾** pairs everything again, **by frame number**, **by frame
+  number, counting down** (when the names allow it) or **in order**, your
+  choice. It replaces your swaps and shifts; ⌘/Ctrl-Z takes it back.
 - **⌘/Ctrl-Z** undoes pairing changes (swap, shift, reverse, Auto-pair, a card
   made with New or Paste) and keyword changes, one step at a time, latest
   first.

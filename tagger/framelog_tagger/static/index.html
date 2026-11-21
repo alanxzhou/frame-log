@@ -495,6 +495,12 @@
   button.link.go { font-family: var(--sans); font-size: 11.5px; font-weight: 600; margin: 5px 0 0 8px; padding: 2px 10px; }
   #writeDlg .actions { gap: 8px; }
   #writeDlg .actions .spacer { flex: 1; }
+  /* ask(): the in-app question for anything that can't be undone here (rename, change roll, delete a card) */
+  #askDlg { margin: auto; width: min(460px, calc(100vw - 32px)); background: var(--panel); color: var(--text); border: 0; border-radius: 18px; padding: 20px 22px; box-shadow: 0 0 0 1px var(--line), 0 20px 50px rgba(0,0,0,.6); }
+  #askDlg::backdrop { background: rgba(0,0,0,.55); }
+  #askDlg h2 { font-size: 15px; font-weight: 700; margin-bottom: 10px; }
+  #askBody { font-size: 12.5px; line-height: 1.5; color: var(--muted); white-space: pre-line; overflow-wrap: anywhere; }
+  #askDlg .actions { display: flex; gap: 8px; margin-top: 18px; justify-content: flex-end; flex-wrap: wrap; }
   /* Auto-pair's two ways: by frame number, in order */
   #pairMenu {
     position: fixed; z-index: 8; width: 290px; padding: 5px; background: var(--raised); border-radius: 12px;
@@ -719,6 +725,7 @@
   <ul id="writeNeeds"></ul>
   <div class="actions"><span class="spacer"></span><button type="button" id="writeReview">Review first</button><button type="button" class="primary" id="writeGo">Write anyway</button></div>
 </dialog>
+<dialog id="askDlg" aria-labelledby="askTitle"><h2 id="askTitle"></h2><div id="askBody"></div><div class="actions" id="askActions"></div></dialog>
 <div id="toast"></div>
 <div id="preview"><h3><span id="previewTitle"></span><span id="previewClose">✕</span></h3><pre id="previewBody"></pre></div>
 
@@ -891,7 +898,8 @@ function schedulePreview() { clearTimeout(renameTimer); renameTimer = setTimeout
 async function applyRename(ev) {
   ev.preventDefault();
   const body = renameBody();
-  if (!confirm("Rename the scans in place?\n\n" + body.scans_dir + (body.rename_folder ? "\n→ folder renamed to " + body.name : ""))) return;
+  if (!await ask("Rename the scans in place?", body.scans_dir + (body.rename_folder ? "\n→ the folder becomes " + body.name : "") +
+                 "\n\nThe files are renamed on disk. Renaming again changes them back.", yesNo("Rename"))) return;
   $("renameBtn").disabled = true;
   try {
     const r = await fetch("/api/rename/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -915,13 +923,15 @@ function normalize() {
 }
 // Pair every scan with a card. "frame": scan NN with the card for frame NN, worked out by the server (S.frame_pairing:
 // it allows for lab numbering off by a constant, and is null when the scan names don't carry frame numbers that fit).
+// "frame-down": the same with the lab's numbers counting down (S.frame_pairing_down: it scanned last frame first).
 // "order": 1st scan with the 1st card, and so on. With no mode, by frame number when it fits.
 let pairMode = "order";   // how the pairing was last reset; shown in the stats
+const framePairing = (mode) => mode === "frame" ? S.frame_pairing : mode === "frame-down" ? S.frame_pairing_down : null;
 function autoPair(mode, record) {   // record: a step you took (Auto-pair), not the pairing a roll starts with
   if (record) pushUndo(pairStep("auto-pair"));
-  const fp = S.frame_pairing;
-  mode = mode || (fp ? "frame" : "order");
-  if (mode === "frame" && fp) {
+  mode = mode || (S.frame_pairing ? "frame" : "order");
+  const fp = framePairing(mode);
+  if (fp) {
     cols = fp.slots.map(([scan, entry]) => ({ scan, entry }));
   } else {
     mode = "order";
@@ -937,10 +947,11 @@ function autoPair(mode, record) {   // record: a step you took (Auto-pair), not 
   normalize(); render();
 }
 function offsetText(fp) {   // "scan NN ↔ frame #NN", or for lab names (a large offset) the first pair as an example
-  if (!fp.offset) return "scan NN ↔ frame #NN";
+  if (!fp.offset && !fp.reversed) return "scan NN ↔ frame #NN";
   const byId = Object.fromEntries(S.entries.map((e) => [e.id, e]));
   const ex = fp.slots.find(([scan, id]) => scan != null && id != null);
-  return ex ? ex[0] + " ↔ frame #" + byId[ex[1]]?.frame + ", and on in step from there" : "by the number at the end of each scan's name";
+  const step = fp.reversed ? ", the lab's numbers counting down as the frames count up (scanned last frame first)" : ", and on in step from there";
+  return ex ? ex[0] + " ↔ frame #" + byId[ex[1]]?.frame + step : "by the number at the end of each scan's name";
 }
 function openPairMenu() {
   const menu = $("pairMenu"), b = $("autoPair"), fp = S.frame_pairing;
@@ -950,15 +961,19 @@ function openPairMenu() {
     it.type = "button"; it.setAttribute("role", "menuitem"); it.disabled = disabled;
     if (mode === pairMode) it.append(el("span", "now", "  · how it was paired"));
     it.append(el("span", "why", why));
-    it.onclick = () => {
+    it.onclick = () => {   // no "are you sure": Ctrl/⌘-Z takes it back, and the toast says so
       closePairMenu();
-      if (confirm("Reset all pairing " + (mode === "frame" ? "by frame number" : "to positional order") + "? Your swaps and shifts are replaced (Ctrl/⌘-Z undoes it).")) autoPair(mode, true);
+      autoPair(mode, true);
+      toast("paired " + label.toLowerCase() + ": Ctrl/⌘-Z undoes it");
     };
     return it;
   };
   menu.replaceChildren(
     item("frame", "By frame number", fp ? offsetText(fp) + ": a frame you didn't log leaves its scan without a card, and the rest stay paired"
                                          : "Needs scans whose names end in their frame number (Rename scans does that), matching the log's frames", !fp),
+    item("frame-down", "By frame number, counting down", S.frame_pairing_down
+      ? "For a lab that scanned the roll last frame first: " + offsetText(S.frame_pairing_down)
+      : "Needs scans whose names end in their frame number, matching the log's frames counted backwards", !S.frame_pairing_down),
     item("order", "In order", "1st scan ↔ 1st card, 2nd ↔ 2nd, and so on", false));
   const r = b.getBoundingClientRect();
   menu.style.top = r.bottom + 6 + "px";
@@ -1315,10 +1330,10 @@ function renderStats() {
   const changes = (edited ? " · " + edited + " edited" : "") + (added ? " · " + added + " added" : "");
   const entriesUn = cols.filter((c) => c.entry != null && c.scan == null).length;
   const unpaired = entriesUn ? ' · <span class="warn">' + entriesUn + " card" + (entriesUn > 1 ? "s" : "") + " without scan</span>" : "";
-  const fp = S.frame_pairing;
-  const how = !S.entries.length ? "" : pairMode === "frame" && fp
-    ? ' <span class="how" title="Paired by frame number: ' + offsetText(fp) + '. Auto-pair switches to in order.">by frame #</span>'
-    : ' <span class="how" title="Paired in order: 1st scan ↔ 1st card. ' + (fp ? "Auto-pair can pair by frame number instead." : "The scan names don't carry frame numbers that fit the log, so frame-number pairing isn't offered.") + '">in order</span>';
+  const fp = framePairing(pairMode);
+  const how = !S.entries.length ? "" : fp
+    ? ' <span class="how" title="Paired by frame number: ' + offsetText(fp) + '. Auto-pair switches to in order.">by frame #' + (fp.reversed ? " (reversed)" : "") + '</span>'
+    : ' <span class="how" title="Paired in order: 1st scan ↔ 1st card. ' + (S.frame_pairing ? "Auto-pair can pair by frame number instead." : "The scan names don't carry frame numbers that fit the log, so frame-number pairing isn't offered.") + '">in order</span>';
   if (noLog()) { setStats("<b>" + p + "</b> scans" + (S.entries.length ? "" : " · roll-wide tags only") + how + changes + unpaired); return; }
   const fallback = S.entries.filter((e) => e.local && e.zone_source === "fallback").length;
   setStats(
@@ -1403,7 +1418,7 @@ async function saveCard(ev) {
   }
 }
 async function editAction(method, suffix, question) {
-  if (question && !confirm(question)) return;
+  if (question && !await ask(question, "This can't be undone.", yesNo(method === "DELETE" ? "Delete" : "Yes"))) return;
   const { id } = editing;
   try {
     const j = await api(method, "/api/entries/" + id + suffix);
@@ -2636,6 +2651,26 @@ async function showPreview(e) {
 }
 $("previewClose").onclick = () => { $("preview").style.display = "none"; };
 let toastTimer = null;
+// An in-app question. buttons: [{label, value, primary}]; the last one has focus (Enter); Esc answers null.
+// The body is plain text (line breaks kept), so paths and names in it are never read as HTML.
+function ask(title, body, buttons) {
+  const d = $("askDlg");
+  $("askTitle").textContent = title;
+  $("askBody").textContent = body;
+  return new Promise((resolve) => {
+    let answer = null;
+    $("askActions").replaceChildren(...buttons.map((b) => {
+      const x = el("button", b.primary ? "primary" : null, b.label);
+      x.type = "button";
+      x.onclick = () => { answer = b.value; d.close(); };
+      return x;
+    }));
+    d.addEventListener("close", () => resolve(answer), { once: true });
+    d.showModal();
+    $("askActions").lastElementChild?.focus();
+  });
+}
+const yesNo = (yes) => [{ label: "Cancel", value: false }, { label: yes, value: true, primary: true }];
 function toast(msg, isErr) {
   const t = $("toast");
   t.textContent = msg; t.className = isErr ? "err" : ""; t.style.display = "block";
@@ -2771,7 +2806,7 @@ async function boot() {
   };
   $("changeRoll").onclick = async () => {
     const touched = S.entries.filter((e) => e.status !== "original").length;
-    if (touched && !confirm(touched + " card(s) edited or added here will be lost. Change roll anyway?")) return;
+    if (touched && !await ask("Change roll?", touched + (touched === 1 ? " card" : " cards") + " edited or added here will be lost. They live only in the running tagger; the export file is never changed.", yesNo("Change roll"))) return;
     S = await (await fetch("/api/unload", { method: "POST" })).json(); showSetup();
   };
   $("editForm").addEventListener("submit", saveCard);

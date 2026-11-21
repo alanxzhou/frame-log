@@ -480,6 +480,8 @@ def session_payload(state: AppState) -> dict:
         "entries": entries,
         # scans paired with cards by frame number, when their names carry it (None: pair by position)
         "frame_pairing": by_frame([sc.name for sc in s.scans], [(e["id"], e["frame"]) for e in entries]),
+        # the same, the lab's numbers counting down (it scanned the roll last frame first): offered in Auto-pair
+        "frame_pairing_down": by_frame([sc.name for sc in s.scans], [(e["id"], e["frame"]) for e in entries], -1),
     }
 
 

@@ -111,3 +111,28 @@ def test_session_offers_frame_pairing(tmp_path, monkeypatch):
     j = c.post("/api/load", json={"scans_dir": str(scans), "log_path": str(log)}).json()
     ids = [e["id"] for e in j["entries"]]
     assert j["frame_pairing"]["slots"] == [["Roll-01.jpg", ids[0]], ["Roll-02.jpg", None], ["Roll-03.jpg", ids[1]]]
+
+
+def test_a_roll_numbered_last_frame_first_pairs_in_reverse_when_asked():
+    scans = renamed(12)                                  # Lisbon-01 is the last frame, Lisbon-12 the first
+    entries = cards(1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12)  # frame 5 never logged
+    assert not by_frame(scans, entries)["reversed"]      # both ways match 11: the numbers can't tell, up wins
+    r = by_frame(scans, entries, -1)
+    assert r["reversed"] and r["offset"] == 13 and r["matched"] == 11
+    pairs = {s: e for s, e in r["slots"]}
+    assert pairs["2026-10 Lisbon-12.jpg"] == 100 and pairs["2026-10 Lisbon-01.jpg"] == 110   # frames 1 and 12
+    assert pairs["2026-10 Lisbon-08.jpg"] is None                                          # 13 - 8 = frame 5
+    everything_once(r, scans, entries)
+
+
+def test_counting_down_is_found_when_it_matches_more():
+    scans = [f"x-{i:02d}.jpg" for i in range(1, 13) if i != 8]   # the lab dropped scan 08, a blank (frame 5 reversed)
+    entries = cards(1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12)          # and frame 5 was never logged
+    r = by_frame(scans, entries)
+    assert r["reversed"] and r["offset"] == 13 and r["matched"] == 11
+    everything_once(r, scans, entries)
+
+
+def test_counting_up_wins_a_tie_with_counting_down():
+    r = by_frame(renamed(1), cards(1))
+    assert not r["reversed"] and r["offset"] == 0
