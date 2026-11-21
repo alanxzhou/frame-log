@@ -49,9 +49,16 @@ start blank on every roll.
 The roll opens as a contact sheet, like Lightroom's Grid view: a grid of cells
 that wraps to the window's width and scrolls down. Each cell is a scan (its
 whole picture, fitted in the cell) with its log card under it in short form:
-frame #, time, zone, gear, note, GPS and where the card came from. Change the
-thumbnail size with the slider in the header, or Ctrl + scroll wheel over the
-grid (⌘ + wheel, or a pinch, on a Mac); the size is remembered on this computer.
+frame #, time, zone, lens and exposure (the aperture and shutter at the right,
+in their own type, so a lens name like *50mm f/1.8* isn't read as the
+aperture), note, GPS and where the card came from. A grey *tagged* on a picture
+means the file already has a date (DateTimeOriginal): written before, here or by
+another app. Change the thumbnail size with the slider in the header, or Ctrl +
+scroll wheel over the grid (⌘ + wheel, or a pinch, on a Mac); the size is
+remembered on this computer. A new roll opens at the top of the grid.
+
+The header keeps its keys in fixed places; the status beside them (counts,
+*finding faces*) is cut short in a narrow window, and its tooltip has it all.
 
 Without an export the cells show only the scans, and **Write** gives every
 scan the roll-wide tags (camera, make, ISO, roll and film).
@@ -105,6 +112,9 @@ Fix the exceptions:
 - **Auto-pair ▾** pairs everything again, **by frame number** (when the names
   allow it) or **in order**, your choice. It asks first, since it replaces
   your swaps and shifts.
+- **⌘/Ctrl-Z** undoes pairing changes (swap, shift, reverse, Auto-pair, a card
+  made with New or Paste) and keyword changes, one step at a time, latest
+  first.
 - Click a **frame number** to see exactly which ExifTool tags will be written to the scan paired with it:
   the card's tags, the keywords (named faces included) and the face regions, worked out by the same code as Write,
   merged with the regions already in the file. A line starting with `#` says when regions would be left out.
@@ -182,7 +192,8 @@ the photo's keywords at import.
   keywords on the three scans either side, nearest first, then the rest of this
   roll's keywords and your library, most recent first. Hover one to see why it's
   there. Press **1–9** (with the box not focused) to toggle one on the
-  selected scans. ⌘/Ctrl-Z undoes keyword changes; Esc clears the selection.
+  selected scans. ⌘/Ctrl-Z undoes keyword changes (and pairing changes, in the
+  order you made them); Esc clears the selection.
 - Keywords match case-insensitively; the spelling you used first is kept.
 
 A scan's keyword line shows its own keywords, then in green the names of the faces in it, which Write adds as
@@ -274,7 +285,7 @@ Double-click a scan to review it:
 
 - Boxes: **green** = named, **dashed green** = suggested by the gallery but not yet confirmed,
   **amber** = nobody yet, **dim** = the detector isn't sure it's a face.
-- Click a box. The bar underneath offers the closest people with a score (about 40 and up is a likely
+- Click a box (or just outside it: a click elsewhere on the picture zooms to 100%). The bar underneath offers the closest people with a score (about 40 and up is a likely
   match), a name field that completes from everyone in the gallery, **Confirm** for a dashed name
   and **Clear**. Enter confirms and moves to the next face.
 - A name is only filled in on its own when it's a close match **and** the detector is confident (0.6+).
