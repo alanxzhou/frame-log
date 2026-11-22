@@ -62,6 +62,12 @@ def test_accepts_schema_1(tmp_path: Path):
     assert len(read_log(_write(tmp_path, {**EXPORT, "schema": 1})).entries) == 3
 
 
+def test_accepts_roll_id(tmp_path: Path):
+    # Exports (and the sync server's rolls/ files) carry the phone's roll id since import was added.
+    roll = read_log(_write(tmp_path, {**EXPORT, "rollId": "rmwflmb8o"}))
+    assert roll.name == "2026-08 Portra 400 #3" and len(roll.entries) == 3
+
+
 def test_rejects_unknown_schema(tmp_path: Path):
     with pytest.raises(LogFormatError, match="schema 3"):
         read_log(_write(tmp_path, {**EXPORT, "schema": 3}))

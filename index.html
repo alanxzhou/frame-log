@@ -216,6 +216,49 @@
   }
   .export-bar button:active { background: var(--panel-edge); }
 
+  /* ---- import (a label, so the file picker opens reliably on iOS) ---- */
+  .import-btn {
+    display: block; margin-top: 8px; padding: 11px; border-radius: 7px; cursor: pointer;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em;
+    text-transform: uppercase; text-align: center;
+    color: var(--muted); border: 1px dashed var(--panel-edge); position: relative;
+  }
+  .import-btn:active { background: var(--panel); }
+  .import-btn input {
+    position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none;
+  }
+
+  /* ---- sync settings + status ---- */
+  details.sync-panel {
+    margin-top: 18px; border-top: 1px solid var(--panel-edge); padding-top: 8px;
+  }
+  details.sync-panel summary {
+    cursor: pointer; list-style: none; font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); padding: 4px 0;
+  }
+  details.sync-panel summary::before { content: "▸ "; color: var(--rebate-dim); }
+  details[open].sync-panel summary::before { content: "▾ "; }
+  #syncStatus.ok { color: var(--ok); }
+  #syncStatus.bad { color: var(--danger); }
+  .sync-body { padding: 8px 0 4px; display: flex; flex-direction: column; gap: 8px; }
+  .sync-body label {
+    display: flex; flex-direction: column; gap: 4px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .sync-body input {
+    background: var(--body); border: 1px solid var(--panel-edge);
+    border-radius: 5px; color: var(--ivory); padding: 9px 10px;
+    font-size: 15px; font-family: var(--sans); width: 100%;
+  }
+  .sync-actions { display: flex; gap: 8px; }
+  .sync-actions button {
+    flex: 1; padding: 9px; border-radius: 6px; cursor: pointer;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+    background: none; color: var(--rebate); border: 1px solid var(--panel-edge);
+  }
+  .sync-detail { font-family: var(--mono); font-size: 11px; color: var(--muted); line-height: 1.5; }
+
   @media (prefers-reduced-motion: reduce) {
     #shutter { transition: none; }
   }
@@ -268,6 +311,26 @@
   <button id="exportGpx">GPX</button>
   <button id="exportJson">JSON</button>
 </div>
+<label class="import-btn">Import JSON / ZIP…
+  <input type="file" id="importFile" multiple
+         accept=".json,.zip,application/json,application/zip">
+</label>
+
+<details class="sync-panel" id="syncPanel">
+  <summary>Sync · <span id="syncStatus">off</span></summary>
+  <div class="sync-body">
+    <label>Sync password
+      <input type="password" id="syncPassword" autocomplete="current-password"
+             autocapitalize="off" spellcheck="false" placeholder="not set">
+    </label>
+    <div class="sync-actions">
+      <button id="syncSave">Save</button>
+      <button id="syncNow">Sync now</button>
+      <button id="syncForget">Forget</button>
+    </div>
+    <div class="sync-detail" id="syncDetail">Only works when this app is served by your own Frame Log server.</div>
+  </div>
+</details>
 
 <script>
 "use strict";
@@ -291,6 +354,7 @@ function save() {
   let ok = true;
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { ok = false; }
   $("saveWarning").hidden = ok;
+  scheduleSync();
 }
 function newId() { return "r" + Date.now().toString(36); }
 function roll() { return state.rolls[state.currentRoll]; }
@@ -532,7 +596,7 @@ function renderEntries() {
       li.innerHTML =
         '<button class="grip" aria-label="Drag to reorder">≡</button>' +
         '<span class="frame-no">' + en.frame + '</span>' +
-        '<span class="when">' + en.local + "</span>" +
+        '<span class="when">' + escapeHtml(String(en.local)) + "</span>" +
         '<span class="coords">' + coordsText(en) + "</span>" +
         (gear ? '<div class="note">' + escapeHtml(gear) + "</div>" : "") +
         (en.notes ? '<div class="note">' + escapeHtml(en.notes) + "</div>" : "") +
@@ -719,14 +783,17 @@ function buildGpx(r) {
     wpts + "\n</gpx>\n";
 }
 
-function buildJson(r) {
+function buildJson(r, id) {
   // The contract with tagger/framelog_tagger/log.py: entries are written
   // exactly as stored, so a field added here shows up there untouched.
+  // rollId (optional, still schema 2: the tagger ignores keys it doesn't know)
+  // lets Import recognise a roll it already has; older exports lack it.
   return JSON.stringify({
     app: "framelog",
     schema: 2, // 2: entries may carry tz (IANA zone at log time)
     exported: new Date().toISOString(),
     roll: r.name,
+    rollId: id,
     entries: r.entries
   }, null, 2) + "\n";
 }
@@ -738,7 +805,7 @@ $("exportGpx").addEventListener("click", () => {
 
 $("exportJson").addEventListener("click", () => {
   const r = roll();
-  download(slug(r.name) + ".json", "application/json", buildJson(r));
+  download(slug(r.name) + ".json", "application/json", buildJson(r, state.currentRoll));
 });
 
 $("exportZip").addEventListener("click", () => {
@@ -746,7 +813,7 @@ $("exportZip").addEventListener("click", () => {
   const base = slug(r.name);
   const zip = makeZip([
     { name: base + ".gpx", data: buildGpx(r) },
-    { name: base + ".json", data: buildJson(r) }
+    { name: base + ".json", data: buildJson(r, state.currentRoll) }
   ]);
   downloadBlob(base + ".zip", zip);
 });
@@ -838,9 +905,388 @@ function makeZip(files) {
   return new Blob([...parts, ...central, end], { type: "application/zip" });
 }
 
+/* ---------- minimal ZIP reader (for this app's own ZIPs) ---------- */
+// Reads stored entries (what makeZip writes). Deflated ones, e.g. a ZIP
+// re-made on a computer, use DecompressionStream where the browser has it.
+async function unzip(bytes) {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const u32 = (p) => { if (p + 4 > bytes.length) throw new Error("damaged ZIP"); return dv.getUint32(p, true); };
+  const u16 = (p) => { if (p + 2 > bytes.length) throw new Error("damaged ZIP"); return dv.getUint16(p, true); };
+  let eocd = -1;
+  for (let p = bytes.length - 22; p >= Math.max(0, bytes.length - 22 - 65535); p--) {
+    if (dv.getUint32(p, true) === 0x06054b50) { eocd = p; break; }
+  }
+  if (eocd < 0) throw new Error("not a ZIP file");
+  const count = u16(eocd + 10);
+  let p = u32(eocd + 16);
+  const out = [];
+  const decoder = new TextDecoder();
+  for (let i = 0; i < count; i++) {
+    if (u32(p) !== 0x02014b50) throw new Error("damaged ZIP");
+    const method = u16(p + 10), crc = u32(p + 16), csize = u32(p + 20);
+    const nlen = u16(p + 28), xlen = u16(p + 30), clen = u16(p + 32), lho = u32(p + 42);
+    const name = decoder.decode(bytes.subarray(p + 46, p + 46 + nlen));
+    p += 46 + nlen + xlen + clen;
+    if (u32(lho) !== 0x04034b50) throw new Error("damaged ZIP");
+    const start = lho + 30 + u16(lho + 26) + u16(lho + 28);
+    if (start + csize > bytes.length) throw new Error("damaged ZIP");
+    const raw = bytes.subarray(start, start + csize);
+    out.push({ name, read: async () => {
+      let data;
+      if (method === 0) data = raw;
+      else if (method === 8 && typeof DecompressionStream !== "undefined") {
+        const stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+        data = new Uint8Array(await new Response(stream).arrayBuffer());
+      } else throw new Error(name + ": compressed in a way this browser can't read; import the .json instead");
+      if (crc32(data) !== crc) throw new Error(name + ": damaged (checksum mismatch)");
+      return data;
+    } });
+  }
+  return out;
+}
+
+/* ---------- import ---------- */
+// Accepts what this app exports: a roll's JSON (old exports without rollId
+// too), the ZIP holding it, and a full snapshot from the sync server. Never
+// overwrites a roll: a roll already here is skipped, and a different roll
+// with the same name or id comes in as a separate "… (imported)" copy.
+const IMPORT_ID_RE = /^r[A-Za-z0-9_-]{1,63}$/; // the app's ids ("r" + base36); never a prototype key
+
+function hasRoll(id) { return Object.prototype.hasOwnProperty.call(state.rolls, id); }
+function freshId() {
+  let id = newId(), n = 2;
+  while (hasRoll(id)) id = newId() + "_" + n++;
+  return id;
+}
+
+// JSON with sorted keys, so two copies of a roll compare equal whatever order
+// their fields were written in.
+function canon(v) {
+  if (Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
+  if (v && typeof v === "object") {
+    return "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}";
+  }
+  return JSON.stringify(v === undefined ? null : v);
+}
+
+const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+
+// Checks an entry has the types the app relies on and fills in only what's
+// missing; every field present (including ones this version doesn't know) is
+// kept as-is.
+function importEntry(e, where) {
+  if (!e || typeof e !== "object" || Array.isArray(e)) throw new Error(where + ": not a frame");
+  if (!("frame" in e) || (e.frame !== null && !isNum(e.frame))) throw new Error(where + ": bad frame number");
+  if (typeof e.iso !== "string" || isNaN(new Date(e.iso).getTime())) throw new Error(where + ": bad or missing time");
+  for (const k of ["lat", "lon", "acc", "alt"]) {
+    if (e[k] != null && !isNum(e[k])) throw new Error(where + ": " + k + " must be a number");
+  }
+  for (const k of ["local", "tz", "lens", "aperture", "shutterSpeed", "notes"]) {
+    if (e[k] != null && typeof e[k] !== "string") throw new Error(where + ": " + k + " must be text");
+  }
+  if ((e.lat == null) !== (e.lon == null)) throw new Error(where + ": latitude without longitude");
+  const out = Object.assign({}, e);
+  if (typeof out.local !== "string") out.local = new Date(out.iso).toLocaleString();
+  for (const k of ["lat", "lon", "acc", "alt"]) if (out[k] === undefined) out[k] = null;
+  for (const k of ["lens", "aperture", "shutterSpeed", "notes"]) if (out[k] == null) out[k] = "";
+  return out;
+}
+
+function importRollData(id, name, entries, where) {
+  if (typeof name !== "string" || !name.trim()) throw new Error(where + ": roll has no name");
+  if (!Array.isArray(entries)) throw new Error(where + ": no frame list");
+  return {
+    id: typeof id === "string" && IMPORT_ID_RE.test(id) ? id : null,
+    name: name.trim(),
+    entries: entries.map((e, i) => importEntry(e, where + ", entry " + (i + 1)))
+  };
+}
+
+// The rolls in one parsed file; throws (importing nothing from it) if any is bad.
+function rollsFromJson(data, where, fallbackName) {
+  if (data && data.app === "framelog" && Array.isArray(data.entries)) { // one roll's export
+    if (typeof data.schema !== "number" || data.schema > 2) {
+      throw new Error(where + ": made by a newer version of Frame Log; update this app first");
+    }
+    const name = typeof data.roll === "string" && data.roll.trim() ? data.roll : fallbackName;
+    return [importRollData(data.rollId, name, data.entries, where)];
+  }
+  const st = data && data.app === "framelog" && data.kind === "snapshot" ? data.state : data;
+  if (st && st.rolls && typeof st.rolls === "object" && !Array.isArray(st.rolls)) { // snapshot / full state
+    return Object.keys(st.rolls).map((id) => {
+      const r = st.rolls[id] || {};
+      return importRollData(id, r.name, r.entries, where + " › " + r.name);
+    });
+  }
+  throw new Error(where + ": not a Frame Log export");
+}
+
+function importedNameFor(name) {
+  const taken = new Set(Object.values(state.rolls).map((r) => r.name));
+  let candidate = name + " (imported)", n = 2;
+  while (taken.has(candidate)) candidate = name + " (imported " + n++ + ")";
+  return candidate;
+}
+
+// Adds one roll unless it's already here. Returns {kind: "dupe"|"added"|"copy", id, name}.
+// `ignore`: the id of an empty placeholder roll that's about to go, so it causes no clash.
+function importRoll(inc, ignore) {
+  const key = canon(inc.entries);
+  // Already here: the same roll (by id) with the same frames, even if renamed since...
+  if (inc.id && hasRoll(inc.id) && canon(state.rolls[inc.id].entries) === key) {
+    return { kind: "dupe", id: inc.id, name: state.rolls[inc.id].name };
+  }
+  // ...or the same frames under the same name, or as an earlier "(imported)" copy of it.
+  const copyRe = new RegExp("^" + inc.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + " \\(imported( \\d+)?\\)$");
+  for (const [id, r] of Object.entries(state.rolls)) {
+    if ((r.name === inc.name || copyRe.test(r.name)) && canon(r.entries) === key) {
+      return { kind: "dupe", id, name: r.name };
+    }
+  }
+  const idClash = inc.id && hasRoll(inc.id);
+  const nameClash = Object.entries(state.rolls).some(([id, r]) => id !== ignore && r.name === inc.name);
+  const id = inc.id && !idClash ? inc.id : freshId();
+  const name = idClash || nameClash ? importedNameFor(inc.name) : inc.name;
+  state.rolls[id] = { name, entries: inc.entries };
+  return { kind: idClash || nameClash ? "copy" : "added", id, name, from: inc.name };
+}
+
+function baseName(path) { return path.split("/").pop().replace(/\.[^.]*$/, ""); }
+
+async function importFiles(files) {
+  const decoder = new TextDecoder(); // drops a UTF-8 BOM
+  const added = [], copies = [], dupes = [], errors = [];
+  // A fresh install's empty "Roll 1" makes way for what's imported, so an
+  // imported "Roll 1" keeps its name.
+  const ids = Object.keys(state.rolls);
+  const placeholder = ids.length === 1 && state.rolls[ids[0]].entries.length === 0 &&
+                      state.rolls[ids[0]].name === "Roll 1" ? ids[0] : null;
+  await importEach(files, decoder, placeholder, added, copies, dupes, errors);
+  const fresh = added.concat(copies);
+  if (fresh.length) {
+    const p = placeholder && state.rolls[placeholder];
+    if (p && !p.entries.length && p.name === "Roll 1" && !fresh.some((r) => r.id === placeholder)) {
+      delete state.rolls[placeholder];
+    }
+    state.currentRoll = fresh[0].id;
+    editingIndex = null;
+    save(); renderRolls(); renderEntries();
+  }
+  const lines = [];
+  if (added.length) lines.push("Imported: " + added.map((r) => r.name).join(", "));
+  if (copies.length) lines.push("A different roll here has the same name or id, so these came in as separate copies: " +
+                                copies.map((r) => r.from + " → " + r.name).join(", "));
+  if (dupes.length) lines.push("Already here, skipped: " + dupes.map((r) => r.name).join(", "));
+  if (errors.length) lines.push("Couldn't import:\n" + errors.join("\n"));
+  alert(lines.join("\n\n") || "Nothing to import.");
+}
+
+async function importEach(files, decoder, placeholder, added, copies, dupes, errors) {
+  for (const f of files) {
+    try {
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      const docs = [];
+      if (bytes[0] === 0x50 && bytes[1] === 0x4b) { // "PK": a ZIP
+        const inner = (await unzip(bytes)).filter((x) =>
+          /\.json$/i.test(x.name) && !/(^|\/)(__MACOSX\/|\._)/.test(x.name));
+        if (!inner.length) throw new Error("no .json file inside");
+        for (const x of inner) docs.push({ where: f.name + " › " + x.name, text: decoder.decode(await x.read()), fallback: baseName(x.name) });
+      } else {
+        docs.push({ where: f.name, text: decoder.decode(bytes), fallback: baseName(f.name) });
+      }
+      const incoming = [];
+      for (const d of docs) {
+        let data;
+        try { data = JSON.parse(d.text); } catch (e) { throw new Error(d.where + ": not valid JSON"); }
+        incoming.push(...rollsFromJson(data, d.where, d.fallback));
+      }
+      for (const inc of incoming) {
+        const res = importRoll(inc, placeholder);
+        (res.kind === "dupe" ? dupes : res.kind === "copy" ? copies : added).push(res);
+      }
+    } catch (e) {
+      errors.push(e.message.startsWith(f.name) ? e.message : f.name + ": " + e.message);
+    }
+  }
+}
+
+$("importFile").addEventListener("change", (e) => {
+  const files = [...e.target.files];
+  e.target.value = ""; // so picking the same file again fires change
+  if (files.length) importFiles(files).catch((err) => alert("Import failed: " + err.message));
+});
+
+/* ---------- sync to your own server (optional) ---------- */
+// localStorage stays the source of truth; this only pushes a copy of the
+// whole log to POST api/sync on the server this page came from. Off without
+// a password, and quietly off where there's no server (e.g. GitHub Pages).
+// iOS has no Background Sync, so it pushes while the app is open: shortly
+// after each change, at launch, on reconnect and when the app is hidden.
+const SYNC_KEY = "frameLogSync"; // kept apart from the log: never exported or synced
+const SYNC_DELAY = 4000;
+const SYNC_MAX_RETRY = 10 * 60 * 1000;
+const syncCfg = loadSyncCfg(); // { password, lastOk }
+const sync = { status: "off", error: "", server: null, sentRolls: null, timer: 0, retryMs: 0, busy: false, again: false };
+
+function loadSyncCfg() {
+  try {
+    const c = JSON.parse(localStorage.getItem(SYNC_KEY) || "{}");
+    if (c && typeof c === "object") return { password: String(c.password || ""), lastOk: c.lastOk || null };
+  } catch (e) { /* unreadable -> sync off */ }
+  return { password: "", lastOk: null };
+}
+function saveSyncCfg() {
+  try { localStorage.setItem(SYNC_KEY, JSON.stringify(syncCfg)); } catch (e) { /* stays in memory */ }
+}
+
+function shortTime(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const t = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return d.toDateString() === new Date().toDateString() ? t : d.toLocaleDateString() + " " + t;
+}
+
+function showSync(status, error) {
+  sync.status = status;
+  sync.error = error || "";
+  const last = syncCfg.lastOk ? "last synced " + shortTime(syncCfg.lastOk) : "never synced";
+  const text = {
+    off: "off",
+    absent: "off · no sync server here",
+    pending: "changes not synced yet",
+    syncing: "syncing…",
+    ok: "synced " + (syncCfg.lastOk ? shortTime(syncCfg.lastOk) : ""),
+    auth: "wrong password",
+    error: "not synced (" + sync.error + ") · " + last + " · will retry"
+  }[status];
+  const el = $("syncStatus");
+  el.textContent = text;
+  el.classList.toggle("ok", status === "ok");
+  el.classList.toggle("bad", status === "auth" || status === "error");
+  $("syncPassword").placeholder = syncCfg.password ? "saved (hidden)" : "not set";
+  const s = sync.server;
+  let detail = "Only works when this app is served by your own Frame Log server.";
+  if (s) {
+    const s3 = s.s3 || {};
+    detail = "Server: " + s.snapshot_count + " snapshot" + (s.snapshot_count === 1 ? "" : "s") +
+      (s.last_snapshot_at ? ", latest " + shortTime(s.last_snapshot_at) : "") + " · S3 backup " +
+      ({ disabled: "off", ok: "ok", pending: "starting" }[s3.state] ||
+       "failing: " + String(s3.last_error || "unknown error"));
+  }
+  $("syncDetail").textContent = detail;
+}
+
+// Statuses that wait for the user (a new password, or a reload elsewhere) rather than retrying.
+function syncBlocked() { return !syncCfg.password || sync.status === "auth" || sync.status === "absent"; }
+
+function scheduleSync(delay) {
+  if (syncBlocked()) return;
+  clearTimeout(sync.timer);
+  sync.timer = setTimeout(pushNow, delay == null ? SYNC_DELAY : delay);
+  if (sync.status !== "error" && sync.status !== "syncing" &&
+      JSON.stringify(state.rolls) !== sync.sentRolls) showSync("pending");
+}
+
+function retryLater(seconds) {
+  sync.retryMs = seconds ? seconds * 1000 : Math.min(Math.max(sync.retryMs * 2, 15000), SYNC_MAX_RETRY);
+  clearTimeout(sync.timer);
+  sync.timer = setTimeout(pushNow, sync.retryMs);
+}
+
+async function pushNow(opts) {
+  opts = opts || {};
+  clearTimeout(sync.timer);
+  if (!syncCfg.password) { showSync("off"); return; }
+  if (sync.busy) { sync.again = true; return; }
+  const rollsText = JSON.stringify(state.rolls);
+  // currentRoll alone changing isn't worth a request (the server ignores it too).
+  if (rollsText === sync.sentRolls && !opts.force) { showSync("ok"); return; }
+  const body = JSON.stringify(state);
+  sync.busy = true;
+  showSync("syncing");
+  try {
+    let resp;
+    try {
+      resp = await fetch("api/sync", {
+        method: "POST", body, cache: "no-store", credentials: "omit",
+        // Lets the request finish as the app is put away; browsers cap such bodies at 64 KB.
+        keepalive: !!opts.keepalive && body.length < 60000,
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + syncCfg.password }
+      });
+    } catch (e) {
+      showSync("error", navigator.onLine === false ? "offline" : "server unreachable");
+      retryLater();
+      return;
+    }
+    let json = null;
+    if ((resp.headers.get("content-type") || "").includes("application/json")) {
+      try { json = await resp.json(); } catch (e) { /* treated as no server below */ }
+    }
+    // A static host (GitHub Pages) answers with no such route, or with a page.
+    if (resp.status === 404 || resp.status === 405 || (!json && resp.status < 500)) { showSync("absent"); return; }
+    // Cloudflare answers with an HTML 5xx page while the server's computer is off: keep trying.
+    if (!json) { showSync("error", "server unreachable"); retryLater(); return; }
+    if (resp.ok && json.ok) {
+      sync.sentRolls = rollsText;
+      sync.retryMs = 0;
+      sync.server = json;
+      syncCfg.lastOk = new Date().toISOString();
+      saveSyncCfg();
+      showSync(JSON.stringify(state.rolls) === rollsText ? "ok" : "pending");
+      if (sync.status === "pending") scheduleSync();
+    } else if (resp.status === 401) {
+      showSync("auth");
+    } else if (resp.status === 429) {
+      showSync("error", "too many wrong passwords");
+      retryLater(Math.min(parseInt(resp.headers.get("retry-after"), 10) || 900, 3600));
+    } else {
+      showSync("error", json.error || "server error " + resp.status);
+      retryLater();
+    }
+  } finally {
+    sync.busy = false;
+    if (sync.again) { sync.again = false; scheduleSync(0); }
+  }
+}
+
+$("syncSave").addEventListener("click", () => {
+  const pw = $("syncPassword").value.trim();
+  if (!pw) return;
+  syncCfg.password = pw;
+  saveSyncCfg();
+  $("syncPassword").value = "";
+  sync.sentRolls = null; sync.retryMs = 0;
+  pushNow();
+});
+$("syncNow").addEventListener("click", () => {
+  if (!syncCfg.password) { $("syncPassword").focus(); return; }
+  if (sync.status === "absent" || sync.status === "auth") sync.status = "pending";
+  sync.retryMs = 0;
+  pushNow({ force: true });
+});
+$("syncForget").addEventListener("click", () => {
+  clearTimeout(sync.timer);
+  syncCfg.password = ""; syncCfg.lastOk = null;
+  saveSyncCfg();
+  sync.server = null; sync.sentRolls = null;
+  showSync("off");
+});
+window.addEventListener("online", () => { if (sync.status === "error") sync.retryMs = 0; scheduleSync(0); });
+document.addEventListener("visibilitychange", () => {
+  if (syncBlocked()) return;
+  // Put away: send what's waiting now, iOS may not run the timer again for a while.
+  if (document.visibilityState === "hidden") {
+    if (JSON.stringify(state.rolls) !== sync.sentRolls) pushNow({ keepalive: true });
+  } else {
+    scheduleSync(0);
+  }
+});
+
 /* ---------- init ---------- */
 renderRolls();
 renderEntries();
+showSync("off");
+if (syncCfg.password) pushNow();
 // Ask the browser not to evict the log (iOS can clear web-app storage); best effort.
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 

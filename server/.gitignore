@@ -1,0 +1,7 @@
+.env
+# Notepad saves as .txt: keep that out too
+.env.txt
+data/
+__pycache__/
+.venv/
+.pytest_cache/
