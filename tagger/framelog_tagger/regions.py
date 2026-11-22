@@ -207,19 +207,25 @@ def merge_regions(existing: Sequence[FaceBox], named: Sequence[FaceBox]) -> list
     return [f for f, hit in zip(existing, covering) if hit is None] + list(named)
 
 
-def region_args(faces: Sequence[FaceBox], width: int, height: int, keep_unnamed: bool = False) -> list[str]:
+def region_args(faces: Sequence[FaceBox], width: int, height: int, keep_unnamed: bool = False,
+                force: bool = False) -> list[str]:
     """ExifTool arguments that replace a file's face regions with these.
 
     Unnamed faces are dropped unless `keep_unnamed`, which is for regions carried over from the file
     (Lightroom keeps a box for a face nobody has named yet, and it's still the user's).
+
+    With no named face this writes nothing, unless `force`: a name was taken off or a region removed, so the list is
+    rewritten even if no name is left (and emptied if no box is).
 
     `width` and `height` are the file's pixels. Only call this for an upright file (EXIF
     orientation 1): the boxes are written as they are, so a rotated file would need them
     mapped back into its stored frame.
     """
     named = [f for f in faces if keep_unnamed or f.name.strip()]
-    if not any(f.name.strip() for f in faces):
+    if not any(f.name.strip() for f in faces) and not force:
         return []
+    if not named:   # force, and nothing is left: empty the file's region list
+        return ["-XMP-mwg-rs:RegionInfo="]
     items = []
     for f in named:
         cx, cy = f.center

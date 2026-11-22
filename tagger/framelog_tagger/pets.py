@@ -33,6 +33,7 @@ DET_CONF = 0.25         # detections below this are dropped
 AUTO_DET = 0.5          # a name is only filled in on its own for a detection at least this sure
 ACCEPT = 0.70           # ...and a fingerprint at least this similar to an animal in the gallery
 SUGGEST = 0.55          # similar enough to offer as a choice
+GROUP = 0.65            # heads at least this similar on average are shown as one animal in "Who's this?" (untuned)
 CROP_MARGIN = 0.3       # context kept around the head box, as a fraction of its size
 MEAN, STD = np.array([0.485, 0.456, 0.406], np.float32), np.array([0.229, 0.224, 0.225], np.float32)
 

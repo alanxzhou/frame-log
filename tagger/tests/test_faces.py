@@ -418,3 +418,14 @@ def test_without_the_face_tools_the_library_is_read_for_keywords_only(tmp_path, 
     assert sync.status["keywords"] == 3
     read_ = config.load_faces_settings()["keywords_read"]   # remembered, for the UI to say where suggestions come from
     assert read_["count"] == 3 and read_["photos"] == 7 and read_["at"]
+
+
+def test_the_model_counts_as_ready_only_once_it_is_on_disk(tmp_path, monkeypatch):
+    from framelog_tagger.faces import Engine
+    monkeypatch.setenv("INSIGHTFACE_HOME", str(tmp_path))
+    assert not Engine.model_ready()
+    d = tmp_path / "models" / "buffalo_l"
+    d.mkdir(parents=True)
+    assert not Engine.model_ready()   # a half-made folder (a download that failed) isn't ready
+    (d / "det_10g.onnx").write_bytes(b"x")
+    assert Engine.model_ready()

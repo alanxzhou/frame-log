@@ -50,6 +50,9 @@ AUTO_DET = 0.60       # ...if the detector is at least this sure it's a face. Be
                       # (hair, ears, a blur), and those match the biggest cluster in the gallery, so they only get suggestions
 SUGGEST = 0.25        # a suggestion at least this similar is offered as a choice
 MIN_EXAMPLES = 3      # reference faces a person needs before they're suggested
+GROUP = 0.40          # faces on a roll at least this similar on average are shown as one person in "Who's this?".
+                      # Untuned: borrowed from ACCEPT (a best match against the gallery, which runs higher than a
+                      # random pair of the same person's faces), so it errs towards splitting a person in two
 ETA_WINDOW = 30.0     # seconds of recent progress the time-left estimate is based on
 ETA_MIN_SPAN = 3.0    # and how much it needs before it guesses at all
 DEPENDENCIES = ("cv2", "onnxruntime", "insightface")
@@ -77,10 +80,19 @@ class Engine:
         self._app = None
         self._lock = threading.Lock()
 
+    MODEL = "buffalo_l"
+
+    @classmethod
+    def model_ready(cls) -> bool:
+        """Whether the face model is on this computer already. Without it the first detection downloads it (about
+        0.6 GB, so it needs the internet and takes a while), which the tagger shouldn't start on its own."""
+        root = Path(os.environ.get("INSIGHTFACE_HOME") or Path.home() / ".insightface") / "models" / cls.MODEL
+        return root.is_dir() and any(root.glob("*.onnx"))
+
     def _load(self):
         silence_insightface_warning()
         from insightface.app import FaceAnalysis
-        app = FaceAnalysis(name="buffalo_l", allowed_modules=["detection", "recognition"],
+        app = FaceAnalysis(name=self.MODEL, allowed_modules=["detection", "recognition"],
                            providers=["CPUExecutionProvider"])
         app.prepare(ctx_id=-1, det_size=(self.det_size, self.det_size), det_thresh=self.det_thresh)
         return app
@@ -245,6 +257,37 @@ class Gallery:
             os.replace(tmp, self.path)
         except OSError:
             pass   # like the keyword library: remembering is a convenience, never a failure
+
+
+def group(embs: Sequence[np.ndarray], threshold: float) -> list[list[int]]:
+    """Group fingerprints that look like the same person: average-linkage agglomerative clustering on cosine
+    similarity, merging the closest pair of groups while their average similarity is at least `threshold`.
+    Answers lists of indices into `embs`, biggest group first, then in the order the faces came."""
+    n = len(embs)
+    if n == 0:
+        return []
+    e = np.stack([np.asarray(v, dtype=np.float32).reshape(-1) for v in embs])
+    e /= np.maximum(np.linalg.norm(e, axis=1, keepdims=True), 1e-9)
+    sums = (e @ e.T).astype(np.float64)       # sums[a, b]: total similarity between the members of groups a and b
+    members = [[i] for i in range(n)]
+    alive = np.ones(n, dtype=bool)
+    while alive.sum() > 1:
+        sizes = np.array([max(len(m), 1) for m in members], dtype=np.float64)
+        avg = sums / np.outer(sizes, sizes)
+        avg[~alive, :] = -np.inf
+        avg[:, ~alive] = -np.inf
+        np.fill_diagonal(avg, -np.inf)
+        a, b = np.unravel_index(int(np.argmax(avg)), avg.shape)   # argmax takes the first best: deterministic
+        if avg[a, b] < threshold:
+            break
+        a, b = min(a, b), max(a, b)
+        members[a] += members[b]
+        members[b] = []
+        sums[a, :] += sums[b, :]
+        sums[:, a] += sums[:, b]
+        alive[b] = False
+    out = [sorted(m) for m, live in zip(members, alive) if live]
+    return sorted(out, key=lambda m: (-len(m), m[0]))
 
 
 def import_tagged(engine, gallery: Gallery, images: Iterable[TaggedImage], exclude: Iterable[str] = (),

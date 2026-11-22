@@ -154,6 +154,19 @@ def test_load_rejects_bad_input(env):
     assert r.status_code == 400 and "no JPEGs" in r.json()["detail"]
 
 
+def test_large_thumbnail_for_big_cells(env):
+    # The grid asks for the pixels a cell needs; past the small thumbnail it gets the large one, and only those two exist.
+    from io import BytesIO
+    c = env["client"]
+    Image.new("RGB", (3000, 2000), (20, 90, 160)).save(env["scans"] / "1.jpg")
+    assert _load(env).status_code == 200
+    size = lambda r: Image.open(BytesIO(r.content)).size
+    assert size(c.get("/api/thumb/1.jpg")) == (360, 240)
+    assert size(c.get("/api/thumb/1.jpg", params={"size": 300})) == (360, 240)
+    assert size(c.get("/api/thumb/1.jpg", params={"size": 500})) == (1600, 1067)
+    assert size(c.get("/api/thumb/1.jpg", params={"size": 99999})) == (1600, 1067)
+
+
 def test_thumbnail_and_preview(env):
     c = env["client"]
     assert _load(env).status_code == 200
@@ -162,6 +175,8 @@ def test_thumbnail_and_preview(env):
     assert c.get("/api/thumb/nope.jpg").status_code == 404
     r = c.get("/api/view/2.jpg")
     assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    assert c.get("/api/thumb/2.jpg", params={"size": 5000}).status_code == 200
+    assert c.get("/api/thumb/nope.jpg", params={"size": 5000}).status_code == 404
     assert c.get("/api/view/nope.jpg").status_code == 404
     r = c.get("/api/full/2.jpg")
     assert r.status_code == 200 and r.content == (env["scans"] / "2.jpg").read_bytes()
@@ -369,3 +384,31 @@ def test_set_exiftool_validates_remembers_and_clears(env, monkeypatch):
     monkeypatch.setattr(server, "find_exiftool", lambda explicit=None: None)
     j = c.post("/api/exiftool", json={"path": ""}).json()
     assert j["exiftool"] is None and j["exiftool_saved"] == "" and state.exiftool is None
+
+
+def test_setup_finds_the_export_next_to_the_scans_folder(env):
+    (env["tmp"] / "notes.json").write_text('{"not": "an export"}', encoding="utf-8")
+    j = env["client"].post("/api/setup/look", json={"scans_dir": str(env["scans"])}).json()
+    assert [x["path"] for x in j["exports"]] == [str(env["log"])]
+    x = j["exports"][0]
+    assert x["roll"] == "Test roll" and x["frames"] == 2 and x["first"] == "2026-08-30T14:05:12Z"
+    assert j["renamed"] is None and j["log"] is None
+
+
+def test_setup_describes_the_export_you_picked(env):
+    j = env["client"].post("/api/setup/look", json={"scans_dir": "", "log_path": str(env["log"])}).json()
+    assert j["log"]["roll"] == "Test roll" and j["exports"] == []
+    bad = env["tmp"] / "bad.json"
+    bad.write_text("[]", encoding="utf-8")
+    assert env["client"].post("/api/setup/look", json={"log_path": str(bad)}).json()["log"] is None
+
+
+def test_a_renamed_folder_names_the_roll(env):
+    folder = env["tmp"] / "2026-10 Lisbon"
+    folder.mkdir()
+    for i in (1, 2):
+        Image.new("RGB", (64, 40)).save(folder / f"2026-10 Lisbon-{i:02d}.jpg")
+    assert env["client"].post("/api/setup/look", json={"scans_dir": str(folder)}).json()["renamed"] == "2026-10 Lisbon"
+    s = env["client"].post("/api/load", json={"scans_dir": str(folder), "log_path": str(env["log"])}).json()
+    assert s["roll"] == "2026-10 Lisbon"   # the name you renamed it to, not the export's "Test roll"
+    assert _load(env).json()["roll"] == "Test roll"   # a folder not renamed here: the export's
