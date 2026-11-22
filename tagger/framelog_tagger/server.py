@@ -228,7 +228,8 @@ def export_info(path: Path) -> Optional[dict]:
         return None
     times = [e.iso for e in log.entries if e.iso]
     return {"path": str(path), "roll": log.name, "frames": len(log.entries), "exported": log.exported,
-            "first": min(times) if times else "", "last": max(times) if times else ""}
+            "first": min(times) if times else "", "last": max(times) if times else "",
+            "no_zone": sum(1 for e in log.entries if not e.tz)}   # frames that need the fallback zone
 
 
 def find_exports(scans_dir: Path) -> list[dict]:

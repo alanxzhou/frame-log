@@ -66,7 +66,9 @@ frame #, time, zone, lens and exposure (the aperture and shutter at the right,
 in their own type, so a lens name like *50mm f/1.8* isn't read as the
 aperture), note, GPS and where the card came from. A grey *tagged* on a picture
 means the file already has a date (DateTimeOriginal): written before, here or by
-another app. Change the thumbnail size with the slider in the header, or Ctrl +
+another app. After a Write it says *written* instead, and *changed* once you
+change that scan (a keyword, a face, its card) so you can see what needs
+writing again. Change the thumbnail size with the slider in the header, or Ctrl +
 scroll wheel over the grid (⌘ + wheel, or a pinch, on a Mac); the size is
 remembered on this computer. A new roll opens at the top of the grid.
 
@@ -185,8 +187,12 @@ Before it writes, Write shows a summary: where it writes (in place or copies),
 the keywords every scan gets, and what may want a look first, each with a link
 that goes there: names the gallery guessed that nobody confirmed, faces with no
 name and boxes the detector doubts (the scan numbers open that face; *Who's
-this?* opens them all), scans without a log card (the number selects the
-cell), and scans not looked at for faces yet. **Write anyway** writes;
+this?* opens them all), scans without a log card (the number opens a new
+card for it, its time halfway between its neighbours), scans with no keywords
+or names of their own (once you're keywording the roll; the number selects the
+scan with the keyword box ready), and scans not looked at for faces yet.
+After a Write, the next one writes only the scans changed since (and any that
+failed); *write all instead* is one click away. **Write anyway** writes;
 **Review first** opens Who's this? when faces need a look, else just closes.
 Enter means Write only when nothing needs a look. It writes the scans as they
 were when the summary opened.
@@ -307,12 +313,14 @@ them.
 **Who's this? (7)** in the header counts the faces with no name, or only the gallery's guess. It opens every one of
 them as a crop, grouped:
 
-- the gallery's guesses, one group per name, each with **Confirm**;
+- the gallery's guesses, one group per name, each with **Confirm** (or type another name and press Enter).
+  **Confirm all guesses** at the top confirms every one at once, when they look right;
 - faces with no name, grouped by who they look like across the roll (their fingerprints are clustered, faces and
   pets apart), so a friend or stranger on six frames is named once. The grouping is untuned and errs towards
   splitting one person into two groups rather than joining two people;
 - boxes you drew, one each;
-- last, the boxes the detector isn't sure are faces, outlined in amber, with **Not faces** to remove them all at once.
+- last, the boxes the detector isn't sure are faces, outlined in amber, with **Not faces** to remove them all at once
+  (Enter, or Delete, with the name field empty does the same).
 
 Each group has the gallery's suggestions as buttons and a name field that completes from the gallery and your keyword
 library. Untick a crop that doesn't belong before naming the group; **×** on a crop removes that box (not a face).
@@ -322,7 +330,12 @@ a crop to open its scan with that face selected. **Enter** names the highlighted
 guessed group, an empty field confirms the guess; on others it just moves on); Esc closes. Names chosen here are the
 same as names chosen in the zoom view.
 
-Double-click a scan to review it:
+Double-click a scan to review it. The keys:
+
+- **← / →** the previous / next scan (its first face is picked), **Tab / Shift-Tab** the next / previous face.
+- **X** or **Delete**: the picked box isn't a face. **Enter** confirms a guessed name, or goes to the name field.
+- In the name field the arrows move the caret once you type; while the name is all selected (as when a face is
+  picked) they still move between scans.
 
 - Boxes: **green** = named, **dashed green** = suggested by the gallery but not yet confirmed,
   **amber** = nobody yet, **dim** = the detector isn't sure it's a face.

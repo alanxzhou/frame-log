@@ -111,6 +111,15 @@
   #renameBox[open] summary { margin-bottom: 10px; }
   #renameBox .field { grid-template-columns: 90px 1fr auto; }
   #renameBox .field.check { grid-template-columns: 90px 1fr; }
+  .setline { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+  .setline span::before { content: "✓ "; color: var(--accent); }
+  .setline span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .setline button.link.go { margin: 0; }
+  #recentGear { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: -2px 0 6px 128px; font-size: 11.5px; color: var(--muted); }
+  #recentGear button.link { font-family: var(--sans); font-size: 11.5px; }
+  @media (max-width: 640px) { #recentGear { margin-left: 0; } }
+  .slot.spare { display: none; }
+  body.dragging .slot.spare { display: block; }
   #logHint button.link { margin: 3px 6px 0 0; font-family: var(--sans); font-size: 11.5px; }
   #logHint .note { color: var(--accent); }
   @media (max-width: 640px) { #renameBox { margin-left: 0; } }
@@ -153,6 +162,10 @@
   #renamePreview th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-family: var(--sans); font-weight: 600; text-align: left; padding: 6px 10px; }
   #renamePreview td { padding: 4px 10px; border-top: 1px solid var(--line); white-space: nowrap; }
   #renamePreview td.old { color: var(--muted); }
+  #renamePreview tr.more { display: none; }
+  #renamePreview table.all tr.more { display: table-row; }
+  #renamePreview tr.moreRow td { color: var(--muted); font-family: var(--sans); cursor: pointer; text-align: center; }
+  #renamePreview tr.moreRow:hover td { color: var(--text); }
   #renamePreview td.arrow { color: var(--muted); width: 1%; }
   #renamePreview tr.folder td { color: var(--text); font-weight: 500; }
 
@@ -562,7 +575,8 @@
 <div id="setup" hidden>
   <form id="setupForm" autocomplete="off">
     <h2>ExifTool <span style="color:var(--muted);font-weight:normal;letter-spacing:0;text-transform:none">(set once, remembered on this computer)</span></h2>
-    <div class="field">
+    <div class="setline" id="exifLine" hidden><span></span><button type="button" class="link go">Change</button></div>
+    <div class="field" id="exifBody">
       <label for="fExif">exiftool</label>
       <input type="text" id="fExif" placeholder="found automatically if it's on PATH">
       <button type="button" data-pick="program" data-for="fExif">Browse…</button>
@@ -609,18 +623,22 @@
 
     <h2>Camera &amp; film <span style="color:var(--muted);font-weight:normal;letter-spacing:0;text-transform:none">(optional, written to every frame's metadata)</span></h2>
     <div class="row2">
-      <div class="field"><label for="fMake">make</label><input type="text" id="fMake"><span></span></div>
-      <div class="field"><label for="fCamera">camera</label><input type="text" id="fCamera"><span></span></div>
-      <div class="field"><label for="fFilm">film</label><input type="text" id="fFilm"><span></span></div>
+      <div class="field"><label for="fMake">make</label><input type="text" id="fMake" list="recentMakes"><span></span></div>
+      <div class="field"><label for="fCamera">camera</label><input type="text" id="fCamera" list="recentCameras"><span></span></div>
+      <div class="field"><label for="fFilm">film</label><input type="text" id="fFilm" list="recentFilms"><span></span></div>
       <div class="field"><label for="fIso">ISO</label><input type="number" id="fIso" min="1" step="1"><span></span></div>
     </div>
 
+    <div id="recentGear"></div>
+    <datalist id="recentMakes"></datalist><datalist id="recentCameras"></datalist><datalist id="recentFilms"></datalist>
+    <div id="tzBlock">
     <h2>Time zone</h2>
     <div class="field">
       <label for="fTz">fallback zone</label>
       <input type="text" id="fTz" placeholder="America/New_York">
       <span></span>
       <div class="hint">Frames logged with a recent app version carry the phone's zone at the moment of the shot and ignore this. Older frames use this zone.</div>
+    </div>
     </div>
 
     <div class="actions">
@@ -631,6 +649,8 @@
 
   <form id="faceForm" autocomplete="off" hidden>
     <h2>Lightroom library <span style="color:var(--muted);font-weight:normal;letter-spacing:0;text-transform:none">(set once, remembered on this computer)</span></h2>
+    <div class="setline" id="libLine" hidden><span></span><button type="button" class="link go">Change</button></div>
+    <div id="libBody">
     <div class="intro">Point this at the photos you've tagged in Lightroom. Every time the tagger starts it reads them for two things: their <b>keywords</b>, which it suggests while you keyword scans, and the <b>faces and pets</b> you've named, so it can recognise them in new scans. In Lightroom, save the tags into the files first: Metadata → Save Metadata to Files.</div>
     <div class="field">
       <label for="fFaceLib">photo folders</label>
@@ -656,6 +676,7 @@
       <span id="faceStatus"></span>
     </div>
     <div class="hint" id="faceHint"></div>
+    </div>
   </form>
 
   <!-- the Rename controls sit under the scans folder (they belong to this form through form="renameForm") -->
@@ -731,7 +752,7 @@
 <dialog id="zoom"><div class="frame"><img alt="" draggable="false"><div class="faces"></div></div><div class="facebar" hidden></div><div class="name"></div></dialog>
 <datalist id="faceNames"></datalist>
 <dialog id="who">
-  <div class="whead"><h2>Who's this?</h2><span class="hint" id="whoNote"></span><button type="button" class="primary" id="whoClose">Done</button></div>
+  <div class="whead"><h2>Who's this?</h2><span class="hint" id="whoNote"></span><button type="button" id="whoAll" hidden></button><button type="button" class="primary" id="whoClose">Done</button></div>
   <div id="whoList"></div>
 </dialog>
 <datalist id="whoNames"></datalist>
@@ -754,7 +775,8 @@ const $ = (id) => document.getElementById(id);
 
 let S = null;          // session from /api/session
 let cols = [];         // [{scan: name|null, entry: id|null}]
-let results = {};      // scan name -> {ok, error}
+let results = {};      // scan name -> {ok, error}: the last Write's result for each scan
+let writtenSig = {};   // scan name -> what it looked like when written (sigOf), to show a scan changed since
 let clip = null;       // id of the copied card, pasted into an empty slot as a new card
 let kw = {};           // scan name -> its own keywords (the roll's are added to every scan on Write)
 let kwOrder = [];      // keywords used on this roll, in the order first used: suggestions fall back to these
@@ -780,6 +802,7 @@ function showSetup() {
   const r = S.remembered || {};
   for (const [key, id] of Object.entries(REMEMBERED)) $(id).value = r[key] ?? "";
   lastRoll = r.scans_dir ? { scans: r.scans_dir, log: r.log_path || "" } : null;
+  paintRecentGear();
   if (!$("fTz").value) $("fTz").value = S.default_tz || "";
   renderExif();
   renderFaceSetup();
@@ -799,7 +822,7 @@ function showStrip() {
   for (const id of ["changeRoll", "autoPair", "reverse", "findFaces", "write"]) $(id).hidden = false;
   $("roll").textContent = S.roll;
   renderTags();
-  results = {}; clip = null;
+  results = {}; writtenSig = {}; clip = null;
   sel = new Set(); anchor = lead = null; undoStack = [];
   restoreKw();
   restoreFaces();
@@ -824,7 +847,15 @@ function paintRollTags() {
     (S.make || S.camera ? "\nmake " + (S.make || "–") + " · camera " + (S.camera || "–") : "") + (S.film ? "\nfilm " + S.film : "");
 }
 
+// The parts set once (ExifTool, the Lightroom library) fold to one line when they're set, so a roll's setup screen
+// shows the roll. Change opens them; they stay open until the page is reloaded.
+let exifOpen = false, libOpen = false;
+function fold(line, body, folded, text) {
+  $(line).hidden = !folded; $(body).hidden = folded;
+  if (folded) { $(line).firstElementChild.textContent = text; $(line).firstElementChild.title = text; }
+}
 function renderExif() {
+  fold("exifLine", "exifBody", !!S.exiftool && !exifOpen, "using " + S.exiftool);
   $("fExif").value = S.exiftool_saved || "";
   const st = $("exifStatus");
   st.style.color = S.exiftool ? "" : "var(--warn)";
@@ -863,6 +894,36 @@ async function pickInto(kind, inputId) {
   }
 }
 
+// Recent camera and film combinations, kept in this browser (newest first, at most 6). They're offered, never filled
+// in for you: a stale one would be written silently.
+const GEAR_KEY = "framelog-tagger:recent-gear";
+function recentGear() { try { return JSON.parse(localStorage.getItem(GEAR_KEY) || "[]") || []; } catch (e) { return []; } }
+function rememberGear(g) {
+  if (!g.make && !g.camera && !g.film) return;
+  const same = (a) => ["make", "camera", "film", "iso"].every((k) => String(a[k] ?? "") === String(g[k] ?? ""));
+  const list = [g, ...recentGear().filter((x) => !same(x))].slice(0, 6);
+  try { localStorage.setItem(GEAR_KEY, JSON.stringify(list)); } catch (e) {}
+}
+function gearText(g) { return [[g.make, g.camera].filter(Boolean).join(" "), g.film, g.iso ? "ISO " + g.iso : ""].filter(Boolean).join(" · "); }
+function paintRecentGear() {
+  const list = recentGear(), box = $("recentGear");
+  box.replaceChildren();
+  if (list.length) {
+    box.append("recent:");
+    for (const g of list) {
+      const b = el("button", "link", gearText(g)); b.type = "button";
+      b.onclick = () => { $("fMake").value = g.make || ""; $("fCamera").value = g.camera || ""; $("fFilm").value = g.film || ""; $("fIso").value = g.iso || ""; };
+      box.append(b);
+    }
+  }
+  const opts = (id, key) => $(id).replaceChildren(...[...new Set(list.map((g) => g[key]).filter(Boolean))].map((v) => { const o = document.createElement("option"); o.value = v; return o; }));
+  opts("recentMakes", "make"); opts("recentCameras", "camera"); opts("recentFilms", "film");
+}
+// "Portra 400", "HP5 Plus 400", "Ektar 100" carry the box speed: fill ISO from it when ISO is empty
+function isoFromFilm() {
+  const m = $("fFilm").value.match(/(?:^|\s)(\d{2,4})(?:\s|$)/);
+  if (m && !$("fIso").value) $("fIso").value = m[1];
+}
 async function loadRoll(ev) {
   ev.preventDefault();
   const body = {
@@ -871,6 +932,7 @@ async function loadRoll(ev) {
     make: $("fMake").value.trim(), camera: $("fCamera").value.trim(), film: $("fFilm").value.trim(),
     iso: $("fIso").value ? parseInt($("fIso").value, 10) : null,
   };
+  rememberGear({ make: body.make, camera: body.camera, film: body.film, iso: body.iso });
   $("loadBtn").disabled = true; $("setupError").textContent = "";
   try {
     const r = await fetch("/api/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -904,7 +966,15 @@ async function previewRename() {
   const row = (cls, a, b) => { const tr = el("tr", cls); tr.append(el("td", "old", a), el("td", "arrow", "→"), el("td", null, b)); table.append(tr); };
   const base = (p) => p.split(/[\\/]/).filter(Boolean).pop();
   if (j.dst_dir !== j.src_dir) row("folder", base(j.src_dir) + "/", base(j.dst_dir) + "/");
-  for (const it of j.items) row(null, it.old, it.new);
+  // the first three show the pattern; the rest fold behind one row so Load roll stays in view
+  const SHOW = 3, rest = j.items.length - SHOW;
+  j.items.forEach((it, i) => row(i >= SHOW && rest > 1 ? "more" : null, it.old, it.new));
+  if (rest > 1) {
+    const tr = el("tr", "moreRow"), td = el("td", null, "… and " + rest + " more");
+    td.colSpan = 3; tr.append(td); tr.title = "show every file";
+    tr.onclick = () => { table.classList.add("all"); tr.remove(); };
+    table.insertBefore(tr, table.querySelector("tr.more"));
+  }
   $("renamePreview").replaceChildren(table); $("renamePreview").hidden = false;
   $("renameBtn").disabled = j.dst_dir === j.src_dir && j.items.every((it) => it.old === it.new);
 }
@@ -956,6 +1026,8 @@ async function lookAtFolders() {
   } else {
     hint.append("Not a Frame Log export (or not found)");
   }
+  // the fallback zone only matters for frames logged without one (old exports): hide it when none are
+  $("tzBlock").hidden = !!info && info.no_zone === 0;
   // the roll name for Rename: the folder's own if renamed before, else the export's
   const name = j.renamed || info?.roll || "";
   if (!$("rName").value || $("rName").value === detected) $("rName").value = name;
@@ -970,9 +1042,8 @@ function onScansChanged() { clearTimeout(renameTimer); renameTimer = setTimeout(
 function schedulePreview() { clearTimeout(renameTimer); renameTimer = setTimeout(() => previewRename().catch((e) => { $("renameError").textContent = e.message; }), 250); }
 async function applyRename(ev) {
   ev.preventDefault();
+  // No "are you sure": the preview is the question, and renaming again puts the names back.
   const body = renameBody();
-  if (!await ask("Rename the scans in place?", body.scans_dir + (body.rename_folder ? "\n→ the folder becomes " + body.name : "") +
-                 "\n\nThe files are renamed on disk. Renaming again changes them back.", yesNo("Rename"))) return;
   $("renameBtn").disabled = true;
   try {
     const r = await fetch("/api/rename/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -982,6 +1053,11 @@ async function applyRename(ev) {
     detected = body.name;
     $("rReverse").setAttribute("aria-pressed", "false");   // files are now in order; leaving it on would offer to flip them back
     toast("renamed " + j.renamed + " files → " + j.dst_dir);
+    // done: fold the panel to say so, and move on to the next step
+    $("renameState").textContent = "renamed to “" + body.name + "” ✓";
+    $("renameBox").open = false;
+    $("loadBtn").scrollIntoView({ block: "nearest", behavior: "smooth" });
+    $("loadBtn").focus({ preventScroll: true });
   } finally {
     await previewRename();
   }
@@ -1139,6 +1215,33 @@ function swap(row, i, j) {
 function pairs() {
   return cols.filter((c) => c.scan != null).map(pairFor);
 }
+// What Write would write for a scan: its card's values, its keywords, its faces and the roll's tags. Two equal
+// signatures mean a Write would change nothing.
+function sigOf(scan) {
+  const c = cols.find((x) => x.scan === scan);
+  if (!c) return "";
+  const p = pairFor(c), e = p.entry != null ? S.entries.find((x) => x.id === p.entry) : null;
+  return JSON.stringify([e ? cardFields(e) : null, p.keywords, p.faces || null, S.roll_keywords, S.iso || null]);
+}
+const changedSince = (scan) => !!results[scan]?.ok && writtenSig[scan] !== sigOf(scan);
+// "written" on a scan, or "changed since Write" once you've changed it after
+function resultBadge(scan) {
+  const r = results[scan];
+  if (!r) return null;
+  if (r.ok && changedSince(scan)) {
+    const b = el("span", "pill result warn", "changed");
+    b.title = "You changed this scan after it was written: Write again to put the change in the file";
+    return b;
+  }
+  const b = el("span", "pill result " + (r.ok ? "ok" : "err"), r.ok ? "written" : r.error);
+  b.title = r.error || (r.note ? r.note + " — " : "") + (r.path || "");
+  return b;
+}
+function paintResult(cell, scan) {
+  cell.querySelector(".pill.result")?.remove();
+  const b = resultBadge(scan);
+  if (b) cell.append(b);
+}
 function pairFor(c) {   // one scan as Write (and the tag preview) gets it
   const p = { scan: c.scan, entry: c.entry, keywords: kw[c.scan] || [] };
   // only scans whose faces were looked at: for the rest, Write leaves any regions in the file alone
@@ -1251,12 +1354,13 @@ let dragging = "";
 function dragSource(cell, row, i) {
   cell.draggable = true;
   cell.addEventListener("dragstart", (ev) => {
+    document.body.classList.add("dragging");
     dragging = row + ":" + i;
     ev.dataTransfer.setData("text/plain", dragging);
     ev.dataTransfer.effectAllowed = "move";
     cell.classList.add("drag");
   });
-  cell.addEventListener("dragend", () => { cell.classList.remove("drag"); dragging = ""; });
+  cell.addEventListener("dragend", () => { cell.classList.remove("drag"); dragging = ""; document.body.classList.remove("dragging"); });
 }
 function dropTarget(slot, i) {
   let depth = 0;   // dragenter/leave fire for every child crossed
@@ -1354,15 +1458,16 @@ function render() {
       sc.dataset.scan = s.name;
       sc.addEventListener("click", (ev) => { if (!ev.target.closest("button")) clickScan(s.name, ev); });
       sc.addEventListener("dblclick", (ev) => { if (!ev.target.closest("button")) openZoom(s.name); });
-      if (s.tagged) sc.append(Object.assign(el("span", "pill info badge", "tagged"), { title: "already has a date (DateTimeOriginal): written before, here or by another app. Write again replaces the tags" }));
+      if (s.tagged && !results[s.name]) sc.append(Object.assign(el("span", "pill info badge", "tagged"), { title: "already has a date (DateTimeOriginal): written before, here or by another app. Write again replaces the tags" }));
       const fb = faceBadge(s.name);
       if (fb) sc.append(fb);
-      const r = results[s.name];
-      if (r) { const b = el("span", "pill result " + (r.ok ? "ok" : "err"), r.ok ? "written" : r.error); b.title = r.error || (r.note ? r.note + " — " : "") + (r.path || ""); sc.append(b); }
+      const rb = resultBadge(s.name);
+      if (rb) sc.append(rb);
       dragSource(sc, "scan", i);
     } else {
       thumb.textContent = c.entry != null ? "no scan" : "empty";
       sc.append(thumb, name);
+      if (c.entry == null) slot.classList.add("spare");   // the drop target at the end: shown only while you drag
     }
     // keys on hover: shift the scans; without a log export, make a card here
     const hover = el("div", "hover");
@@ -1436,8 +1541,8 @@ function renderStats() {
   setStats(
     "<b>" + (p - scansUn) + "</b> paired" + how + changes +
     (scansUn ? ' · <span class="warn" title="' + NO_CARD + '">' + scansUn + " scan" + (scansUn > 1 ? "s" : "") +
-               " without log (roll-wide tags only)</span>" : "") +
-    (entriesUn ? ' · <span class="warn">' + entriesUn + " log entr" + (entriesUn > 1 ? "ies" : "y") + " without scan</span>" : "") +
+               " without a card</span>" : "") +
+    (entriesUn ? ' · <span class="warn" title="a log card with no scan paired: it isn\'t written">' + entriesUn + " card" + (entriesUn > 1 ? "s" : "") + " without a scan</span>" : "") +
     (fallback ? ' · <span class="warn" title="these frames were logged before the phone recorded its zone">' + fallback + " frame" + (fallback > 1 ? "s" : "") + " on fallback zone " + S.tz + "</span>" : ""));
 }
 function setStats(html) {   // the line truncates in a narrow window: its tooltip has it all
@@ -1923,6 +2028,7 @@ function paintKw() {
     const n = cell.dataset.scan;
     cell.classList.toggle("sel", sel.has(n));
     paintKwLine(cell.querySelector(".kws"), n);
+    paintResult(cell, n);
   }
   paintWho();
   // the box: keywords on the selection, all-or-some
@@ -2080,7 +2186,7 @@ function openZoom(name) {
   view.src = imageUrl("view", name); full.src = "/api/full/" + encodeURIComponent(name);
   d.querySelector(".name").textContent = name;
   d.classList.add("still");
-  d.showModal();
+  if (!d.open) d.showModal();
   fSel = -1;
   paintFaces(); paintFaceBar();
   layoutZoom();
@@ -2152,6 +2258,8 @@ function initZoom() {
     if (ev.target !== img) d.close();
   });
   d.addEventListener("cancel", (ev) => { if (zm?.drawing) { ev.preventDefault(); setDrawing(false); } });
+  // on the document, not the dialog: after stepping to another scan nothing in the dialog has focus
+  document.addEventListener("keydown", (ev) => { if (d.open && !ev.target.closest?.("input")) zoomKey(ev, null); });
   d.addEventListener("close", () => {   // the cards show how many faces are named
     d.classList.remove("drawing"); fSel = -1; zm = null;
     if (S && S.loaded) render();
@@ -2277,6 +2385,10 @@ function paintSync() {
   for (const e of [$("fFaceLib"), $("fFacePets"), document.querySelector('[data-for="fFaceLib"]'), ...$("faceFolders").querySelectorAll(".x")]) e.disabled = running;
   $("faceHint").textContent = running ? "You can load a roll and keep working while this runs. Stop it to change the folders or pets; what's done so far is kept."
     : "The first read of a big library takes several minutes, and learning the faces longer. After that only new photos are learned from, so a start is quick.";
+  const kwRead = f.keywords_read?.count;
+  fold("libLine", "libBody", f.library.length > 0 && !running && s?.phase !== "error" && !libOpen,
+       plural(f.library.length, "folder", "folders") + (kwRead != null ? " · " + plural(kwRead, "keyword", "keywords") : "") +
+       (f.available ? " · " + plural(f.people || 0, "person", "people") + " learned" : "") + (f.synced ? " · read " + ago(f.synced) : ""));
 }
 async function stopSync() {
   $("faceStop").disabled = true; $("faceStop").textContent = "Stopping…";
@@ -2461,6 +2573,7 @@ function paintFaceScan(name, had) {
     const fb = faceBadge(name);
     if (fb) cell.append(fb);
     paintKwLine(cell.querySelector(".kws"), name);
+    paintResult(cell, name);
   }
   // the keyword box and suggestions only change for a selected scan; repainting them otherwise could eat a click
   if (sel.has(name)) paintKw(); else paintWho();
@@ -2579,6 +2692,12 @@ function renderWho(focus) {
     " · Enter names the highlighted group and moves on · untick a face that doesn't belong · click one to see it in its scan" : "") +
     (finder ? " · still finding faces (" + finder.done + "/" + finder.total + "): open this again for the rest" : "");
   list.replaceChildren(...(shown.length ? shown.map(({ g, live }) => whoGroup(g, live)) : [el("div", "empty", "Every face on this roll has a name. Write adds them as keywords and face regions.")]));
+  // every guess at once, for when they look right (each group's ticks still count)
+  const guesses = shown.filter(({ g }) => g.type === "auto");
+  const nGuess = guesses.reduce((n, { live }) => n + live.filter((m) => !who.off.has(memberId(m))).length, 0);
+  $("whoAll").hidden = guesses.length < 2 || !nGuess;
+  $("whoAll").textContent = "Confirm all guesses (" + nGuess + ")";
+  $("whoAll").title = "Confirm the gallery's guess on every ticked face in " + plural(guesses.length, "group", "groups") + ". Ctrl/⌘-Z (after closing) undoes it";
   list.scrollTop = keep;
   if (focus) {
     const cur = list.querySelector(".wgroup.cur");
@@ -2629,6 +2748,9 @@ function whoGroup(g, live) {
   inp.spellcheck = false;
   inp.addEventListener("focus", () => { if (who.cur !== g) { who.cur = g; for (const s of $("whoList").children) s.classList.toggle("cur", s === box); } });
   inp.addEventListener("keydown", (ev) => {
+    const empty = !inp.value.trim();
+    // on the doubtful boxes, an empty Enter (or Delete) means "not faces": they're mostly hair, ears and blurs
+    if (g.type === "low" && empty && (ev.key === "Enter" || ev.key === "Delete")) { ev.preventDefault(); ev.stopPropagation(); whoRemove(g); return; }
     if (ev.key !== "Enter") return;
     ev.preventDefault(); ev.stopPropagation();
     whoAct(g, inp.value);
@@ -2640,7 +2762,7 @@ function whoGroup(g, live) {
   }
   if (g.type === "low") {
     const rm = el("button", "primary", on.length === 1 && live.length === 1 ? "Not a face" : "Not faces" + (on.length > 1 ? " (" + on.length + ")" : ""));
-    rm.title = "remove the ticked boxes: they won't be written or suggested, and stay removed for this roll";
+    rm.title = "remove the ticked boxes: they won't be written or suggested, and stay removed for this roll (Enter with the name empty)";
     rm.disabled = !on.length; rm.onclick = () => whoRemove(g);
     act.append(rm);
   }
@@ -2655,7 +2777,8 @@ function whoGroup(g, live) {
   const name = el("button", g.type === "people" || g.type === "drawn" ? "primary" : null, "Name " + (!on.length ? "" : on.length === 1 ? (live.length === 1 ? "it" : "1 ticked") : on.length === live.length ? "all " + on.length : on.length + " ticked"));
   name.disabled = !on.length;
   name.onclick = () => { if (inp.value.trim()) whoAct(g, inp.value); else inp.focus(); };
-  act.append(inp, name);
+  act.append(inp);
+  if (g.type !== "auto") act.append(name);   // a guess group: Confirm, or type another name and press Enter
   if (g.type === "people" || g.type === "drawn") {
     const nobody = el("button", null, "Nobody I know");
     nobody.title = "leave the ticked faces unnamed (a passer-by, a crowd): they stop being counted here and aren't written";
@@ -2681,6 +2804,16 @@ function whoAct(g, typed) {
                () => { for (const m of on) { const x = faceAt(m); if (x) setFaceName(m.scan, x.i, name || x.f.name); } });
   }
   whoNext(g);
+}
+function whoConfirmAll() {
+  const groups = who.groups.filter((g) => g.type === "auto");
+  const on = groups.flatMap((g) => liveGroup(g).filter((m) => !who.off.has(memberId(m))));
+  batchFaces("confirm " + plural(on.length, "guess", "guesses"), () => {
+    for (const m of on) { const x = faceAt(m); if (x) setFaceName(m.scan, x.i, x.f.name); }
+  });
+  who.cur = who.groups.find((x) => x.type !== "auto" && liveGroup(x).length) || null;
+  renderWho(true);
+  render();
 }
 function whoRemove(g) {
   batchFaces("remove boxes", () => {
@@ -2738,6 +2871,48 @@ function markStranger(scan, i) {
   (fcNames[scan] = fcNames[scan] || {})[f.key] = { stranger: true };
   persistFaces();
   paintKw();
+}
+// Keys in the zoom view, so one scan's faces (and the next scan's) can be gone through without the mouse:
+// ← / → the previous / next scan; Tab / Shift-Tab the next / previous face; X or Delete: not a face; Enter on a
+// guessed name confirms it, on any other face it goes to the name field. In the name field the arrows move the caret
+// once you type (they navigate while the name is all selected, as it is when a face is picked). Answers whether it
+// handled the key.
+function zoomKey(ev, inp) {
+  if (!zm || zm.drawing || ev.ctrlKey || ev.metaKey || ev.altKey) return false;
+  const data = fc[zm.name], typing = inp && !(inp.selectionStart === 0 && inp.selectionEnd === inp.value.length);
+  if ((ev.key === "ArrowLeft" || ev.key === "ArrowRight") && !typing) {
+    const order = scanOrder(), at = order.indexOf(zm.name) + (ev.key === "ArrowRight" ? 1 : -1);
+    if (at < 0 || at >= order.length) return true;
+    ev.preventDefault();
+    const next = order[at];
+    openZoom(next);
+    sel = new Set([next]); anchor = lead = next;   // the grid follows, so closing lands on the scan you were on
+    if (!fc[next] && S.faces?.available) detectScan(next).then(() => { if (zm?.name === next) { paintFaces(); paintFaceBar(); } }).catch(() => {});
+    // the first face is picked but the name field isn't focused, so X / Delete / Enter act on it straight away
+    const first = fc[next] ? nextFace(fc[next], -1) : -1;
+    if (first >= 0) selectFace(first, false);
+    document.activeElement?.blur();
+    return true;
+  }
+  if (ev.key === "Tab" && data) {
+    const live = data.faces.map((f, i) => (f.gone ? -1 : i)).filter((i) => i >= 0);
+    if (!live.length) return false;
+    ev.preventDefault();
+    const at = live.indexOf(fSel), n = live.length;
+    selectFace(live[((at < 0 ? (ev.shiftKey ? 0 : -1) : at) + (ev.shiftKey ? -1 : 1) + n) % n]);
+    return true;
+  }
+  if (!inp && data && fSel >= 0 && !data.faces[fSel]?.gone) {
+    const f = data.faces[fSel];
+    if (ev.key === "x" || ev.key === "X" || ev.key === "Delete") {
+      ev.preventDefault(); removeFace(zm.name, fSel);
+      const j = nextFace(data, fSel); selectFace(j, j >= 0);
+      return true;
+    }
+    if (ev.key === "Enter" && f.auto) { ev.preventDefault(); setFaceName(zm.name, fSel, f.name); selectFace(nextFace(data, fSel)); return true; }
+    if (ev.key === "Enter") { ev.preventDefault(); $("zoom").querySelector(".facebar input")?.select(); return true; }   // name it
+  }
+  return false;
 }
 // the next face still showing after i, else the one before it, else none
 function nextFace(data, i) {
@@ -2896,6 +3071,7 @@ function paintFaceBar() {
   inp.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape") return;   // closes the panel
     ev.stopPropagation();
+    if (zoomKey(ev, inp)) return;      // Tab, and the arrows while the name is all selected (not being typed)
     if (ev.key === "Enter") {          // confirm and move on to the next face
       setFaceName(scan, i, inp.value);
       selectFace(nextFace(data, i));
@@ -2978,10 +3154,15 @@ function toast(msg, isErr) {
 // Write first shows what it's about to do, and what may want a look first, each with a link that goes there. The scans
 // and faces it writes are taken when it opens, so a face found meanwhile can't make the write differ from the summary.
 let writeSnap = null;   // the pairs the open dialog will write
-function write() {
-  const ps = pairs();
+let writeSigs = {};     // and what each looked like, kept as written when it succeeds
+function write(all = false) {
+  const every = pairs();
+  // after a Write, the next one writes only what changed since (and what wasn't written, or failed)
+  const due = every.filter((p) => !results[p.scan]?.ok || changedSince(p.scan));
+  const ps = all || !Object.keys(results).length || !due.length ? every : due;
   if (!ps.length) return;
   writeSnap = ps;
+  writeSigs = Object.fromEntries(ps.map((p) => [p.scan, sigOf(p.scan)]));
   const order = scanOrder(), num = (scan) => String(order.indexOf(scan) + 1).padStart(2, "0");
   // faces needing a look: guesses nobody confirmed, faces with no name, boxes the detector doubts
   const found = ps.flatMap((p) => (fc[p.scan]?.faces || []).map((f, i) => ({ scan: p.scan, f, i })).filter((x) => !x.f.gone));
@@ -3025,8 +3206,14 @@ function write() {
   if (doubtful.length) need(plural(doubtful.length, "box", "boxes") + " the detector isn't sure " + (doubtful.length === 1 ? "is a face" : "are faces") +
     ": not written unless you name " + (doubtful.length === 1 ? "it" : "them"),
     scanLinks(doubtful, openFace(doubtful), "look at it in"), toWho);
-  if (lone.length) need(plural(lone.length, "scan", "scans") + " without a log card: roll-wide tags, keywords and faces only, no date, GPS or gear",
-    scanLinks(lone, (scan) => goTo(scan), "go to"));
+  if (lone.length) need(plural(lone.length, "scan", "scans") + " without a log card: roll-wide tags, keywords and faces only, no date, GPS or gear. " +
+    "Click one to make its card (its time starts halfway between its neighbours)",
+    scanLinks(lone, (scan) => { goTo(scan); openEditor(null, cols.findIndex((c) => c.scan === scan)); }, "make a card for"));
+  // scans with nothing of their own to find them by, once you're keywording this roll (some scans have keywords)
+  const bare = ps.filter((p) => !p.keywords.length && !faceNamesFor(p.scan).length).map((p) => p.scan);
+  if (bare.length && bare.length < ps.length && ps.some((p) => p.keywords.length))
+    need(plural(bare.length, "scan", "scans") + " with no keywords or names of their own: only the roll's",
+      scanLinks(bare, (scan) => { goTo(scan); $("kwInput").focus(); }, "keyword"));
   if (notLooked) need(plural(notLooked, "scan", "scans") + " not looked at for faces yet" + (finder ? " (still finding faces)" : "") +
     ": the face regions in " + (notLooked === 1 ? "it are" : "them are") + " left as they are");
   const faceNeeds = guessed.length + unnamed.length + doubtful.length > 0;
@@ -3034,7 +3221,8 @@ function write() {
   list.hidden = !attention;
   $("writeNeedsHead").hidden = !attention;
 
-  $("writeTitle").textContent = "Write " + plural(ps.length, "scan", "scans") + "?";
+  const partial = ps.length < every.length;
+  $("writeTitle").textContent = "Write " + (partial ? plural(ps.length, "changed scan", "changed scans") : plural(ps.length, "scan", "scans")) + "?";
   const named = found.filter((x) => x.f.name).length;
   const facts = [
     ["to", S.in_place ? "the original scans, in place: the files are changed" : "tagged copies in " + S.out_dir + " (the originals are left alone)"],
@@ -3042,6 +3230,13 @@ function write() {
   ];
   if (named) facts.push(["faces", plural(named, "named face", "named faces") + " written as face regions and keywords"]);
   $("writeFacts").replaceChildren(...facts.map(([k, v]) => { const row = el("div"); row.append(el("b", null, k), el("span", null, v)); return row; }));
+  if (partial || (all && due.length < every.length)) {
+    const row = el("div"), b = el("button", "link go", partial ? "write all " + every.length + " instead" : "only the " + due.length + " changed");
+    b.type = "button"; b.onclick = () => { $("writeDlg").close(); write(partial); };
+    row.append(el("b", null, "the rest"), el("span", null, partial ? plural(every.length - ps.length, "scan is", "scans are") + " as last written " : ""));
+    row.lastChild.append(b);
+    $("writeFacts").append(row);
+  }
   $("writeFacts").classList.toggle("inplace", S.in_place);
 
   $("writeGo").textContent = attention ? "Write anyway" : "Write";
@@ -3057,9 +3252,9 @@ async function doWrite(ps) {
     const r = await fetch("/api/write", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pairs: ps }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.detail || r.statusText);
-    results = {};
-    for (const res of j.results) {
+    for (const res of j.results) {   // results add up: a Write of the changed scans keeps the others' "written"
       results[res.scan] = res;
+      if (res.ok) writtenSig[res.scan] = writeSigs[res.scan];
       const s = S.scans.find((x) => x.name === res.scan);
       if (s && res.v != null) s.v = res.v;   // an in-place write changed the file, so its thumbnail URL changes too
       if (s && res.ok) { s.tagged = res.tagged; s.region_names = res.region_names; }   // as the file now is
@@ -3089,12 +3284,15 @@ async function boot() {
   $("fExif").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); setExif(); } });
   document.querySelectorAll("[data-pick]").forEach((b) => { b.onclick = () => pickInto(b.dataset.pick, b.dataset.for); });
   $("setupForm").addEventListener("submit", loadRoll);
+  $("exifLine").lastElementChild.onclick = () => { exifOpen = true; renderExif(); $("fExif").focus(); };
+  $("libLine").lastElementChild.onclick = () => { libOpen = true; paintSync(); $("fFaceLib").focus(); };
   $("faceForm").addEventListener("submit", saveLibrary);
   $("faceStop").onclick = stopSync;
   $("fFaceLib").addEventListener("change", addFaceFolders);   // a typed path is added when you leave the box too
   $("fFaceLib").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); addFaceFolders(); } });
   $("renameForm").addEventListener("submit", applyRename);
   $("fScans").addEventListener("input", onScansChanged);
+  $("fFilm").addEventListener("change", isoFromFilm);
   $("fLog").addEventListener("change", onScansChanged);   // a typed or picked export: say what's in it, offer its roll name
   $("rName").addEventListener("input", schedulePreview);
   $("rFolder").addEventListener("change", schedulePreview);
@@ -3133,9 +3331,10 @@ async function boot() {
     }
   });
   $("reverse").onclick = reverseScans;
-  $("write").onclick = write;
+  $("write").onclick = () => write();
   $("writeGo").onclick = () => { const ps = writeSnap; $("writeDlg").close(); if (ps) doWrite(ps); };
   $("writeDlg").addEventListener("close", () => { writeSnap = null; });
+  $("whoAll").onclick = whoConfirmAll;
   $("findFaces").onclick = () => { setFacesStopped(false); $("faceWait").hidden = true; findFaces(false); };
   $("faceRun").lastElementChild.onclick = () => { if (finder) { finder.stop = true; setFacesStopped(true); paintFinder(); } };
   $("whoBtn").onclick = openWho;
