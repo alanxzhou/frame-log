@@ -111,6 +111,13 @@
   #renameBox[open] summary { margin-bottom: 10px; }
   #renameBox .field { grid-template-columns: 90px 1fr auto; }
   #renameBox .field.check { grid-template-columns: 90px 1fr; }
+  .setline { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+  .setline span::before { content: "✓ "; color: var(--accent); }
+  .setline span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .setline button.link.go { margin: 0; }
+  #recentGear { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: -2px 0 6px 128px; font-size: 11.5px; color: var(--muted); }
+  #recentGear button.link { font-family: var(--sans); font-size: 11.5px; }
+  @media (max-width: 640px) { #recentGear { margin-left: 0; } }
   #logHint button.link { margin: 3px 6px 0 0; font-family: var(--sans); font-size: 11.5px; }
   #logHint .note { color: var(--accent); }
   @media (max-width: 640px) { #renameBox { margin-left: 0; } }
@@ -153,6 +160,10 @@
   #renamePreview th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-family: var(--sans); font-weight: 600; text-align: left; padding: 6px 10px; }
   #renamePreview td { padding: 4px 10px; border-top: 1px solid var(--line); white-space: nowrap; }
   #renamePreview td.old { color: var(--muted); }
+  #renamePreview tr.more { display: none; }
+  #renamePreview table.all tr.more { display: table-row; }
+  #renamePreview tr.moreRow td { color: var(--muted); font-family: var(--sans); cursor: pointer; text-align: center; }
+  #renamePreview tr.moreRow:hover td { color: var(--text); }
   #renamePreview td.arrow { color: var(--muted); width: 1%; }
   #renamePreview tr.folder td { color: var(--text); font-weight: 500; }
 
@@ -562,7 +573,8 @@
 <div id="setup" hidden>
   <form id="setupForm" autocomplete="off">
     <h2>ExifTool <span style="color:var(--muted);font-weight:normal;letter-spacing:0;text-transform:none">(set once, remembered on this computer)</span></h2>
-    <div class="field">
+    <div class="setline" id="exifLine" hidden><span></span><button type="button" class="link go">Change</button></div>
+    <div class="field" id="exifBody">
       <label for="fExif">exiftool</label>
       <input type="text" id="fExif" placeholder="found automatically if it's on PATH">
       <button type="button" data-pick="program" data-for="fExif">Browse…</button>
@@ -609,18 +621,22 @@
 
     <h2>Camera &amp; film <span style="color:var(--muted);font-weight:normal;letter-spacing:0;text-transform:none">(optional, written to every frame's metadata)</span></h2>
     <div class="row2">
-      <div class="field"><label for="fMake">make</label><input type="text" id="fMake"><span></span></div>
-      <div class="field"><label for="fCamera">camera</label><input type="text" id="fCamera"><span></span></div>
-      <div class="field"><label for="fFilm">film</label><input type="text" id="fFilm"><span></span></div>
+      <div class="field"><label for="fMake">make</label><input type="text" id="fMake" list="recentMakes"><span></span></div>
+      <div class="field"><label for="fCamera">camera</label><input type="text" id="fCamera" list="recentCameras"><span></span></div>
+      <div class="field"><label for="fFilm">film</label><input type="text" id="fFilm" list="recentFilms"><span></span></div>
       <div class="field"><label for="fIso">ISO</label><input type="number" id="fIso" min="1" step="1"><span></span></div>
     </div>
 
+    <div id="recentGear"></div>
+    <datalist id="recentMakes"></datalist><datalist id="recentCameras"></datalist><datalist id="recentFilms"></datalist>
+    <div id="tzBlock">
     <h2>Time zone</h2>
     <div class="field">
       <label for="fTz">fallback zone</label>
       <input type="text" id="fTz" placeholder="America/New_York">
       <span></span>
       <div class="hint">Frames logged with a recent app version carry the phone's zone at the moment of the shot and ignore this. Older frames use this zone.</div>
+    </div>
     </div>
 
     <div class="actions">
@@ -631,6 +647,8 @@
 
   <form id="faceForm" autocomplete="off" hidden>
     <h2>Lightroom library <span style="color:var(--muted);font-weight:normal;letter-spacing:0;text-transform:none">(set once, remembered on this computer)</span></h2>
+    <div class="setline" id="libLine" hidden><span></span><button type="button" class="link go">Change</button></div>
+    <div id="libBody">
     <div class="intro">Point this at the photos you've tagged in Lightroom. Every time the tagger starts it reads them for two things: their <b>keywords</b>, which it suggests while you keyword scans, and the <b>faces and pets</b> you've named, so it can recognise them in new scans. In Lightroom, save the tags into the files first: Metadata → Save Metadata to Files.</div>
     <div class="field">
       <label for="fFaceLib">photo folders</label>
@@ -656,6 +674,7 @@
       <span id="faceStatus"></span>
     </div>
     <div class="hint" id="faceHint"></div>
+    </div>
   </form>
 
   <!-- the Rename controls sit under the scans folder (they belong to this form through form="renameForm") -->
@@ -780,6 +799,7 @@ function showSetup() {
   const r = S.remembered || {};
   for (const [key, id] of Object.entries(REMEMBERED)) $(id).value = r[key] ?? "";
   lastRoll = r.scans_dir ? { scans: r.scans_dir, log: r.log_path || "" } : null;
+  paintRecentGear();
   if (!$("fTz").value) $("fTz").value = S.default_tz || "";
   renderExif();
   renderFaceSetup();
@@ -824,7 +844,15 @@ function paintRollTags() {
     (S.make || S.camera ? "\nmake " + (S.make || "–") + " · camera " + (S.camera || "–") : "") + (S.film ? "\nfilm " + S.film : "");
 }
 
+// The parts set once (ExifTool, the Lightroom library) fold to one line when they're set, so a roll's setup screen
+// shows the roll. Change opens them; they stay open until the page is reloaded.
+let exifOpen = false, libOpen = false;
+function fold(line, body, folded, text) {
+  $(line).hidden = !folded; $(body).hidden = folded;
+  if (folded) { $(line).firstElementChild.textContent = text; $(line).firstElementChild.title = text; }
+}
 function renderExif() {
+  fold("exifLine", "exifBody", !!S.exiftool && !exifOpen, "using " + S.exiftool);
   $("fExif").value = S.exiftool_saved || "";
   const st = $("exifStatus");
   st.style.color = S.exiftool ? "" : "var(--warn)";
@@ -863,6 +891,36 @@ async function pickInto(kind, inputId) {
   }
 }
 
+// Recent camera and film combinations, kept in this browser (newest first, at most 6). They're offered, never filled
+// in for you: a stale one would be written silently.
+const GEAR_KEY = "framelog-tagger:recent-gear";
+function recentGear() { try { return JSON.parse(localStorage.getItem(GEAR_KEY) || "[]") || []; } catch (e) { return []; } }
+function rememberGear(g) {
+  if (!g.make && !g.camera && !g.film) return;
+  const same = (a) => ["make", "camera", "film", "iso"].every((k) => String(a[k] ?? "") === String(g[k] ?? ""));
+  const list = [g, ...recentGear().filter((x) => !same(x))].slice(0, 6);
+  try { localStorage.setItem(GEAR_KEY, JSON.stringify(list)); } catch (e) {}
+}
+function gearText(g) { return [[g.make, g.camera].filter(Boolean).join(" "), g.film, g.iso ? "ISO " + g.iso : ""].filter(Boolean).join(" · "); }
+function paintRecentGear() {
+  const list = recentGear(), box = $("recentGear");
+  box.replaceChildren();
+  if (list.length) {
+    box.append("recent:");
+    for (const g of list) {
+      const b = el("button", "link", gearText(g)); b.type = "button";
+      b.onclick = () => { $("fMake").value = g.make || ""; $("fCamera").value = g.camera || ""; $("fFilm").value = g.film || ""; $("fIso").value = g.iso || ""; };
+      box.append(b);
+    }
+  }
+  const opts = (id, key) => $(id).replaceChildren(...[...new Set(list.map((g) => g[key]).filter(Boolean))].map((v) => { const o = document.createElement("option"); o.value = v; return o; }));
+  opts("recentMakes", "make"); opts("recentCameras", "camera"); opts("recentFilms", "film");
+}
+// "Portra 400", "HP5 Plus 400", "Ektar 100" carry the box speed: fill ISO from it when ISO is empty
+function isoFromFilm() {
+  const m = $("fFilm").value.match(/(?:^|\s)(\d{2,4})(?:\s|$)/);
+  if (m && !$("fIso").value) $("fIso").value = m[1];
+}
 async function loadRoll(ev) {
   ev.preventDefault();
   const body = {
@@ -871,6 +929,7 @@ async function loadRoll(ev) {
     make: $("fMake").value.trim(), camera: $("fCamera").value.trim(), film: $("fFilm").value.trim(),
     iso: $("fIso").value ? parseInt($("fIso").value, 10) : null,
   };
+  rememberGear({ make: body.make, camera: body.camera, film: body.film, iso: body.iso });
   $("loadBtn").disabled = true; $("setupError").textContent = "";
   try {
     const r = await fetch("/api/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -904,7 +963,15 @@ async function previewRename() {
   const row = (cls, a, b) => { const tr = el("tr", cls); tr.append(el("td", "old", a), el("td", "arrow", "→"), el("td", null, b)); table.append(tr); };
   const base = (p) => p.split(/[\\/]/).filter(Boolean).pop();
   if (j.dst_dir !== j.src_dir) row("folder", base(j.src_dir) + "/", base(j.dst_dir) + "/");
-  for (const it of j.items) row(null, it.old, it.new);
+  // the first three show the pattern; the rest fold behind one row so Load roll stays in view
+  const SHOW = 3, rest = j.items.length - SHOW;
+  j.items.forEach((it, i) => row(i >= SHOW && rest > 1 ? "more" : null, it.old, it.new));
+  if (rest > 1) {
+    const tr = el("tr", "moreRow"), td = el("td", null, "… and " + rest + " more");
+    td.colSpan = 3; tr.append(td); tr.title = "show every file";
+    tr.onclick = () => { table.classList.add("all"); tr.remove(); };
+    table.insertBefore(tr, table.querySelector("tr.more"));
+  }
   $("renamePreview").replaceChildren(table); $("renamePreview").hidden = false;
   $("renameBtn").disabled = j.dst_dir === j.src_dir && j.items.every((it) => it.old === it.new);
 }
@@ -956,6 +1023,8 @@ async function lookAtFolders() {
   } else {
     hint.append("Not a Frame Log export (or not found)");
   }
+  // the fallback zone only matters for frames logged without one (old exports): hide it when none are
+  $("tzBlock").hidden = !!info && info.no_zone === 0;
   // the roll name for Rename: the folder's own if renamed before, else the export's
   const name = j.renamed || info?.roll || "";
   if (!$("rName").value || $("rName").value === detected) $("rName").value = name;
@@ -970,9 +1039,8 @@ function onScansChanged() { clearTimeout(renameTimer); renameTimer = setTimeout(
 function schedulePreview() { clearTimeout(renameTimer); renameTimer = setTimeout(() => previewRename().catch((e) => { $("renameError").textContent = e.message; }), 250); }
 async function applyRename(ev) {
   ev.preventDefault();
+  // No "are you sure": the preview is the question, and renaming again puts the names back.
   const body = renameBody();
-  if (!await ask("Rename the scans in place?", body.scans_dir + (body.rename_folder ? "\n→ the folder becomes " + body.name : "") +
-                 "\n\nThe files are renamed on disk. Renaming again changes them back.", yesNo("Rename"))) return;
   $("renameBtn").disabled = true;
   try {
     const r = await fetch("/api/rename/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -982,6 +1050,11 @@ async function applyRename(ev) {
     detected = body.name;
     $("rReverse").setAttribute("aria-pressed", "false");   // files are now in order; leaving it on would offer to flip them back
     toast("renamed " + j.renamed + " files → " + j.dst_dir);
+    // done: fold the panel to say so, and move on to the next step
+    $("renameState").textContent = "renamed to “" + body.name + "” ✓";
+    $("renameBox").open = false;
+    $("loadBtn").scrollIntoView({ block: "nearest", behavior: "smooth" });
+    $("loadBtn").focus({ preventScroll: true });
   } finally {
     await previewRename();
   }
@@ -2277,6 +2350,10 @@ function paintSync() {
   for (const e of [$("fFaceLib"), $("fFacePets"), document.querySelector('[data-for="fFaceLib"]'), ...$("faceFolders").querySelectorAll(".x")]) e.disabled = running;
   $("faceHint").textContent = running ? "You can load a roll and keep working while this runs. Stop it to change the folders or pets; what's done so far is kept."
     : "The first read of a big library takes several minutes, and learning the faces longer. After that only new photos are learned from, so a start is quick.";
+  const kwRead = f.keywords_read?.count;
+  fold("libLine", "libBody", f.library.length > 0 && !running && s?.phase !== "error" && !libOpen,
+       plural(f.library.length, "folder", "folders") + (kwRead != null ? " · " + plural(kwRead, "keyword", "keywords") : "") +
+       (f.available ? " · " + plural(f.people || 0, "person", "people") + " learned" : "") + (f.synced ? " · read " + ago(f.synced) : ""));
 }
 async function stopSync() {
   $("faceStop").disabled = true; $("faceStop").textContent = "Stopping…";
@@ -3089,12 +3166,15 @@ async function boot() {
   $("fExif").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); setExif(); } });
   document.querySelectorAll("[data-pick]").forEach((b) => { b.onclick = () => pickInto(b.dataset.pick, b.dataset.for); });
   $("setupForm").addEventListener("submit", loadRoll);
+  $("exifLine").lastElementChild.onclick = () => { exifOpen = true; renderExif(); $("fExif").focus(); };
+  $("libLine").lastElementChild.onclick = () => { libOpen = true; paintSync(); $("fFaceLib").focus(); };
   $("faceForm").addEventListener("submit", saveLibrary);
   $("faceStop").onclick = stopSync;
   $("fFaceLib").addEventListener("change", addFaceFolders);   // a typed path is added when you leave the box too
   $("fFaceLib").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); addFaceFolders(); } });
   $("renameForm").addEventListener("submit", applyRename);
   $("fScans").addEventListener("input", onScansChanged);
+  $("fFilm").addEventListener("change", isoFromFilm);
   $("fLog").addEventListener("change", onScansChanged);   // a typed or picked export: say what's in it, offer its roll name
   $("rName").addEventListener("input", schedulePreview);
   $("rFolder").addEventListener("change", schedulePreview);

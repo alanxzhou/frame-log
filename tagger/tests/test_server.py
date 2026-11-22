@@ -392,6 +392,7 @@ def test_setup_finds_the_export_next_to_the_scans_folder(env):
     assert [x["path"] for x in j["exports"]] == [str(env["log"])]
     x = j["exports"][0]
     assert x["roll"] == "Test roll" and x["frames"] == 2 and x["first"] == "2026-08-30T14:05:12Z"
+    assert x["no_zone"] == 1   # frame 2 has no zone: the setup screen keeps the fallback zone in view
     assert j["renamed"] is None and j["log"] is None
 
 
