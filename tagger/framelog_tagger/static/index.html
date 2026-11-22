@@ -750,7 +750,7 @@
 <dialog id="zoom"><div class="frame"><img alt="" draggable="false"><div class="faces"></div></div><div class="facebar" hidden></div><div class="name"></div></dialog>
 <datalist id="faceNames"></datalist>
 <dialog id="who">
-  <div class="whead"><h2>Who's this?</h2><span class="hint" id="whoNote"></span><button type="button" class="primary" id="whoClose">Done</button></div>
+  <div class="whead"><h2>Who's this?</h2><span class="hint" id="whoNote"></span><button type="button" id="whoAll" hidden></button><button type="button" class="primary" id="whoClose">Done</button></div>
   <div id="whoList"></div>
 </dialog>
 <datalist id="whoNames"></datalist>
@@ -2656,6 +2656,12 @@ function renderWho(focus) {
     " · Enter names the highlighted group and moves on · untick a face that doesn't belong · click one to see it in its scan" : "") +
     (finder ? " · still finding faces (" + finder.done + "/" + finder.total + "): open this again for the rest" : "");
   list.replaceChildren(...(shown.length ? shown.map(({ g, live }) => whoGroup(g, live)) : [el("div", "empty", "Every face on this roll has a name. Write adds them as keywords and face regions.")]));
+  // every guess at once, for when they look right (each group's ticks still count)
+  const guesses = shown.filter(({ g }) => g.type === "auto");
+  const nGuess = guesses.reduce((n, { live }) => n + live.filter((m) => !who.off.has(memberId(m))).length, 0);
+  $("whoAll").hidden = guesses.length < 2 || !nGuess;
+  $("whoAll").textContent = "Confirm all guesses (" + nGuess + ")";
+  $("whoAll").title = "Confirm the gallery's guess on every ticked face in " + plural(guesses.length, "group", "groups") + ". Ctrl/⌘-Z (after closing) undoes it";
   list.scrollTop = keep;
   if (focus) {
     const cur = list.querySelector(".wgroup.cur");
@@ -2706,6 +2712,9 @@ function whoGroup(g, live) {
   inp.spellcheck = false;
   inp.addEventListener("focus", () => { if (who.cur !== g) { who.cur = g; for (const s of $("whoList").children) s.classList.toggle("cur", s === box); } });
   inp.addEventListener("keydown", (ev) => {
+    const empty = !inp.value.trim();
+    // on the doubtful boxes, an empty Enter (or Delete) means "not faces": they're mostly hair, ears and blurs
+    if (g.type === "low" && empty && (ev.key === "Enter" || ev.key === "Delete")) { ev.preventDefault(); ev.stopPropagation(); whoRemove(g); return; }
     if (ev.key !== "Enter") return;
     ev.preventDefault(); ev.stopPropagation();
     whoAct(g, inp.value);
@@ -2717,7 +2726,7 @@ function whoGroup(g, live) {
   }
   if (g.type === "low") {
     const rm = el("button", "primary", on.length === 1 && live.length === 1 ? "Not a face" : "Not faces" + (on.length > 1 ? " (" + on.length + ")" : ""));
-    rm.title = "remove the ticked boxes: they won't be written or suggested, and stay removed for this roll";
+    rm.title = "remove the ticked boxes: they won't be written or suggested, and stay removed for this roll (Enter with the name empty)";
     rm.disabled = !on.length; rm.onclick = () => whoRemove(g);
     act.append(rm);
   }
@@ -2732,7 +2741,8 @@ function whoGroup(g, live) {
   const name = el("button", g.type === "people" || g.type === "drawn" ? "primary" : null, "Name " + (!on.length ? "" : on.length === 1 ? (live.length === 1 ? "it" : "1 ticked") : on.length === live.length ? "all " + on.length : on.length + " ticked"));
   name.disabled = !on.length;
   name.onclick = () => { if (inp.value.trim()) whoAct(g, inp.value); else inp.focus(); };
-  act.append(inp, name);
+  act.append(inp);
+  if (g.type !== "auto") act.append(name);   // a guess group: Confirm, or type another name and press Enter
   if (g.type === "people" || g.type === "drawn") {
     const nobody = el("button", null, "Nobody I know");
     nobody.title = "leave the ticked faces unnamed (a passer-by, a crowd): they stop being counted here and aren't written";
@@ -2758,6 +2768,16 @@ function whoAct(g, typed) {
                () => { for (const m of on) { const x = faceAt(m); if (x) setFaceName(m.scan, x.i, name || x.f.name); } });
   }
   whoNext(g);
+}
+function whoConfirmAll() {
+  const groups = who.groups.filter((g) => g.type === "auto");
+  const on = groups.flatMap((g) => liveGroup(g).filter((m) => !who.off.has(memberId(m))));
+  batchFaces("confirm " + plural(on.length, "guess", "guesses"), () => {
+    for (const m of on) { const x = faceAt(m); if (x) setFaceName(m.scan, x.i, x.f.name); }
+  });
+  who.cur = who.groups.find((x) => x.type !== "auto" && liveGroup(x).length) || null;
+  renderWho(true);
+  render();
 }
 function whoRemove(g) {
   batchFaces("remove boxes", () => {
@@ -3216,6 +3236,7 @@ async function boot() {
   $("write").onclick = write;
   $("writeGo").onclick = () => { const ps = writeSnap; $("writeDlg").close(); if (ps) doWrite(ps); };
   $("writeDlg").addEventListener("close", () => { writeSnap = null; });
+  $("whoAll").onclick = whoConfirmAll;
   $("findFaces").onclick = () => { setFacesStopped(false); $("faceWait").hidden = true; findFaces(false); };
   $("faceRun").lastElementChild.onclick = () => { if (finder) { finder.stop = true; setFacesStopped(true); paintFinder(); } };
   $("whoBtn").onclick = openWho;

@@ -307,12 +307,14 @@ them.
 **Who's this? (7)** in the header counts the faces with no name, or only the gallery's guess. It opens every one of
 them as a crop, grouped:
 
-- the gallery's guesses, one group per name, each with **Confirm**;
+- the gallery's guesses, one group per name, each with **Confirm** (or type another name and press Enter).
+  **Confirm all guesses** at the top confirms every one at once, when they look right;
 - faces with no name, grouped by who they look like across the roll (their fingerprints are clustered, faces and
   pets apart), so a friend or stranger on six frames is named once. The grouping is untuned and errs towards
   splitting one person into two groups rather than joining two people;
 - boxes you drew, one each;
-- last, the boxes the detector isn't sure are faces, outlined in amber, with **Not faces** to remove them all at once.
+- last, the boxes the detector isn't sure are faces, outlined in amber, with **Not faces** to remove them all at once
+  (Enter, or Delete, with the name field empty does the same).
 
 Each group has the gallery's suggestions as buttons and a name field that completes from the gallery and your keyword
 library. Untick a crop that doesn't belong before naming the group; **×** on a crop removes that box (not a face).
