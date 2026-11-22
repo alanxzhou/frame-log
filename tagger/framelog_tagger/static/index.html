@@ -118,6 +118,8 @@
   #recentGear { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: -2px 0 6px 128px; font-size: 11.5px; color: var(--muted); }
   #recentGear button.link { font-family: var(--sans); font-size: 11.5px; }
   @media (max-width: 640px) { #recentGear { margin-left: 0; } }
+  .slot.spare { display: none; }
+  body.dragging .slot.spare { display: block; }
   #logHint button.link { margin: 3px 6px 0 0; font-family: var(--sans); font-size: 11.5px; }
   #logHint .note { color: var(--accent); }
   @media (max-width: 640px) { #renameBox { margin-left: 0; } }
@@ -773,7 +775,8 @@ const $ = (id) => document.getElementById(id);
 
 let S = null;          // session from /api/session
 let cols = [];         // [{scan: name|null, entry: id|null}]
-let results = {};      // scan name -> {ok, error}
+let results = {};      // scan name -> {ok, error}: the last Write's result for each scan
+let writtenSig = {};   // scan name -> what it looked like when written (sigOf), to show a scan changed since
 let clip = null;       // id of the copied card, pasted into an empty slot as a new card
 let kw = {};           // scan name -> its own keywords (the roll's are added to every scan on Write)
 let kwOrder = [];      // keywords used on this roll, in the order first used: suggestions fall back to these
@@ -819,7 +822,7 @@ function showStrip() {
   for (const id of ["changeRoll", "autoPair", "reverse", "findFaces", "write"]) $(id).hidden = false;
   $("roll").textContent = S.roll;
   renderTags();
-  results = {}; clip = null;
+  results = {}; writtenSig = {}; clip = null;
   sel = new Set(); anchor = lead = null; undoStack = [];
   restoreKw();
   restoreFaces();
@@ -1212,6 +1215,33 @@ function swap(row, i, j) {
 function pairs() {
   return cols.filter((c) => c.scan != null).map(pairFor);
 }
+// What Write would write for a scan: its card's values, its keywords, its faces and the roll's tags. Two equal
+// signatures mean a Write would change nothing.
+function sigOf(scan) {
+  const c = cols.find((x) => x.scan === scan);
+  if (!c) return "";
+  const p = pairFor(c), e = p.entry != null ? S.entries.find((x) => x.id === p.entry) : null;
+  return JSON.stringify([e ? cardFields(e) : null, p.keywords, p.faces || null, S.roll_keywords, S.iso || null]);
+}
+const changedSince = (scan) => !!results[scan]?.ok && writtenSig[scan] !== sigOf(scan);
+// "written" on a scan, or "changed since Write" once you've changed it after
+function resultBadge(scan) {
+  const r = results[scan];
+  if (!r) return null;
+  if (r.ok && changedSince(scan)) {
+    const b = el("span", "pill result warn", "changed");
+    b.title = "You changed this scan after it was written: Write again to put the change in the file";
+    return b;
+  }
+  const b = el("span", "pill result " + (r.ok ? "ok" : "err"), r.ok ? "written" : r.error);
+  b.title = r.error || (r.note ? r.note + " — " : "") + (r.path || "");
+  return b;
+}
+function paintResult(cell, scan) {
+  cell.querySelector(".pill.result")?.remove();
+  const b = resultBadge(scan);
+  if (b) cell.append(b);
+}
 function pairFor(c) {   // one scan as Write (and the tag preview) gets it
   const p = { scan: c.scan, entry: c.entry, keywords: kw[c.scan] || [] };
   // only scans whose faces were looked at: for the rest, Write leaves any regions in the file alone
@@ -1324,12 +1354,13 @@ let dragging = "";
 function dragSource(cell, row, i) {
   cell.draggable = true;
   cell.addEventListener("dragstart", (ev) => {
+    document.body.classList.add("dragging");
     dragging = row + ":" + i;
     ev.dataTransfer.setData("text/plain", dragging);
     ev.dataTransfer.effectAllowed = "move";
     cell.classList.add("drag");
   });
-  cell.addEventListener("dragend", () => { cell.classList.remove("drag"); dragging = ""; });
+  cell.addEventListener("dragend", () => { cell.classList.remove("drag"); dragging = ""; document.body.classList.remove("dragging"); });
 }
 function dropTarget(slot, i) {
   let depth = 0;   // dragenter/leave fire for every child crossed
@@ -1427,15 +1458,16 @@ function render() {
       sc.dataset.scan = s.name;
       sc.addEventListener("click", (ev) => { if (!ev.target.closest("button")) clickScan(s.name, ev); });
       sc.addEventListener("dblclick", (ev) => { if (!ev.target.closest("button")) openZoom(s.name); });
-      if (s.tagged) sc.append(Object.assign(el("span", "pill info badge", "tagged"), { title: "already has a date (DateTimeOriginal): written before, here or by another app. Write again replaces the tags" }));
+      if (s.tagged && !results[s.name]) sc.append(Object.assign(el("span", "pill info badge", "tagged"), { title: "already has a date (DateTimeOriginal): written before, here or by another app. Write again replaces the tags" }));
       const fb = faceBadge(s.name);
       if (fb) sc.append(fb);
-      const r = results[s.name];
-      if (r) { const b = el("span", "pill result " + (r.ok ? "ok" : "err"), r.ok ? "written" : r.error); b.title = r.error || (r.note ? r.note + " — " : "") + (r.path || ""); sc.append(b); }
+      const rb = resultBadge(s.name);
+      if (rb) sc.append(rb);
       dragSource(sc, "scan", i);
     } else {
       thumb.textContent = c.entry != null ? "no scan" : "empty";
       sc.append(thumb, name);
+      if (c.entry == null) slot.classList.add("spare");   // the drop target at the end: shown only while you drag
     }
     // keys on hover: shift the scans; without a log export, make a card here
     const hover = el("div", "hover");
@@ -1509,8 +1541,8 @@ function renderStats() {
   setStats(
     "<b>" + (p - scansUn) + "</b> paired" + how + changes +
     (scansUn ? ' · <span class="warn" title="' + NO_CARD + '">' + scansUn + " scan" + (scansUn > 1 ? "s" : "") +
-               " without log (roll-wide tags only)</span>" : "") +
-    (entriesUn ? ' · <span class="warn">' + entriesUn + " log entr" + (entriesUn > 1 ? "ies" : "y") + " without scan</span>" : "") +
+               " without a card</span>" : "") +
+    (entriesUn ? ' · <span class="warn" title="a log card with no scan paired: it isn\'t written">' + entriesUn + " card" + (entriesUn > 1 ? "s" : "") + " without a scan</span>" : "") +
     (fallback ? ' · <span class="warn" title="these frames were logged before the phone recorded its zone">' + fallback + " frame" + (fallback > 1 ? "s" : "") + " on fallback zone " + S.tz + "</span>" : ""));
 }
 function setStats(html) {   // the line truncates in a narrow window: its tooltip has it all
@@ -1996,6 +2028,7 @@ function paintKw() {
     const n = cell.dataset.scan;
     cell.classList.toggle("sel", sel.has(n));
     paintKwLine(cell.querySelector(".kws"), n);
+    paintResult(cell, n);
   }
   paintWho();
   // the box: keywords on the selection, all-or-some
@@ -2153,7 +2186,7 @@ function openZoom(name) {
   view.src = imageUrl("view", name); full.src = "/api/full/" + encodeURIComponent(name);
   d.querySelector(".name").textContent = name;
   d.classList.add("still");
-  d.showModal();
+  if (!d.open) d.showModal();
   fSel = -1;
   paintFaces(); paintFaceBar();
   layoutZoom();
@@ -2225,6 +2258,8 @@ function initZoom() {
     if (ev.target !== img) d.close();
   });
   d.addEventListener("cancel", (ev) => { if (zm?.drawing) { ev.preventDefault(); setDrawing(false); } });
+  // on the document, not the dialog: after stepping to another scan nothing in the dialog has focus
+  document.addEventListener("keydown", (ev) => { if (d.open && !ev.target.closest?.("input")) zoomKey(ev, null); });
   d.addEventListener("close", () => {   // the cards show how many faces are named
     d.classList.remove("drawing"); fSel = -1; zm = null;
     if (S && S.loaded) render();
@@ -2538,6 +2573,7 @@ function paintFaceScan(name, had) {
     const fb = faceBadge(name);
     if (fb) cell.append(fb);
     paintKwLine(cell.querySelector(".kws"), name);
+    paintResult(cell, name);
   }
   // the keyword box and suggestions only change for a selected scan; repainting them otherwise could eat a click
   if (sel.has(name)) paintKw(); else paintWho();
@@ -2836,6 +2872,48 @@ function markStranger(scan, i) {
   persistFaces();
   paintKw();
 }
+// Keys in the zoom view, so one scan's faces (and the next scan's) can be gone through without the mouse:
+// ← / → the previous / next scan; Tab / Shift-Tab the next / previous face; X or Delete: not a face; Enter on a
+// guessed name confirms it, on any other face it goes to the name field. In the name field the arrows move the caret
+// once you type (they navigate while the name is all selected, as it is when a face is picked). Answers whether it
+// handled the key.
+function zoomKey(ev, inp) {
+  if (!zm || zm.drawing || ev.ctrlKey || ev.metaKey || ev.altKey) return false;
+  const data = fc[zm.name], typing = inp && !(inp.selectionStart === 0 && inp.selectionEnd === inp.value.length);
+  if ((ev.key === "ArrowLeft" || ev.key === "ArrowRight") && !typing) {
+    const order = scanOrder(), at = order.indexOf(zm.name) + (ev.key === "ArrowRight" ? 1 : -1);
+    if (at < 0 || at >= order.length) return true;
+    ev.preventDefault();
+    const next = order[at];
+    openZoom(next);
+    sel = new Set([next]); anchor = lead = next;   // the grid follows, so closing lands on the scan you were on
+    if (!fc[next] && S.faces?.available) detectScan(next).then(() => { if (zm?.name === next) { paintFaces(); paintFaceBar(); } }).catch(() => {});
+    // the first face is picked but the name field isn't focused, so X / Delete / Enter act on it straight away
+    const first = fc[next] ? nextFace(fc[next], -1) : -1;
+    if (first >= 0) selectFace(first, false);
+    document.activeElement?.blur();
+    return true;
+  }
+  if (ev.key === "Tab" && data) {
+    const live = data.faces.map((f, i) => (f.gone ? -1 : i)).filter((i) => i >= 0);
+    if (!live.length) return false;
+    ev.preventDefault();
+    const at = live.indexOf(fSel), n = live.length;
+    selectFace(live[((at < 0 ? (ev.shiftKey ? 0 : -1) : at) + (ev.shiftKey ? -1 : 1) + n) % n]);
+    return true;
+  }
+  if (!inp && data && fSel >= 0 && !data.faces[fSel]?.gone) {
+    const f = data.faces[fSel];
+    if (ev.key === "x" || ev.key === "X" || ev.key === "Delete") {
+      ev.preventDefault(); removeFace(zm.name, fSel);
+      const j = nextFace(data, fSel); selectFace(j, j >= 0);
+      return true;
+    }
+    if (ev.key === "Enter" && f.auto) { ev.preventDefault(); setFaceName(zm.name, fSel, f.name); selectFace(nextFace(data, fSel)); return true; }
+    if (ev.key === "Enter") { ev.preventDefault(); $("zoom").querySelector(".facebar input")?.select(); return true; }   // name it
+  }
+  return false;
+}
 // the next face still showing after i, else the one before it, else none
 function nextFace(data, i) {
   const n = data.faces.length;
@@ -2993,6 +3071,7 @@ function paintFaceBar() {
   inp.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape") return;   // closes the panel
     ev.stopPropagation();
+    if (zoomKey(ev, inp)) return;      // Tab, and the arrows while the name is all selected (not being typed)
     if (ev.key === "Enter") {          // confirm and move on to the next face
       setFaceName(scan, i, inp.value);
       selectFace(nextFace(data, i));
@@ -3075,10 +3154,15 @@ function toast(msg, isErr) {
 // Write first shows what it's about to do, and what may want a look first, each with a link that goes there. The scans
 // and faces it writes are taken when it opens, so a face found meanwhile can't make the write differ from the summary.
 let writeSnap = null;   // the pairs the open dialog will write
-function write() {
-  const ps = pairs();
+let writeSigs = {};     // and what each looked like, kept as written when it succeeds
+function write(all = false) {
+  const every = pairs();
+  // after a Write, the next one writes only what changed since (and what wasn't written, or failed)
+  const due = every.filter((p) => !results[p.scan]?.ok || changedSince(p.scan));
+  const ps = all || !Object.keys(results).length || !due.length ? every : due;
   if (!ps.length) return;
   writeSnap = ps;
+  writeSigs = Object.fromEntries(ps.map((p) => [p.scan, sigOf(p.scan)]));
   const order = scanOrder(), num = (scan) => String(order.indexOf(scan) + 1).padStart(2, "0");
   // faces needing a look: guesses nobody confirmed, faces with no name, boxes the detector doubts
   const found = ps.flatMap((p) => (fc[p.scan]?.faces || []).map((f, i) => ({ scan: p.scan, f, i })).filter((x) => !x.f.gone));
@@ -3122,8 +3206,14 @@ function write() {
   if (doubtful.length) need(plural(doubtful.length, "box", "boxes") + " the detector isn't sure " + (doubtful.length === 1 ? "is a face" : "are faces") +
     ": not written unless you name " + (doubtful.length === 1 ? "it" : "them"),
     scanLinks(doubtful, openFace(doubtful), "look at it in"), toWho);
-  if (lone.length) need(plural(lone.length, "scan", "scans") + " without a log card: roll-wide tags, keywords and faces only, no date, GPS or gear",
-    scanLinks(lone, (scan) => goTo(scan), "go to"));
+  if (lone.length) need(plural(lone.length, "scan", "scans") + " without a log card: roll-wide tags, keywords and faces only, no date, GPS or gear. " +
+    "Click one to make its card (its time starts halfway between its neighbours)",
+    scanLinks(lone, (scan) => { goTo(scan); openEditor(null, cols.findIndex((c) => c.scan === scan)); }, "make a card for"));
+  // scans with nothing of their own to find them by, once you're keywording this roll (some scans have keywords)
+  const bare = ps.filter((p) => !p.keywords.length && !faceNamesFor(p.scan).length).map((p) => p.scan);
+  if (bare.length && bare.length < ps.length && ps.some((p) => p.keywords.length))
+    need(plural(bare.length, "scan", "scans") + " with no keywords or names of their own: only the roll's",
+      scanLinks(bare, (scan) => { goTo(scan); $("kwInput").focus(); }, "keyword"));
   if (notLooked) need(plural(notLooked, "scan", "scans") + " not looked at for faces yet" + (finder ? " (still finding faces)" : "") +
     ": the face regions in " + (notLooked === 1 ? "it are" : "them are") + " left as they are");
   const faceNeeds = guessed.length + unnamed.length + doubtful.length > 0;
@@ -3131,7 +3221,8 @@ function write() {
   list.hidden = !attention;
   $("writeNeedsHead").hidden = !attention;
 
-  $("writeTitle").textContent = "Write " + plural(ps.length, "scan", "scans") + "?";
+  const partial = ps.length < every.length;
+  $("writeTitle").textContent = "Write " + (partial ? plural(ps.length, "changed scan", "changed scans") : plural(ps.length, "scan", "scans")) + "?";
   const named = found.filter((x) => x.f.name).length;
   const facts = [
     ["to", S.in_place ? "the original scans, in place: the files are changed" : "tagged copies in " + S.out_dir + " (the originals are left alone)"],
@@ -3139,6 +3230,13 @@ function write() {
   ];
   if (named) facts.push(["faces", plural(named, "named face", "named faces") + " written as face regions and keywords"]);
   $("writeFacts").replaceChildren(...facts.map(([k, v]) => { const row = el("div"); row.append(el("b", null, k), el("span", null, v)); return row; }));
+  if (partial || (all && due.length < every.length)) {
+    const row = el("div"), b = el("button", "link go", partial ? "write all " + every.length + " instead" : "only the " + due.length + " changed");
+    b.type = "button"; b.onclick = () => { $("writeDlg").close(); write(partial); };
+    row.append(el("b", null, "the rest"), el("span", null, partial ? plural(every.length - ps.length, "scan is", "scans are") + " as last written " : ""));
+    row.lastChild.append(b);
+    $("writeFacts").append(row);
+  }
   $("writeFacts").classList.toggle("inplace", S.in_place);
 
   $("writeGo").textContent = attention ? "Write anyway" : "Write";
@@ -3154,9 +3252,9 @@ async function doWrite(ps) {
     const r = await fetch("/api/write", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pairs: ps }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.detail || r.statusText);
-    results = {};
-    for (const res of j.results) {
+    for (const res of j.results) {   // results add up: a Write of the changed scans keeps the others' "written"
       results[res.scan] = res;
+      if (res.ok) writtenSig[res.scan] = writeSigs[res.scan];
       const s = S.scans.find((x) => x.name === res.scan);
       if (s && res.v != null) s.v = res.v;   // an in-place write changed the file, so its thumbnail URL changes too
       if (s && res.ok) { s.tagged = res.tagged; s.region_names = res.region_names; }   // as the file now is
@@ -3233,7 +3331,7 @@ async function boot() {
     }
   });
   $("reverse").onclick = reverseScans;
-  $("write").onclick = write;
+  $("write").onclick = () => write();
   $("writeGo").onclick = () => { const ps = writeSnap; $("writeDlg").close(); if (ps) doWrite(ps); };
   $("writeDlg").addEventListener("close", () => { writeSnap = null; });
   $("whoAll").onclick = whoConfirmAll;
